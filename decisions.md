@@ -33,3 +33,17 @@
 **Fix:** Call `tcgetattr`/`tcsetattr` on the **master** fd instead. This is valid because termios settings on a pty are shared terminal state — configuring them from either end affects the same underlying line discipline. `src-tauri/src/claude_process.rs`'s `disable_echo` now takes `&dyn MasterPty` and is called on `pair.master` right after `openpty()`, before the slave ever spawns a command.
 
 **Consequence:** None functionally — same effect (ECHO cleared before any process touches the pty), just sourced from the master handle since that's what the crate actually exposes.
+
+## Open security gap: RLS disabled on `chats`/`messages` (2026-08-04)
+
+**What happened:** Applied the `0001_chats` migration to the real Supabase project (`febfuemspzwslaujdtwc`, "Vibeco 2"). Supabase's own advisor flagged that both `chats` and `messages` have Row Level Security disabled — with the anon/publishable key embedded client-side (as `src/lib/supabase.ts` does), anyone holding that key can read or write every row in both tables.
+
+**Why not fixed immediately:** Enabling RLS with no policies blocks all access outright, and the right policies depend on auth/room membership — explicitly out of scope for the foundation plan (see plan's "Out of scope" section; spec.md §6 also leaves auth undecided). Writing throwaway policies now would need rewriting once real auth lands.
+
+**Accepted for now, revisit before this app handles anything beyond a single developer's own test data:** this is fine for solo local development against a scratch project, but must not be treated as done — RLS + policies belong in whichever plan adds Supabase Auth and room membership (see spec.md §3, §6).
+
+**Remediation SQL, when ready to add policies:**
+```sql
+ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+```
