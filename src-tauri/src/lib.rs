@@ -1,4 +1,5 @@
 mod claude_binary;
+mod claude_process;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]

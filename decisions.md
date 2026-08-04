@@ -25,3 +25,11 @@
 **Why this happened:** `--force`'s actual semantics (wipe-and-recreate) weren't checked before use; `--help` output alone didn't make the destructive behavior obvious ("Force create the directory even if it is not empty").
 
 **Fix going forward:** Never run a scaffolding tool with a force/overwrite flag directly inside a directory containing files worth keeping. Scaffold into a fresh temp directory, then move only the generated files in (or `git init` and commit existing docs *before* running any scaffolder, so there's always a git-recoverable baseline). Foundation plan Task 1 should be treated as amended to scaffold via a temp directory next time this is redone elsewhere.
+
+## `portable-pty` 0.8: disable echo via the master fd, not the slave (2026-08-04)
+
+**What happened:** Task 3 of the foundation plan called `slave.as_raw_fd()` to disable PTY echo via termios, mirroring the Swift codebase's approach of setting termios on the slave fd directly. `portable-pty` 0.8.1's `SlavePty` trait only exposes `spawn_command` — no fd access at all. `MasterPty`, however, does expose `as_raw_fd(&self) -> Option<RawFd>` on unix.
+
+**Fix:** Call `tcgetattr`/`tcsetattr` on the **master** fd instead. This is valid because termios settings on a pty are shared terminal state — configuring them from either end affects the same underlying line discipline. `src-tauri/src/claude_process.rs`'s `disable_echo` now takes `&dyn MasterPty` and is called on `pair.master` right after `openpty()`, before the slave ever spawns a command.
+
+**Consequence:** None functionally — same effect (ECHO cleared before any process touches the pty), just sourced from the master handle since that's what the crate actually exposes.
