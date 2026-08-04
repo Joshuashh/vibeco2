@@ -115,6 +115,12 @@ button {
   margin: 0;
 }
 
+.sign-out {
+  position: absolute;
+  top: 1em;
+  right: 1em;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
