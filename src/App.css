@@ -95,6 +95,26 @@ button {
   margin-right: 5px;
 }
 
+.login-screen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.login-screen form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  width: 280px;
+}
+
+.login-error {
+  color: #d33;
+  font-size: 0.9em;
+  margin: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
