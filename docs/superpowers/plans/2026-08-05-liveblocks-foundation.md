@@ -141,7 +141,7 @@ verified end-to-end in Task 10 instead — consistent with the design spec's tes
 
 ```typescript
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { Liveblocks } from "npm:@liveblocks/node@2";
+import { Liveblocks } from "npm:@liveblocks/node@3";
 import { extractBearerToken } from "./verify.ts";
 
 const ROOM_ID = "vibeco2-global";
