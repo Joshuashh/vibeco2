@@ -47,3 +47,106 @@ mod tests {
         assert!(result.is_ok(), "expected PTY to open: {:?}", result.err());
     }
 }
+
+use std::path::PathBuf;
+
+pub struct SpawnConfig {
+    pub prompt: String,
+    pub model: String,
+    pub working_directory: PathBuf,
+    pub resume_session_id: Option<String>,
+}
+
+pub fn build_args(config: &SpawnConfig) -> Vec<String> {
+    let mut args = vec![
+        "--print".to_string(),
+        config.prompt.clone(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--include-partial-messages".to_string(),
+        "--model".to_string(),
+        config.model.clone(),
+        "--permission-mode".to_string(),
+        "acceptEdits".to_string(),
+    ];
+    if let Some(id) = &config.resume_session_id {
+        args.push("--resume".to_string());
+        args.push(id.clone());
+    }
+    args
+}
+
+#[cfg(test)]
+mod spawn_config_tests {
+    use super::*;
+
+    #[test]
+    fn build_args_includes_stream_json_flags() {
+        let config = SpawnConfig {
+            prompt: "hello".to_string(),
+            model: "sonnet".to_string(),
+            working_directory: PathBuf::from("/tmp"),
+            resume_session_id: None,
+        };
+        let args = build_args(&config);
+        assert_eq!(args[0], "--print");
+        assert_eq!(args[1], "hello");
+        assert!(args.contains(&"stream-json".to_string()));
+        assert!(args.contains(&"--include-partial-messages".to_string()));
+        assert!(!args.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn build_args_includes_resume_when_present() {
+        let config = SpawnConfig {
+            prompt: "continue".to_string(),
+            model: "sonnet".to_string(),
+            working_directory: PathBuf::from("/tmp"),
+            resume_session_id: Some("abc-123".to_string()),
+        };
+        let args = build_args(&config);
+        assert!(args.contains(&"--resume".to_string()));
+        assert!(args.contains(&"abc-123".to_string()));
+    }
+}
+
+use portable_pty::CommandBuilder;
+use std::io::BufReader;
+
+pub struct ClaudeSession {
+    pub master: Box<dyn MasterPty + Send>,
+    pub child: Box<dyn portable_pty::Child + Send + Sync>,
+}
+
+/// Spawns one `claude` process for one session. Not a singleton — each
+/// chat/session in Vibeco2 gets its own ClaudeSession, matching the
+/// "one ClaudeProcess per session" lesson from the Swift codebase.
+pub fn spawn_session(claude_path: &std::path::Path, config: &SpawnConfig) -> Result<ClaudeSession, String> {
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("failed to open pty: {e}"))?;
+    disable_echo(&*pair.master)?;
+
+    let mut cmd = CommandBuilder::new(claude_path);
+    for arg in build_args(config) {
+        cmd.arg(arg);
+    }
+    cmd.cwd(&config.working_directory);
+
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("failed to spawn claude: {e}"))?;
+
+    Ok(ClaudeSession { master: pair.master, child })
+}
+
+pub fn reader_for(session: &ClaudeSession) -> Result<BufReader<Box<dyn std::io::Read + Send>>, String> {
+    let reader = session
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("failed to clone pty reader: {e}"))?;
+    Ok(BufReader::new(reader))
+}
