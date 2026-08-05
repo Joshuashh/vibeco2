@@ -22,6 +22,7 @@ import {
   type StoredMessageRow,
 } from "./lib/persistChat";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
+import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
 import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
@@ -30,6 +31,7 @@ import { isClaimedByOther } from "./lib/claim";
 function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
+  const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
   const [viewMode, setViewMode] = useState<"chat" | "canvas">("canvas");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const updateMyPresence = useUpdateMyPresence();
@@ -49,6 +51,10 @@ function AppShell({ session }: { session: Session }) {
         return next;
       });
     });
+  }, []);
+
+  useEffect(() => {
+    fetchMergeEvents().then(setMergeEvents);
   }, []);
 
   useEffect(() => {
@@ -81,6 +87,9 @@ function AppShell({ session }: { session: Session }) {
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "chats" }, (payload) => {
         const row = payload.old as { id: string };
         setChats((prev) => prev.filter((c) => c.id !== row.id));
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "merge_events" }, (payload) => {
+        setMergeEvents((prev) => [payload.new as MergeEvent, ...prev]);
       })
       .subscribe();
     return () => {
@@ -171,7 +180,7 @@ function AppShell({ session }: { session: Session }) {
           <CanvasView
             chats={chats}
             chatStates={chatStates}
-            mergeEvents={[]}
+            mergeEvents={mergeEvents}
             onSend={handleSend}
             onLeave={handleLeave}
             onDelete={handleDelete}

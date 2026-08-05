@@ -10,6 +10,7 @@ export interface ChatCardData {
   state: ChatState;
   claimant: string | null;
   isSelf: boolean;
+  mergeStatus: "merged" | "held" | "conflict" | null;
   onSend: (chatId: string, prompt: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
@@ -20,9 +21,10 @@ export interface ChatCardData {
 export type ChatCardNode = Node<ChatCardData, "chatCard">;
 
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
-  const { chat, state, claimant, isSelf, onSend, onLeave, onDelete, onExpand } = data;
+  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onExpand } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
+  const flagged = mergeStatus === "held" || mergeStatus === "conflict";
 
   function handleDeleteClick() {
     if (claimant) return;
@@ -34,9 +36,10 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
   }
 
   return (
-    <div className="chat-card">
+    <div className={flagged ? `chat-card chat-card-${mergeStatus}` : "chat-card"}>
       <div className="chat-card-header">
         <span className="chat-card-title">{chat.title ?? "Untitled chat"}</span>
+        {flagged && <span className="chat-card-badge">⚠ {mergeStatus}</span>}
         <div className="chat-card-actions">
           <button onClick={() => onExpand(chat.id)}>Expand</button>
           {isSelf && <button onClick={() => onLeave(chat.id)}>Leave</button>}
