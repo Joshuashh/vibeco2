@@ -129,6 +129,58 @@ button {
   color: #666;
 }
 
+.chat-card {
+  width: 300px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0.5em;
+  font-size: 0.8em;
+}
+
+.chat-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25em;
+}
+
+.chat-card-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-card-actions {
+  display: flex;
+  gap: 0.25em;
+}
+
+.chat-card-actions button {
+  padding: 0.2em 0.5em;
+  font-size: 0.85em;
+}
+
+.chat-card-claim {
+  font-size: 0.75em;
+  color: #b36b00;
+  margin-bottom: 0.25em;
+}
+
+.chat-card-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.25em;
+}
+
+.chat-card .input-bar textarea {
+  min-height: 2.5em;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
@@ -146,5 +198,10 @@ button {
   }
   button:active {
     background-color: #0f0f0f69;
+  }
+
+  .chat-card {
+    background: #1f1f1f;
+    border-color: #444;
   }
 }
