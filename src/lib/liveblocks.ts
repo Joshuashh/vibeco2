@@ -1,4 +1,4 @@
-import { createClient } from "@liveblocks/client";
+import { createClient, LiveMap } from "@liveblocks/client";
 import { createRoomContext } from "@liveblocks/react";
 import { supabase } from "./supabase";
 
@@ -31,6 +31,18 @@ export const ROOM_ID = "vibeco2-global";
 
 type Presence = {
   email: string;
+  claimedChatId: string | null;
 };
 
-export const { RoomProvider, useOthers, useSelf } = createRoomContext<Presence>(client);
+type Storage = {
+  positions: LiveMap<string, { x: number; y: number }>;
+};
+
+export const {
+  RoomProvider,
+  useOthers,
+  useSelf,
+  useUpdateMyPresence,
+  useStorage,
+  useMutation,
+} = createRoomContext<Presence, Storage>(client);
