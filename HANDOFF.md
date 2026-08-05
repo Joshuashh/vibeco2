@@ -1,77 +1,107 @@
 # Hand-off — Vibeco2
 
 ## What happened this session
-Implemented auth end to end per `docs/superpowers/specs/2026-08-04-auth-design.md` and
-`docs/superpowers/plans/2026-08-04-auth.md`: Supabase email/password sign-in, a login screen
-gating the chat UI, sign-out, and RLS enabling owner-only access on `chats`/`messages` (ownership
-via `chats.user_id`, `messages` scoped through its `chat_id` FK). Verified interactively in the
-built `.app`: sign-in shows the login screen → chat UI, sign-out returns to login and stays signed
-out, sign-in again + quit + relaunch stays signed in (session persistence works). Also verified via
-`curl` that an unauthenticated request with only the anon key gets `[]` from both tables — RLS is
-actually enforced, not just configured. One snag along the way: `open`-ing the `.app` after a
-rebuild reused an already-running stale process instead of picking up the new build — killing the
-old process (`ps aux | grep tauri-app`) before relaunch fixed it; worth remembering next time a
-rebuilt `.app` doesn't seem to reflect code changes.
+
+Implemented the Canvas view + multi-chat model per
+`docs/superpowers/specs/2026-08-05-canvas-view-design.md` and
+`docs/superpowers/plans/2026-08-05-canvas-view.md`, all 13 plan tasks, committed
+individually to `main` (continuing this project's existing no-feature-branch
+convention, confirmed with the user before starting).
+
+**The shift:** chats moved from single, owner-only, one-per-app-launch to a shared,
+multi-chat model — any chat is a canvas card anyone can create, claim (by sending a
+message), work in, and release. Only the current claimant can type into a card;
+everyone else sees it live but read-only.
+
+**What was built:**
+- `supabase/migrations/0003_shared_chats.sql` — `chats` gains `position_x`,
+  `position_y`, `claude_session_id`; RLS moved from owner-only to
+  read/insert/update-open-to-all-authenticated (delete guardrails are app-side
+  only, no roles table exists); Realtime publication enabled on `chats`/`messages`.
+  Applied directly via the Supabase MCP tool (`supabase db push` fails — the
+  remote migration-history table only knows about migrations applied that way,
+  not local file names; every prior migration in this project was applied the
+  same way, so this isn't new).
+- Rust (`src-tauri/src/lib.rs`): `start_session` now takes `chat_id` and
+  `resume_session_id`; every emitted event wraps as `{chatId, event}` so the
+  frontend can route it to the right chat. This also **fixes a real pre-existing
+  bug**: `resume_session_id` existed in `SpawnConfig` since the auth round but was
+  never wired — every single turn in every chat was starting a brand-new,
+  memory-less Claude session. It's wired now (frontend persists
+  `claude_session_id` back to Supabase after each turn).
+- Pure, tested logic: `src/lib/chatStore.ts` (per-chat state reducers extending
+  the existing `reduceEvent` pattern), `src/lib/claim.ts` (presence-based claim
+  computation). `src/lib/persistChat.ts` gained `fetchAllChats`,
+  `updateChatPosition`, `updateChatSessionId`, `deleteChat`.
+- UI: `ChatCard` (compact card — reuses `MessageBlock`/`InputBar`, claim
+  indicator, expand/leave/delete), `CanvasView` (React Flow / `@xyflow/react`,
+  Liveblocks `LiveMap` position sync + Supabase snapshot on drag-end),
+  `ChatSwitcher` + `ViewToggle` (Chat view now has a dropdown; a titlebar toggle
+  switches Chat ↔ Canvas). `App.tsx` was split into `App` (owns auth +
+  `RoomProvider`) and `AppShell` (owns all chat/canvas state) because Liveblocks
+  hooks (`useUpdateMyPresence`, `useSelf`, etc.) only work inside the
+  `RoomProvider` subtree.
+- `src/lib/liveblocks.ts`: `Presence` gained `claimedChatId`; `Storage` gained a
+  `positions: LiveMap<string, {x,y}>`.
+
+**Snags hit and fixed along the way:**
+- `supabase db push` failed with `LegacyDbPushMissingLocalError` — worked around
+  by applying via the Supabase MCP `apply_migration` tool instead (see above).
+- xyflow v12's `NodeProps<T>` takes the full `Node` type, not just the data
+  shape — needed `type ChatCardNode = Node<ChatCardData, "chatCard">` and
+  `NodeProps<ChatCardNode>`, not `NodeProps<ChatCardData>`.
+- Liveblocks' `useStorage` selector returns the **JSON view** of storage — a
+  `LiveMap` becomes a plain readonly `Record<key, value>`, not a `Map`. No
+  `.get()` — index with `positions?.[chatId]` instead. (The real `LiveMap` with
+  `.set()` is still what you get inside `useMutation`'s `storage.get(...)`.)
+- Self-review during plan-writing caught that the Chat-view `InputBar` wasn't
+  claim-gated at all (only gated by `streaming`) — fixed before implementation
+  started, not after.
 
 ## Current state
-- **Working, tested, single-user chat app with auth.** All tests pass: `cargo test` (Rust, unaffected
-  this session), 9 `vitest` (5 prior + 4 new auth tests), clean `tsc --noEmit`.
-- Migration `0002_auth_rls.sql` applied to the real Supabase project (`febfuemspzwslaujdtwc`,
-  "Vibeco 2"): wiped prior ownerless test rows, added `chats.user_id` (`default auth.uid()`),
-  enabled RLS with owner-only select/insert/update/delete policies on both tables.
-- Supabase advisor confirms the prior "RLS disabled" findings are gone (one unrelated warning
-  remains: leaked-password-protection, not in scope here).
-- Your Supabase Auth account exists (created manually via the dashboard, auto-confirmed).
-- 15+ commits on `main`, no feature branch used so far, still no git remote configured
-  (local-only by choice, consistent with prior sessions).
-- To relaunch the app for manual testing: `pkill -f tauri-app` (or check `ps aux | grep tauri-app`
-  and `kill` the PID) if a stale build is still running, then `npm run tauri build -- --debug`
-  (needs `export PATH="$HOME/.cargo/bin:$PATH"` if `cargo` isn't already on PATH) followed by
-  `open src-tauri/target/debug/bundle/macos/tauri-app.app`.
 
-## Known gaps / open items
-- **No password-reset flow, no in-app sign-up, no multi-user/room model** — all explicitly out of
-  scope per the auth design doc, deferred to whichever plan adds multiplayer rooms (spec.md §6).
-- **Type drift risk**: `ClaudeEvent` is still hand-mirrored between Rust and TypeScript, unaffected
-  by this session's changes — still worth watching if either side is extended.
-- **Out of scope so far** (per spec.md): Canvas view, human-chat column, tools/logs column,
-  Liveblocks multiplayer wiring, Main Agent orchestration, cost/budget alerts.
+- All 13 plan tasks complete and committed to `main` (13 commits, from the
+  migration through the `App.tsx` rewire).
+- **Automated verification: green.** `npm test` — 27 tests across 6 suites, all
+  pass. `npx tsc --noEmit` — clean. `cargo test` — 12 tests, all pass. The debug
+  `.app` builds and launches successfully (process confirmed running).
+- **Manual interactive verification: NOT done by me this session** — computer-use
+  access to the app was denied when requested, so I could not drive the UI
+  myself. The plan's Task 13 manual-verification steps (canvas loads and chat
+  creation, claim gating with a second session, drag persists position,
+  expand/Chat-view/delete, multi-turn continuity via `resume_session_id`) are
+  still outstanding. **The built `.app` is currently open** — please walk
+  through Task 13's steps yourself in
+  `docs/superpowers/plans/2026-08-05-canvas-view.md` before trusting this as
+  done. In particular, actually verifying multi-turn continuity (send a second
+  message, confirm Claude remembers the first) is the one check that proves the
+  `resume_session_id` fix really works end-to-end, not just that the code
+  compiles.
+- Step 3 of Task 13 (claim gating across two independent sessions) needs a
+  second signed-in instance — a second machine or OS user profile, since this is
+  a Tauri app, not a web app (no incognito-tab trick available). Not attempted
+  this session.
 
-## Liveblocks foundation (this session)
-Implemented per `docs/superpowers/specs/2026-08-05-liveblocks-foundation-design.md` and
-`docs/superpowers/plans/2026-08-05-liveblocks-foundation.md`: a Supabase Edge Function
-(`liveblocks-auth`, deployed to project `febfuemspzwslaujdtwc` with `verify_jwt: false` since the
-function does its own Supabase JWT verification) mints Liveblocks tokens for one fixed global
-room (`vibeco2-global`), and the client renders a `PresenceBar` via `useOthers`/`useSelf`. Verified
-with two independent browser sessions (a normal window + an incognito window — plain second tabs
-share `localStorage` and end up signed into the same account, so that's the only way to get two
-independent sessions without two machines): both emails show up in presence, and closing one drops
-it from the other's list within a few seconds.
+## Known gaps / open items (unchanged from the design spec, §10)
 
-One real snag: the first deploy had `verify_jwt: true`, which rejects any request lacking an
-`Authorization` header — including the browser's CORS preflight `OPTIONS` request, which never
-carries one. Had to redeploy with `verify_jwt: false` (safe here since the function verifies the
-real Supabase session itself via `supabase.auth.getUser`). Also hit one credential mixup (a
-non-`sk_`-prefixed value got set as `LIVEBLOCKS_SECRET_KEY` at first) — the giveaway was
-`event loop error: ... Secret keys must start with 'sk_'` in the function's dashboard logs tab
-(`supabase functions logs` isn't a subcommand in this CLI version — use the dashboard instead:
-`https://supabase.com/dashboard/project/febfuemspzwslaujdtwc/functions/liveblocks-auth/logs`).
+- **No real role-based permissions** — delete guardrails are UI-only (confirm
+  dialog + must-be-unclaimed), not enforced in RLS. No roles table exists.
+- **Claim conflicts are last-write-wins at the presence layer** — two people
+  sending to a just-unclaimed card in the same instant isn't specifically
+  arbitrated.
+- **No abandoned-claim timeout beyond Liveblocks' own presence-disconnect
+  behavior** — not verified against this specific claim model.
+- Frames, the Main Agent flowchart node, live-streamed in-progress AI content to
+  onlookers, the human-to-human chat column, and the tools/logs column are all
+  still out of scope (per the design spec and `spec.md`).
 
-**Out of scope so far, still per spec.md**: live cursors over an actual shared surface (waits for
-Canvas), canvas card drag/position sync, human-to-human chat delivery, streamed AI conversation
-content, any workspace/multi-room model, any `chats`/`messages` RLS change.
+## Next steps
 
-## Next steps — not chosen yet, pick one for the next session
-1. **Canvas view** (spec §2.2) — the pannable/zoomable card-and-frame UI. Now that Liveblocks
-   presence exists, this is what live cursors would attach to. Needs a React Flow/tldraw-style
-   library decision first.
-2. **Canvas card sync + human chat + streamed AI content** (spec §3) — layer onto the Liveblocks
-   foundation now that it exists; likely follows naturally once Canvas view exists.
-3. **Main Agent orchestration** (spec §4) — GitHub Actions-triggered merge coordination; probably
-   the largest, most independent piece, could be its own multi-session effort.
-4. Multi-user auth (rooms/membership) would need to precede any of the above if more than one
-   person is going to actually use this beyond ad-hoc test accounts — currently still single-tier,
-   no invite/role model.
+1. **Finish Task 13 manually** — walk the app yourself (it's already open) and
+   confirm the interactive behaviors above actually work, especially multi-turn
+   continuity.
+2. Once verified, pick the next round from the original hand-off's list:
+   frames, Main Agent orchestration, or real role-based delete permissions.
 
-To resume: paste this file plus `spec.md` into a fresh session, and decide which of the above to
-brainstorm first.
+To resume: paste this file plus `docs/superpowers/specs/2026-08-05-canvas-view-design.md`
+and `docs/superpowers/plans/2026-08-05-canvas-view.md` into a fresh session.
