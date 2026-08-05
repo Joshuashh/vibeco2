@@ -2,8 +2,16 @@ mod claude_binary;
 mod claude_process;
 mod stream_parser;
 
+use serde::Serialize;
 use std::io::BufRead;
 use tauri::{AppHandle, Emitter};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatEvent {
+    chat_id: String,
+    event: stream_parser::ClaudeEvent,
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -12,7 +20,13 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn start_session(app: AppHandle, prompt: String, working_directory: String) -> Result<(), String> {
+fn start_session(
+    app: AppHandle,
+    chat_id: String,
+    prompt: String,
+    working_directory: String,
+    resume_session_id: Option<String>,
+) -> Result<(), String> {
     let claude_path =
         claude_binary::resolve_claude_binary().ok_or_else(|| "claude binary not found".to_string())?;
 
@@ -20,7 +34,7 @@ fn start_session(app: AppHandle, prompt: String, working_directory: String) -> R
         prompt,
         model: "sonnet".to_string(),
         working_directory: std::path::PathBuf::from(working_directory),
-        resume_session_id: None,
+        resume_session_id,
     };
 
     let session = claude_process::spawn_session(&claude_path, &config)?;
@@ -35,7 +49,8 @@ fn start_session(app: AppHandle, prompt: String, working_directory: String) -> R
                 Ok(_) => {
                     let event = stream_parser::parse_line(&line);
                     if event != stream_parser::ClaudeEvent::Ignored {
-                        let _ = app.emit("claude-event", &event);
+                        let chat_event = ChatEvent { chat_id: chat_id.clone(), event };
+                        let _ = app.emit("claude-event", &chat_event);
                     }
                 }
                 Err(_) => break,
@@ -56,4 +71,20 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![greet, start_session])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_event_serializes_with_camel_case_chat_id() {
+        let event = ChatEvent {
+            chat_id: "abc".to_string(),
+            event: stream_parser::ClaudeEvent::TurnComplete,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["chatId"], "abc");
+        assert_eq!(json["event"]["type"], "turn_complete");
+    }
 }
