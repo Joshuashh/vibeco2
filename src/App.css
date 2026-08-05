@@ -302,6 +302,16 @@ button {
   width: 100%;
 }
 
+.build-preview-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65em;
+  letter-spacing: 0.05em;
+  color: var(--te-text-dim);
+}
+
 .main-agent-bar {
   background: var(--te-panel);
   border: 1px solid var(--te-accent);

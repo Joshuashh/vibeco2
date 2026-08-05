@@ -11,7 +11,10 @@ export interface MainAgentInstrumentData {
 
 export type MainAgentInstrumentNode = Node<MainAgentInstrumentData, "mainAgentInstrument">;
 
-const PREVIEW_URL = import.meta.env.VITE_BUILD_PREVIEW_URL ?? "http://localhost:1420";
+// No same-origin fallback: this instrument's own default dev server would
+// otherwise preview itself recursively. Stays blank until a real, separate
+// target-app URL is configured (see .env.example).
+const PREVIEW_URL = import.meta.env.VITE_BUILD_PREVIEW_URL as string | undefined;
 
 export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>) {
   const [logOpen, setLogOpen] = useState(false);
@@ -21,7 +24,16 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
     <div className="main-agent-instrument">
       <div className="build-preview-panel">
         <div className="build-preview-header">BUILD · PREVIEW</div>
-        <iframe key={data.refreshKey} className="build-preview-frame" src={PREVIEW_URL} title="Live build preview" />
+        {PREVIEW_URL ? (
+          <iframe
+            key={data.refreshKey}
+            className="build-preview-frame"
+            src={PREVIEW_URL}
+            title="Live build preview"
+          />
+        ) : (
+          <div className="build-preview-empty">No build configured</div>
+        )}
       </div>
       <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>
         <span className="main-agent-label">⬡ MAIN AGENT</span>
