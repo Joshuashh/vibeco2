@@ -731,7 +731,7 @@ git commit -m "feat: add claim presence and position storage to liveblocks room"
 
 ```tsx
 import { useState } from "react";
-import type { NodeProps } from "@xyflow/react";
+import type { Node, NodeProps } from "@xyflow/react";
 import { MessageBlock } from "./MessageBlock";
 import { InputBar } from "./InputBar";
 import type { ChatRow } from "../types/chat";
@@ -749,7 +749,10 @@ export interface ChatCardData {
   [key: string]: unknown;
 }
 
-export function ChatCard({ data }: NodeProps<ChatCardData>) {
+// xyflow v12's NodeProps takes the full Node type, not just the data shape.
+export type ChatCardNode = Node<ChatCardData, "chatCard">;
+
+export function ChatCard({ data }: NodeProps<ChatCardNode>) {
   const { chat, state, claimant, isSelf, onSend, onLeave, onDelete, onExpand } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
@@ -887,7 +890,7 @@ import { ReactFlow, Background, useNodesState, type NodeTypes, type Node } from 
 import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
-import { ChatCard, type ChatCardData } from "./ChatCard";
+import { ChatCard, type ChatCardNode } from "./ChatCard";
 import { useStorage, useMutation, useSelf, useOthers } from "../lib/liveblocks";
 import { computeClaimant } from "../lib/claim";
 import { updateChatPosition } from "../lib/persistChat";
@@ -904,10 +907,12 @@ interface CanvasViewProps {
 }
 
 export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExpand }: CanvasViewProps) {
+  // useStorage's selector returns the JSON view of Storage — a LiveMap
+  // becomes a plain readonly Record<key, value>, not a Map (no `.get`).
   const positions = useStorage((root) => root.positions);
   const self = useSelf();
   const others = useOthers();
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<ChatCardData>>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode>([]);
 
   const setPosition = useMutation(({ storage }, chatId: string, x: number, y: number) => {
     storage.get("positions").set(chatId, { x, y });
@@ -923,7 +928,7 @@ export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExp
       const byId = new Map(current.map((n) => [n.id, n]));
       return chats.map((chat, index) => {
         const existing = byId.get(chat.id);
-        const stored = positions?.get(chat.id);
+        const stored = positions?.[chat.id];
         const fallback = { x: 100 + (index % 4) * 340, y: 100 + Math.floor(index / 4) * 320 };
         const position =
           existing?.position ??

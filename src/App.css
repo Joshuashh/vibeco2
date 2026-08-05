@@ -129,6 +129,11 @@ button {
   color: #666;
 }
 
+.canvas-view {
+  position: absolute;
+  inset: 0;
+}
+
 .chat-card {
   width: 300px;
   max-height: 320px;
