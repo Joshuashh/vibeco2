@@ -206,7 +206,7 @@ function App() {
     <RoomProvider
       id={ROOM_ID}
       initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null }}
-      initialStorage={{ positions: new LiveMap() }}
+      initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <AppShell session={session} />
     </RoomProvider>

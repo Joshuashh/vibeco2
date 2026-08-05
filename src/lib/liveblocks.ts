@@ -36,6 +36,8 @@ type Presence = {
 
 type Storage = {
   positions: LiveMap<string, { x: number; y: number }>;
+  chatGroups: LiveMap<string, string>;
+  groupLabels: LiveMap<string, string>;
 };
 
 export const {
