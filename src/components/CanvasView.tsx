@@ -4,9 +4,11 @@ import {
   ReactFlowProvider,
   Background,
   useNodesState,
+  useEdgesState,
   useReactFlow,
   type NodeTypes,
   type Node,
+  type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
@@ -14,6 +16,7 @@ import type { ChatState } from "../lib/chatStore";
 import type { MergeEvent } from "../lib/mergeEvents";
 import { ChatCard, type ChatCardNode } from "./ChatCard";
 import { GroupLabel, type GroupLabelNode } from "./GroupLabel";
+import { PulseEdge } from "./PulseEdge";
 import { useStorage, useMutation, useSelf, useOthers } from "../lib/liveblocks";
 import { computeClaimant } from "../lib/claim";
 import { updateChatPosition } from "../lib/persistChat";
@@ -21,6 +24,7 @@ import { clusterByProximity, reconcileGroupIds, snapToGrid, type PositionedNode 
 import { latestStatusByChat } from "../lib/mergeEvents";
 
 const nodeTypes: NodeTypes = { chatCard: ChatCard, groupLabel: GroupLabel };
+const edgeTypes = { pulse: PulseEdge };
 
 // New cards spawn at a fixed grid position that's frequently outside the
 // current viewport (React Flow's `fitView` only runs once, on mount) —
@@ -65,6 +69,7 @@ export function CanvasView({
   const self = useSelf();
   const others = useOthers();
   const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode | GroupLabelNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const statusByChat = latestStatusByChat(mergeEvents);
 
   const setPosition = useMutation(({ storage }, chatId: string, x: number, y: number) => {
@@ -175,6 +180,27 @@ export function CanvasView({
     renameGroup,
   ]);
 
+  useEffect(() => {
+    const groupIdToMembers = new Map<string, string[]>();
+    for (const chat of chats) {
+      const groupId = chatGroups?.[chat.id];
+      if (!groupId) continue;
+      const list = groupIdToMembers.get(groupId) ?? [];
+      list.push(chat.id);
+      groupIdToMembers.set(groupId, list);
+    }
+    const groupEdges = Array.from(groupIdToMembers.entries()).flatMap(([groupId, memberIds]) =>
+      memberIds.map((chatId) => ({
+        id: `e-${groupId}-${chatId}`,
+        source: groupId,
+        target: chatId,
+        type: "pulse",
+        data: { active: chatStates[chatId]?.streaming ?? false },
+      }))
+    );
+    setEdges(groupEdges);
+  }, [chats, chatGroups, chatStates, setEdges]);
+
   const handleNodeDragStop = useCallback(
     (_event: unknown, node: Node) => {
       if (node.type !== "chatCard") return;
@@ -199,8 +225,11 @@ export function CanvasView({
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
+          edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
           fitView
         >
