@@ -1,5 +1,13 @@
-import { useCallback, useEffect } from "react";
-import { ReactFlow, Background, useNodesState, type NodeTypes, type Node } from "@xyflow/react";
+import { useCallback, useEffect, useRef } from "react";
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  useNodesState,
+  useReactFlow,
+  type NodeTypes,
+  type Node,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
@@ -9,6 +17,24 @@ import { computeClaimant } from "../lib/claim";
 import { updateChatPosition } from "../lib/persistChat";
 
 const nodeTypes: NodeTypes = { chatCard: ChatCard };
+
+// New cards spawn at a fixed grid position that's frequently outside the
+// current viewport (React Flow's `fitView` only runs once, on mount) —
+// without this, creating a chat looks like nothing happened. Must render as
+// a child of <ReactFlow> so useReactFlow resolves to its provider.
+function FocusOnNewChats({ chatIds }: { chatIds: string[] }) {
+  const { fitView } = useReactFlow();
+  const seenIds = useRef<Set<string>>(new Set(chatIds));
+
+  useEffect(() => {
+    const newIds = chatIds.filter((id) => !seenIds.current.has(id));
+    seenIds.current = new Set(chatIds);
+    if (newIds.length === 0) return;
+    fitView({ nodes: newIds.map((id) => ({ id })), duration: 300, maxZoom: 1 });
+  }, [chatIds, fitView]);
+
+  return null;
+}
 
 interface CanvasViewProps {
   chats: ChatRow[];
@@ -83,15 +109,18 @@ export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExp
 
   return (
     <div className="canvas-view">
-      <ReactFlow
-        nodes={nodes}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onNodeDragStop={handleNodeDragStop}
-        fitView
-      >
-        <Background />
-      </ReactFlow>
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onNodeDragStop={handleNodeDragStop}
+          fitView
+        >
+          <Background />
+          <FocusOnNewChats chatIds={chats.map((c) => c.id)} />
+        </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 }
