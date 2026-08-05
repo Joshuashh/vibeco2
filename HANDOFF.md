@@ -60,27 +60,42 @@ everyone else sees it live but read-only.
 
 ## Current state
 
-- All 13 plan tasks complete and committed to `main` (13 commits, from the
-  migration through the `App.tsx` rewire).
+- All 13 plan tasks complete and committed to `main`.
 - **Automated verification: green.** `npm test` — 27 tests across 6 suites, all
-  pass. `npx tsc --noEmit` — clean. `cargo test` — 12 tests, all pass. The debug
-  `.app` builds and launches successfully (process confirmed running).
-- **Manual interactive verification: NOT done by me this session** — computer-use
-  access to the app was denied when requested, so I could not drive the UI
-  myself. The plan's Task 13 manual-verification steps (canvas loads and chat
-  creation, claim gating with a second session, drag persists position,
-  expand/Chat-view/delete, multi-turn continuity via `resume_session_id`) are
-  still outstanding. **The built `.app` is currently open** — please walk
-  through Task 13's steps yourself in
-  `docs/superpowers/plans/2026-08-05-canvas-view.md` before trusting this as
-  done. In particular, actually verifying multi-turn continuity (send a second
-  message, confirm Claude remembers the first) is the one check that proves the
-  `resume_session_id` fix really works end-to-end, not just that the code
-  compiles.
-- Step 3 of Task 13 (claim gating across two independent sessions) needs a
-  second signed-in instance — a second machine or OS user profile, since this is
-  a Tauri app, not a web app (no incognito-tab trick available). Not attempted
-  this session.
+  pass. `npx tsc --noEmit` — clean. `cargo test` — 12 tests, all pass.
+- **Post-plan bug hunt (this continuation):** after Task 13, the user reported
+  the built app showed almost no UI ("+ New chat" did nothing, then "plain
+  white screen, nothing but 4 buttons"). Root-caused via the Vite dev server in
+  the browser (not computer-use — access to the native app was denied both
+  times it was requested this session) rather than guessing blind:
+  1. `src/App.css` — the entire stylesheet — **was never imported by any file,
+     including in the original Tauri scaffold commit**. Every rule in it,
+     including the login screen and presence-bar styles from prior sessions,
+     has been dead since day one. Fixed by adding `import "./App.css";` to
+     `src/App.tsx`.
+  2. `.app`/`html`/`body`/`#root` had no explicit height, which combined with
+     (1) meant React Flow's container was genuinely 0×0 — its own console
+     warning (`error#004`) confirmed this once the CSS import fix let any
+     styles apply at all.
+  3. New canvas cards spawned outside the current viewport with no way to
+     bring them into view — added a `FocusOnNewChats` component (inside
+     `<ReactFlowProvider>`) that calls `fitView` on any newly-appeared chat id.
+  All three fixes were verified live in the Browser pane (console clean, real
+  computed dimensions, screenshot showing a working dotted canvas with
+  properly styled cards) before rebuilding the native `.app`. Added
+  `.claude/launch.json` (`vite-dev` config, port 1420) so the dev server is
+  available as a `preview_start` target in future sessions — use this for UI
+  debugging instead of computer-use on the native app, which needs a
+  permission grant that failed twice this session.
+- **Manual interactive verification of the underlying plan (Task 13's
+  checklist) is still not done** — the bug hunt above confirmed the canvas
+  *renders* and *reacts* correctly, but the deeper behavioral checks (claim
+  gating across two sessions, drag position surviving reload, multi-turn
+  continuity via `resume_session_id`) were not exercised this continuation.
+  The rebuilt native `.app` was relaunched at the end of this session, awaiting
+  the user's look.
+- Claim gating across two independent sessions still needs a second signed-in
+  instance (second machine or OS user profile) — not attempted.
 
 ## Known gaps / open items (unchanged from the design spec, §10)
 
@@ -97,10 +112,14 @@ everyone else sees it live but read-only.
 
 ## Next steps
 
-1. **Finish Task 13 manually** — walk the app yourself (it's already open) and
-   confirm the interactive behaviors above actually work, especially multi-turn
-   continuity.
-2. Once verified, pick the next round from the original hand-off's list:
+1. **Confirm the rebuilt native app looks right** (canvas visible, cards
+   styled, "+ New chat" auto-focuses) — this is where the session ended,
+   waiting on a look.
+2. **Finish Task 13's deeper checks manually**: claim gating with a second
+   session, drag position surviving reload, and especially multi-turn
+   continuity (send a second message in a chat, confirm Claude remembers the
+   first — the one check that proves `resume_session_id` works end-to-end).
+3. Once verified, pick the next round from the original hand-off's list:
    frames, Main Agent orchestration, or real role-based delete permissions.
 
 To resume: paste this file plus `docs/superpowers/specs/2026-08-05-canvas-view-design.md`
