@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -77,7 +77,10 @@ export function CanvasView({
     []
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const statusByChat = latestStatusByChat(mergeEvents);
+  // Not memoizing this would create a fresh object every render; since it's a
+  // dependency of the node-building effect below, that would refire the
+  // effect on every render the effect itself causes — an infinite loop.
+  const statusByChat = useMemo(() => latestStatusByChat(mergeEvents), [mergeEvents]);
   const mergedCount = mergeEvents.filter((e) => e.status === "merged").length;
   const refreshKeyRef = useRef(0);
   const lastMergedCountRef = useRef(mergedCount);

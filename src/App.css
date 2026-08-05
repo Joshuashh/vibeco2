@@ -226,6 +226,174 @@ button {
   min-height: 2.5em;
 }
 
+/* Teenage engineering-inspired direction for the canvas's group/Main Agent
+   elements only — near-black surface, single accent color reserved for
+   active/live state, monospace micro-labels. Scoped to these classes; the
+   rest of the app (login, chat view) is untouched by this pass. */
+:root {
+  --te-bg: #0c0c0d;
+  --te-panel: #141414;
+  --te-line: #2a2a2a;
+  --te-text-dim: #666;
+  --te-accent: #ff5e1a;
+  --te-merged: #5fd97a;
+  --te-held: #e0b84a;
+  --te-conflict: #e05a5a;
+}
+
+.canvas-view {
+  background-color: var(--te-bg);
+}
+
+.group-label {
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-size: 0.7em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--te-text-dim);
+  background: var(--te-panel);
+  border: 1px solid var(--te-line);
+  border-radius: 10px;
+  padding: 0.2em 0.7em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.group-label-input {
+  font-family: inherit;
+  font-size: inherit;
+  border: 1px solid var(--te-accent);
+  border-radius: 10px;
+  background: var(--te-panel);
+  color: #fff;
+  padding: 0.2em 0.7em;
+}
+
+.main-agent-instrument {
+  width: 340px;
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+}
+
+.build-preview-panel {
+  background: var(--te-bg);
+  border: 1px solid var(--te-line);
+  border-bottom: none;
+  resize: both;
+  overflow: hidden;
+  min-width: 260px;
+  min-height: 180px;
+  width: 340px;
+  height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+
+.build-preview-header {
+  font-size: 0.65em;
+  letter-spacing: 0.08em;
+  color: var(--te-text-dim);
+  padding: 0.4em 0.6em;
+  border-bottom: 1px solid var(--te-line);
+}
+
+.build-preview-frame {
+  flex: 1;
+  border: none;
+  width: 100%;
+}
+
+.main-agent-bar {
+  background: var(--te-panel);
+  border: 1px solid var(--te-accent);
+  padding: 0.5em 0.7em;
+  display: flex;
+  gap: 0.8em;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.7em;
+}
+
+.main-agent-label {
+  color: var(--te-accent);
+  letter-spacing: 0.05em;
+}
+
+.main-agent-count-merged {
+  color: var(--te-merged);
+}
+.main-agent-count-held {
+  color: var(--te-held);
+}
+.main-agent-count-conflict {
+  color: var(--te-conflict);
+}
+
+.main-agent-log {
+  background: var(--te-panel);
+  border: 1px solid var(--te-line);
+  border-top: none;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 0.65em;
+}
+
+.main-agent-log-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3em 0.6em;
+  border-bottom: 1px solid var(--te-line);
+  color: #ccc;
+}
+
+.main-agent-log-row-merged span:first-child {
+  color: var(--te-merged);
+}
+.main-agent-log-row-held span:first-child {
+  color: var(--te-held);
+}
+.main-agent-log-row-conflict span:first-child {
+  color: var(--te-conflict);
+}
+
+.main-agent-log-empty {
+  padding: 0.5em 0.6em;
+  color: var(--te-text-dim);
+}
+
+.chat-card-held,
+.chat-card-conflict {
+  border-width: 2px;
+}
+.chat-card-held {
+  border-color: var(--te-held);
+}
+.chat-card-conflict {
+  border-color: var(--te-conflict);
+}
+
+.chat-card-badge {
+  font-size: 0.7em;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+}
+.chat-card-held .chat-card-badge {
+  color: var(--te-held);
+}
+.chat-card-conflict .chat-card-badge {
+  color: var(--te-conflict);
+}
+
+.pulse-edge {
+  stroke: #333;
+  stroke-width: 1;
+}
+.pulse-edge-active {
+  stroke: var(--te-accent);
+}
+.pulse-dot {
+  fill: var(--te-accent);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
