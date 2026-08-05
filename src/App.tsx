@@ -11,12 +11,13 @@ import { ChatSwitcher } from "./components/ChatSwitcher";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView } from "./components/CanvasView";
 import type { ChatRow } from "./types/chat";
-import { applyChatEvent, applyRealtimeMessage, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
+import { applyChatEvent, applyRealtimeMessage, addUserMessage, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
   fetchAllChats,
   updateChatSessionId,
+  updateChatTitle,
   deleteChat,
   rowsToMessages,
   type StoredMessageRow,
@@ -100,10 +101,13 @@ function AppShell({ session }: { session: Session }) {
   const handleSend = useCallback(
     (chatId: string, prompt: string) => {
       updateMyPresence({ claimedChatId: chatId });
-      setChatStates((prev) => ({
-        ...prev,
-        [chatId]: { ...(prev[chatId] ?? initChatState()), streaming: true },
-      }));
+      setChatStates((prev) => {
+        const withUserMessage = addUserMessage(prev, chatId, prompt);
+        return {
+          ...withUserMessage,
+          [chatId]: { ...withUserMessage[chatId], streaming: true },
+        };
+      });
       const chat = chats.find((c) => c.id === chatId);
       invoke("start_session", {
         chatId,
@@ -131,6 +135,11 @@ function AppShell({ session }: { session: Session }) {
   const handleDelete = useCallback((chatId: string) => {
     deleteChat(chatId).catch((err) => console.error("failed to delete chat", err));
     setChats((prev) => prev.filter((c) => c.id !== chatId));
+  }, []);
+
+  const handleRename = useCallback((chatId: string, title: string) => {
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, title } : c)));
+    updateChatTitle(chatId, title).catch((err) => console.error("failed to rename chat", err));
   }, []);
 
   const handleExpand = useCallback((chatId: string) => {
@@ -167,16 +176,32 @@ function AppShell({ session }: { session: Session }) {
 
   return (
     <div className="app">
-      <PresenceBar />
-      <button className="sign-out" onClick={() => signOut()}>
-        Sign out
-      </button>
-      <ViewToggle mode={viewMode} onChange={setViewMode} />
+      <div className="toolbar">
+        <PresenceBar />
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <div className="toolbar-actions">
+          {viewMode === "canvas" ? (
+            <button className="btn btn-primary" onClick={handleCreateChat}>
+              <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              New chat
+            </button>
+          ) : (
+            <ChatSwitcher chats={chats} activeChatId={activeChatId} onSelect={setActiveChatId} />
+          )}
+          <button className="btn btn-ghost" onClick={() => signOut()}>
+            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="M16 17l5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+            Sign out
+          </button>
+        </div>
+      </div>
       {viewMode === "canvas" ? (
         <>
-          <button className="new-chat" onClick={handleCreateChat}>
-            + New chat
-          </button>
           <CanvasView
             chats={chats}
             chatStates={chatStates}
@@ -185,12 +210,12 @@ function AppShell({ session }: { session: Session }) {
             onLeave={handleLeave}
             onDelete={handleDelete}
             onExpand={handleExpand}
+            onRename={handleRename}
           />
         </>
       ) : (
         <>
-          <ChatSwitcher chats={chats} activeChatId={activeChatId} onSelect={setActiveChatId} />
-          <ChatView messages={activeState?.messages ?? []} />
+          <ChatView messages={activeState?.messages ?? []} streaming={activeState?.streaming ?? false} />
           <InputBar
             onSend={(prompt) => activeChatId && handleSend(activeChatId, prompt)}
             disabled={!activeChatId || activeState?.streaming === true || activeClaimedByOther}

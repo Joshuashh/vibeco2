@@ -10,9 +10,9 @@ export interface Cluster {
 }
 
 // ponytail: fixed threshold rather than card-size-aware packing. Cards are
-// ~300px wide; two cards dragged adjacent (edges touching, small gap) land
+// ~640px wide; two cards dragged adjacent (edges touching, small gap) land
 // well under this. Revisit if card size ever becomes configurable.
-const CLUSTER_DISTANCE = 260;
+const CLUSTER_DISTANCE = 560;
 
 export function clusterByProximity(nodes: PositionedNode[]): Cluster[] {
   const parent = new Map<string, string>();

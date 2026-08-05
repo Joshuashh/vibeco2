@@ -1,17 +1,10 @@
 import type { Message } from "../types/message";
-import { MessageBlock } from "./MessageBlock";
+import { MessageList } from "./MessageList";
 
-export function ChatView({ messages }: { messages: Message[] }) {
+export function ChatView({ messages, streaming = false }: { messages: Message[]; streaming?: boolean }) {
   return (
     <div className="chat-view">
-      {messages.map((message, i) => (
-        <div key={i} className="message">
-          {message.blocks.map((block, j) => (
-            <MessageBlock key={j} block={block} />
-          ))}
-          {!message.complete && <span className="thinking-indicator">●</span>}
-        </div>
-      ))}
+      <MessageList messages={messages} streaming={streaming} />
     </div>
   );
 }

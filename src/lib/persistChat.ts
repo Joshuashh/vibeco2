@@ -4,7 +4,7 @@ import type { ChatRow } from "../types/chat";
 
 export interface MessageRow {
   chat_id: string;
-  role: "assistant";
+  role: "user" | "assistant";
   blocks: ContentBlock[];
 }
 
@@ -53,6 +53,11 @@ export async function fetchAllChats(): Promise<ChatRow[]> {
 export async function updateChatPosition(chatId: string, x: number, y: number): Promise<void> {
   const { error } = await supabase.from("chats").update({ position_x: x, position_y: y }).eq("id", chatId);
   if (error) throw new Error(`failed to update chat position: ${error.message}`);
+}
+
+export async function updateChatTitle(chatId: string, title: string): Promise<void> {
+  const { error } = await supabase.from("chats").update({ title }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat title: ${error.message}`);
 }
 
 export async function updateChatSessionId(chatId: string, sessionId: string): Promise<void> {

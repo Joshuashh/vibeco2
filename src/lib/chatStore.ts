@@ -1,4 +1,4 @@
-import { reduceEvent, type ClaudeEvent, type Message } from "../types/message";
+import { reduceEvent, userMessage, type ClaudeEvent, type Message } from "../types/message";
 
 export interface ChatState {
   messages: Message[];
@@ -22,6 +22,11 @@ export function applyChatEvent(
   const messages = reduceEvent(current.messages, envelope.event);
   const streaming = envelope.event.type === "turn_complete" ? false : current.streaming;
   return { ...states, [envelope.chatId]: { messages, streaming } };
+}
+
+export function addUserMessage(states: Record<string, ChatState>, chatId: string, text: string): Record<string, ChatState> {
+  const current = states[chatId] ?? initChatState();
+  return { ...states, [chatId]: { ...current, messages: [...current.messages, userMessage(text)] } };
 }
 
 export function applyRealtimeMessage(

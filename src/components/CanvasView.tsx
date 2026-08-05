@@ -57,6 +57,7 @@ interface CanvasViewProps {
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onExpand: (chatId: string) => void;
+  onRename: (chatId: string, title: string) => void;
 }
 
 export function CanvasView({
@@ -67,6 +68,7 @@ export function CanvasView({
   onLeave,
   onDelete,
   onExpand,
+  onRename,
 }: CanvasViewProps) {
   const positions = useStorage((root) => root.positions);
   const chatGroups = useStorage((root) => root.chatGroups);
@@ -127,7 +129,7 @@ export function CanvasView({
       const chatNodes: ChatCardNode[] = chats.map((chat, index) => {
         const existing = byId.get(chat.id) as ChatCardNode | undefined;
         const stored = positions?.[chat.id];
-        const fallback = { x: 100 + (index % 4) * 340, y: 180 + Math.floor(index / 4) * 320 };
+        const fallback = { x: 100 + (index % 2) * 700, y: 260 + Math.floor(index / 2) * 720 };
         const position =
           existing?.position ??
           stored ??
@@ -153,6 +155,7 @@ export function CanvasView({
             onLeave,
             onDelete,
             onExpand,
+            onRename,
           },
         };
       });
@@ -202,6 +205,7 @@ export function CanvasView({
     onLeave,
     onDelete,
     onExpand,
+    onRename,
     setNodes,
     renameGroup,
   ]);

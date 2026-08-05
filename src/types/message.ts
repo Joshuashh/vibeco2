@@ -16,9 +16,13 @@ export type ContentBlock =
     };
 
 export interface Message {
-  role: "assistant";
+  role: "user" | "assistant";
   blocks: ContentBlock[];
   complete: boolean;
+}
+
+export function userMessage(text: string): Message {
+  return { role: "user", blocks: [{ kind: "text", text }], complete: true };
 }
 
 /**

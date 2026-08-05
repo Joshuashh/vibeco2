@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
-import { MessageBlock } from "./MessageBlock";
+import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
+import { ChatCardMenu, TerminalToggle } from "./ChatCardMenu";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
 
@@ -15,13 +16,45 @@ export interface ChatCardData {
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onExpand: (chatId: string) => void;
+  onRename: (chatId: string, title: string) => void;
   [key: string]: unknown;
 }
 
 export type ChatCardNode = Node<ChatCardData, "chatCard">;
 
+function ExpandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 3h6v6" />
+      <path d="M9 21H3v-6" />
+      <path d="M21 3l-7 7" />
+      <path d="M3 21l7-7" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    </svg>
+  );
+}
+
+function LeaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  );
+}
+
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
-  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onExpand } = data;
+  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onExpand, onRename } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
@@ -39,26 +72,39 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
     <div className={flagged ? `chat-card chat-card-${mergeStatus}` : "chat-card"}>
       <div className="chat-card-header">
         <span className="chat-card-title">{chat.title ?? "Untitled chat"}</span>
-        {flagged && <span className="chat-card-badge">⚠ {mergeStatus}</span>}
         <div className="chat-card-actions">
-          <button onClick={() => onExpand(chat.id)}>Expand</button>
-          {isSelf && <button onClick={() => onLeave(chat.id)}>Leave</button>}
-          {!claimant && (
-            <button onClick={handleDeleteClick}>{confirmingDelete ? "Confirm delete?" : "Delete"}</button>
+          {flagged && <span className="chat-card-badge">⚠ {mergeStatus}</span>}
+          <TerminalToggle />
+          <button className="icon-button" title="Expand" onClick={() => onExpand(chat.id)}>
+            <ExpandIcon />
+          </button>
+          {isSelf && (
+            <button className="icon-button" title="Leave" onClick={() => onLeave(chat.id)}>
+              <LeaveIcon />
+            </button>
           )}
+          {!claimant && (
+            <button
+              className={confirmingDelete ? "icon-button icon-button-danger" : "icon-button"}
+              title={confirmingDelete ? "Confirm delete?" : "Delete"}
+              onClick={handleDeleteClick}
+            >
+              <TrashIcon />
+            </button>
+          )}
+          <ChatCardMenu title={chat.title ?? "Untitled chat"} onRename={(title) => onRename(chat.id, title)} />
         </div>
       </div>
-      {claimant && <div className="chat-card-claim">{claimant} is working here</div>}
-      <div className="chat-card-messages">
-        {state.messages.slice(-6).map((message, i) => (
-          <div key={i} className="message">
-            {message.blocks.map((block, j) => (
-              <MessageBlock key={j} block={block} />
-            ))}
-            {!message.complete && <span className="thinking-indicator">●</span>}
-          </div>
-        ))}
-      </div>
+      {claimant && (
+        <div className="chat-card-claim">
+          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+          </svg>
+          {claimant} is working here
+        </div>
+      )}
+      <MessageList messages={state.messages} streaming={state.streaming} />
       <InputBar onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
     </div>
   );
