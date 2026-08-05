@@ -37,18 +37,41 @@ rebuilt `.app` doesn't seem to reflect code changes.
 - **Out of scope so far** (per spec.md): Canvas view, human-chat column, tools/logs column,
   Liveblocks multiplayer wiring, Main Agent orchestration, cost/budget alerts.
 
+## Liveblocks foundation (this session)
+Implemented per `docs/superpowers/specs/2026-08-05-liveblocks-foundation-design.md` and
+`docs/superpowers/plans/2026-08-05-liveblocks-foundation.md`: a Supabase Edge Function
+(`liveblocks-auth`, deployed to project `febfuemspzwslaujdtwc` with `verify_jwt: false` since the
+function does its own Supabase JWT verification) mints Liveblocks tokens for one fixed global
+room (`vibeco2-global`), and the client renders a `PresenceBar` via `useOthers`/`useSelf`. Verified
+with two independent browser sessions (a normal window + an incognito window — plain second tabs
+share `localStorage` and end up signed into the same account, so that's the only way to get two
+independent sessions without two machines): both emails show up in presence, and closing one drops
+it from the other's list within a few seconds.
+
+One real snag: the first deploy had `verify_jwt: true`, which rejects any request lacking an
+`Authorization` header — including the browser's CORS preflight `OPTIONS` request, which never
+carries one. Had to redeploy with `verify_jwt: false` (safe here since the function verifies the
+real Supabase session itself via `supabase.auth.getUser`). Also hit one credential mixup (a
+non-`sk_`-prefixed value got set as `LIVEBLOCKS_SECRET_KEY` at first) — the giveaway was
+`event loop error: ... Secret keys must start with 'sk_'` in the function's dashboard logs tab
+(`supabase functions logs` isn't a subcommand in this CLI version — use the dashboard instead:
+`https://supabase.com/dashboard/project/febfuemspzwslaujdtwc/functions/liveblocks-auth/logs`).
+
+**Out of scope so far, still per spec.md**: live cursors over an actual shared surface (waits for
+Canvas), canvas card drag/position sync, human-to-human chat delivery, streamed AI conversation
+content, any workspace/multi-room model, any `chats`/`messages` RLS change.
+
 ## Next steps — not chosen yet, pick one for the next session
-Per spec.md, the next open areas are all part of the multiplayer/Canvas phase:
-1. **Liveblocks multiplayer wiring** (spec §3) — live cursors, canvas card drag/position sync,
-   live-streamed AI conversation content between teammates. This is the next thing the spec calls
-   out as unplanned (`decisions.md`'s realtime-split decision only covers the backend choice, not
-   an implementation plan).
-2. **Canvas view** (spec §2.2) — the pannable/zoomable card-and-frame UI, likely needs a
-   React Flow/tldraw-style library decision first.
+1. **Canvas view** (spec §2.2) — the pannable/zoomable card-and-frame UI. Now that Liveblocks
+   presence exists, this is what live cursors would attach to. Needs a React Flow/tldraw-style
+   library decision first.
+2. **Canvas card sync + human chat + streamed AI content** (spec §3) — layer onto the Liveblocks
+   foundation now that it exists; likely follows naturally once Canvas view exists.
 3. **Main Agent orchestration** (spec §4) — GitHub Actions-triggered merge coordination; probably
    the largest, most independent piece, could be its own multi-session effort.
 4. Multi-user auth (rooms/membership) would need to precede any of the above if more than one
-   person is going to actually use this — currently auth is single-user only.
+   person is going to actually use this beyond ad-hoc test accounts — currently still single-tier,
+   no invite/role model.
 
 To resume: paste this file plus `spec.md` into a fresh session, and decide which of the above to
 brainstorm first.
