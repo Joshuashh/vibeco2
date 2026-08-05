@@ -121,6 +121,14 @@ button {
   right: 1em;
 }
 
+.presence-bar {
+  position: absolute;
+  top: 1em;
+  left: 1em;
+  font-size: 0.85em;
+  color: #666;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;

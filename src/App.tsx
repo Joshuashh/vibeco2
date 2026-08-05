@@ -8,6 +8,8 @@ import { LoginScreen } from "./components/LoginScreen";
 import { reduceEvent, type Message, type ClaudeEvent } from "./types/message";
 import { createChat, loadChatMessages, saveChatMessages } from "./lib/persistChat";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
+import { RoomProvider, ROOM_ID } from "./lib/liveblocks";
+import { PresenceBar } from "./components/PresenceBar";
 
 function App() {
   const [session, setSession] = useState<Session | null | "loading">("loading");
@@ -61,13 +63,16 @@ function App() {
   if (!session) return <LoginScreen onSignedIn={() => {}} />;
 
   return (
-    <div className="app">
-      <button className="sign-out" onClick={() => signOut()}>
-        Sign out
-      </button>
-      <ChatView messages={messages} />
-      <InputBar onSend={handleSend} disabled={streaming} />
-    </div>
+    <RoomProvider id={ROOM_ID} initialPresence={{ email: session.user.email ?? "unknown" }}>
+      <div className="app">
+        <PresenceBar />
+        <button className="sign-out" onClick={() => signOut()}>
+          Sign out
+        </button>
+        <ChatView messages={messages} />
+        <InputBar onSend={handleSend} disabled={streaming} />
+      </div>
+    </RoomProvider>
   );
 }
 
