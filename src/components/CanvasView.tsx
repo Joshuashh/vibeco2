@@ -16,6 +16,7 @@ import type { ChatState } from "../lib/chatStore";
 import type { MergeEvent } from "../lib/mergeEvents";
 import { ChatCard, type ChatCardNode } from "./ChatCard";
 import { GroupLabel, type GroupLabelNode } from "./GroupLabel";
+import { MainAgentInstrument, type MainAgentInstrumentNode } from "./MainAgentInstrument";
 import { PulseEdge } from "./PulseEdge";
 import { useStorage, useMutation, useSelf, useOthers } from "../lib/liveblocks";
 import { computeClaimant } from "../lib/claim";
@@ -23,7 +24,11 @@ import { updateChatPosition } from "../lib/persistChat";
 import { clusterByProximity, reconcileGroupIds, snapToGrid, type PositionedNode } from "../lib/grouping";
 import { latestStatusByChat } from "../lib/mergeEvents";
 
-const nodeTypes: NodeTypes = { chatCard: ChatCard, groupLabel: GroupLabel };
+const nodeTypes: NodeTypes = {
+  chatCard: ChatCard,
+  groupLabel: GroupLabel,
+  mainAgentInstrument: MainAgentInstrument,
+};
 const edgeTypes = { pulse: PulseEdge };
 
 // New cards spawn at a fixed grid position that's frequently outside the
@@ -68,9 +73,18 @@ export function CanvasView({
   const groupLabels = useStorage((root) => root.groupLabels);
   const self = useSelf();
   const others = useOthers();
-  const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode | GroupLabelNode>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode | GroupLabelNode | MainAgentInstrumentNode>(
+    []
+  );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const statusByChat = latestStatusByChat(mergeEvents);
+  const mergedCount = mergeEvents.filter((e) => e.status === "merged").length;
+  const refreshKeyRef = useRef(0);
+  const lastMergedCountRef = useRef(mergedCount);
+  if (mergedCount !== lastMergedCountRef.current) {
+    lastMergedCountRef.current = mergedCount;
+    refreshKeyRef.current += 1;
+  }
 
   const setPosition = useMutation(({ storage }, chatId: string, x: number, y: number) => {
     storage.get("positions").set(chatId, { x, y });
@@ -161,7 +175,15 @@ export function CanvasView({
         };
       });
 
-      return [...chatNodes, ...groupNodes];
+      const instrumentPosition = positions?.["main-agent"] ?? { x: 260, y: -220 };
+      const instrumentNode: MainAgentInstrumentNode = {
+        id: "main-agent",
+        type: "mainAgentInstrument",
+        position: instrumentPosition,
+        data: { mergeEvents, refreshKey: refreshKeyRef.current },
+      };
+
+      return [...chatNodes, ...groupNodes, instrumentNode];
     });
   }, [
     chats,
@@ -172,6 +194,7 @@ export function CanvasView({
     self,
     others,
     statusByChat,
+    mergeEvents,
     onSend,
     onLeave,
     onDelete,
@@ -198,11 +221,27 @@ export function CanvasView({
         data: { active: chatStates[chatId]?.streaming ?? false },
       }))
     );
-    setEdges(groupEdges);
+    const trunkEdges = Array.from(groupIdToMembers.entries()).map(([groupId, memberIds]) => ({
+      id: `e-main-agent-${groupId}`,
+      source: "main-agent",
+      target: groupId,
+      type: "pulse",
+      data: { active: memberIds.some((chatId) => chatStates[chatId]?.streaming) },
+    }));
+    setEdges([...trunkEdges, ...groupEdges]);
   }, [chats, chatGroups, chatStates, setEdges]);
 
   const handleNodeDragStop = useCallback(
     (_event: unknown, node: Node) => {
+      if (node.type === "mainAgentInstrument") {
+        setPosition(node.id, node.position.x, node.position.y);
+        updateChatPosition(node.id, node.position.x, node.position.y).catch(() => {
+          // ponytail: main-agent has no `chats` row, so this Supabase write
+          // is expected to no-op/fail silently — Liveblocks storage (above)
+          // is the real persistence for its position.
+        });
+        return;
+      }
       if (node.type !== "chatCard") return;
       const snapped = { x: snapToGrid(node.position.x), y: snapToGrid(node.position.y) };
       setPosition(node.id, snapped.x, snapped.y);
