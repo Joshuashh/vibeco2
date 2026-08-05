@@ -11,12 +11,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
+import type { MergeEvent } from "../lib/mergeEvents";
 import { ChatCard, type ChatCardNode } from "./ChatCard";
+import { GroupLabel, type GroupLabelNode } from "./GroupLabel";
 import { useStorage, useMutation, useSelf, useOthers } from "../lib/liveblocks";
 import { computeClaimant } from "../lib/claim";
 import { updateChatPosition } from "../lib/persistChat";
+import { clusterByProximity, reconcileGroupIds, snapToGrid, type PositionedNode } from "../lib/grouping";
+import { latestStatusByChat } from "../lib/mergeEvents";
 
-const nodeTypes: NodeTypes = { chatCard: ChatCard };
+const nodeTypes: NodeTypes = { chatCard: ChatCard, groupLabel: GroupLabel };
 
 // New cards spawn at a fixed grid position that's frequently outside the
 // current viewport (React Flow's `fitView` only runs once, on mount) —
@@ -39,20 +43,55 @@ function FocusOnNewChats({ chatIds }: { chatIds: string[] }) {
 interface CanvasViewProps {
   chats: ChatRow[];
   chatStates: Record<string, ChatState>;
+  mergeEvents: MergeEvent[];
   onSend: (chatId: string, prompt: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onExpand: (chatId: string) => void;
 }
 
-export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExpand }: CanvasViewProps) {
+export function CanvasView({
+  chats,
+  chatStates,
+  mergeEvents,
+  onSend,
+  onLeave,
+  onDelete,
+  onExpand,
+}: CanvasViewProps) {
   const positions = useStorage((root) => root.positions);
+  const chatGroups = useStorage((root) => root.chatGroups);
+  const groupLabels = useStorage((root) => root.groupLabels);
   const self = useSelf();
   const others = useOthers();
-  const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatCardNode | GroupLabelNode>([]);
+  const statusByChat = latestStatusByChat(mergeEvents);
 
   const setPosition = useMutation(({ storage }, chatId: string, x: number, y: number) => {
     storage.get("positions").set(chatId, { x, y });
+  }, []);
+
+  const renameGroup = useMutation(({ storage }, groupId: string, label: string) => {
+    storage.get("groupLabels").set(groupId, label);
+  }, []);
+
+  const recomputeGroups = useMutation(({ storage }, positioned: PositionedNode[]) => {
+    const clusters = clusterByProximity(positioned);
+    const existing: Record<string, string | undefined> = {};
+    storage.get("chatGroups").forEach((groupId, chatId) => {
+      existing[chatId] = groupId;
+    });
+    const assignments = reconcileGroupIds(clusters, existing);
+
+    const groupsMap = storage.get("chatGroups");
+    const labelsMap = storage.get("groupLabels");
+    for (const chatId of Array.from(groupsMap.keys())) {
+      if (!assignments[chatId]) groupsMap.delete(chatId);
+    }
+    for (const [chatId, groupId] of Object.entries(assignments)) {
+      groupsMap.set(chatId, groupId);
+      if (!labelsMap.get(groupId)) labelsMap.set(groupId, "Group");
+    }
   }, []);
 
   // ponytail: re-syncs the full node list on every relevant change, keeping
@@ -63,10 +102,10 @@ export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExp
   useEffect(() => {
     setNodes((current) => {
       const byId = new Map(current.map((n) => [n.id, n]));
-      return chats.map((chat, index) => {
-        const existing = byId.get(chat.id);
+      const chatNodes: ChatCardNode[] = chats.map((chat, index) => {
+        const existing = byId.get(chat.id) as ChatCardNode | undefined;
         const stored = positions?.[chat.id];
-        const fallback = { x: 100 + (index % 4) * 340, y: 100 + Math.floor(index / 4) * 320 };
+        const fallback = { x: 100 + (index % 4) * 340, y: 180 + Math.floor(index / 4) * 320 };
         const position =
           existing?.position ??
           stored ??
@@ -87,6 +126,7 @@ export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExp
             state: chatStates[chat.id] ?? { messages: [], streaming: false },
             claimant,
             isSelf: claimant === self?.presence.email,
+            mergeStatus: statusByChat[chat.id] ?? null,
             onSend,
             onLeave,
             onDelete,
@@ -94,17 +134,64 @@ export function CanvasView({ chats, chatStates, onSend, onLeave, onDelete, onExp
           },
         };
       });
+
+      const groupIdToMembers = new Map<string, ChatCardNode[]>();
+      for (const node of chatNodes) {
+        const groupId = chatGroups?.[node.id];
+        if (!groupId) continue;
+        const list = groupIdToMembers.get(groupId) ?? [];
+        list.push(node);
+        groupIdToMembers.set(groupId, list);
+      }
+      const groupNodes: GroupLabelNode[] = Array.from(groupIdToMembers.entries()).map(([groupId, members]) => {
+        const centroidX = members.reduce((sum, m) => sum + m.position.x, 0) / members.length;
+        const minY = Math.min(...members.map((m) => m.position.y));
+        return {
+          id: groupId,
+          type: "groupLabel",
+          position: { x: centroidX, y: minY - 40 },
+          draggable: false,
+          selectable: false,
+          data: { label: groupLabels?.[groupId] ?? "Group", onRename: (label: string) => renameGroup(groupId, label) },
+        };
+      });
+
+      return [...chatNodes, ...groupNodes];
     });
-  }, [chats, chatStates, positions, self, others, onSend, onLeave, onDelete, onExpand, setNodes]);
+  }, [
+    chats,
+    chatStates,
+    positions,
+    chatGroups,
+    groupLabels,
+    self,
+    others,
+    statusByChat,
+    onSend,
+    onLeave,
+    onDelete,
+    onExpand,
+    setNodes,
+    renameGroup,
+  ]);
 
   const handleNodeDragStop = useCallback(
     (_event: unknown, node: Node) => {
-      setPosition(node.id, node.position.x, node.position.y);
-      updateChatPosition(node.id, node.position.x, node.position.y).catch((err) =>
+      if (node.type !== "chatCard") return;
+      const snapped = { x: snapToGrid(node.position.x), y: snapToGrid(node.position.y) };
+      setPosition(node.id, snapped.x, snapped.y);
+      updateChatPosition(node.id, snapped.x, snapped.y).catch((err) =>
         console.error("failed to persist chat position", err)
       );
+      const allChatNodes = nodes.filter((n): n is ChatCardNode => n.type === "chatCard");
+      const positioned: PositionedNode[] = allChatNodes.map((n) => ({
+        id: n.id,
+        x: n.id === node.id ? snapped.x : n.position.x,
+        y: n.id === node.id ? snapped.y : n.position.y,
+      }));
+      recomputeGroups(positioned);
     },
-    [setPosition]
+    [nodes, setPosition, recomputeGroups]
   );
 
   return (

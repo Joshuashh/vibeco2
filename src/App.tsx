@@ -171,6 +171,7 @@ function AppShell({ session }: { session: Session }) {
           <CanvasView
             chats={chats}
             chatStates={chatStates}
+            mergeEvents={[]}
             onSend={handleSend}
             onLeave={handleLeave}
             onDelete={handleDelete}
