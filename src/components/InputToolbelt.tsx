@@ -1,36 +1,47 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { Popover, PopoverHeader, PopoverRow, PopoverDivider } from "./Popover";
 
-// ponytail: every picker here cycles local-only state — none of it is wired to
+// ponytail: every picker here holds local-only state — none of it is wired to
 // real backend behavior yet (no per-chat model/effort/permission columns, no
 // directory picker, no voice input, no token-usage tracking). Included as
 // real, clickable UI scaffolding per explicit request, so the wiring has
 // somewhere to land later instead of being invented from scratch then.
 
-const MODELS = ["Sonnet 5", "Opus 5", "Haiku 4.5", "Fable 5"];
-const EFFORTS = ["Standard", "High", "Max"];
-const PERMISSIONS = ["Default", "Plan", "Accept edits", "Bypass"];
-
-function cyclePill(options: string[], current: string): string {
-  const next = (options.indexOf(current) + 1) % options.length;
-  return options[next];
-}
+const MODELS = [
+  { name: "Fable 5", requiresUsageCredits: true },
+  { name: "Opus 5", requiresUsageCredits: false },
+  { name: "Sonnet 5", requiresUsageCredits: false },
+  { name: "Haiku 4.5", requiresUsageCredits: false },
+];
+const MORE_MODELS = ["Opus 4.8", "Opus 4.7", "Opus 4.6", "Sonnet 4.6"];
+const EFFORTS = ["Low", "Medium", "High", "X-High", "Max"];
+const PERMISSIONS = ["Manual", "Accept edits", "Plan", "Auto"];
 
 export function LocationPill() {
   const [local, setLocal] = useState(true);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   return (
-    <button type="button" className="pill" onClick={() => setLocal((v) => !v)}>
-      {local ? (
-        <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="4" width="18" height="12" rx="2" />
-          <path d="M8 20h8M12 16v4" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.4-1.5A5 5 0 0 0 6.5 19h11z" />
-        </svg>
-      )}
-      {local ? "Local" : "Cloud"}
-    </button>
+    <>
+      <button type="button" ref={anchorRef} className="pill" onClick={() => setOpen((o) => !o)}>
+        {local ? (
+          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="12" rx="2" />
+            <path d="M8 20h8M12 16v4" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.4-1.5A5 5 0 0 0 6.5 19h11z" />
+          </svg>
+        )}
+        {local ? "Local" : "Cloud"}
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={180}>
+        <PopoverHeader title="Run on" />
+        <PopoverRow title="Local" checked={local} onClick={() => { setLocal(true); setOpen(false); }} />
+        <PopoverRow title="Cloud" checked={!local} onClick={() => { setLocal(false); setOpen(false); }} />
+      </Popover>
+    </>
   );
 }
 
@@ -47,28 +58,98 @@ export function DirectoryPill({ workingDirectory }: { workingDirectory: string }
 
 export function PermissionPill() {
   const [mode, setMode] = useState(PERMISSIONS[0]);
+  const [bypass, setBypass] = useState(false);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   return (
-    <button type="button" className="pill pill-warn" onClick={() => setMode((m) => cyclePill(PERMISSIONS, m))}>
-      {mode}
-    </button>
+    <>
+      <button type="button" ref={anchorRef} className="pill pill-warn" onClick={() => setOpen((o) => !o)}>
+        {mode}
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={220}>
+        <PopoverHeader title="Permissions" />
+        {PERMISSIONS.map((p, i) => (
+          <PopoverRow
+            key={p}
+            title={p}
+            shortcut={String(i + 1)}
+            checked={mode === p}
+            onClick={() => { setMode(p); setOpen(false); }}
+          />
+        ))}
+        <PopoverDivider />
+        <PopoverRow
+          title="Bypass permissions"
+          shortcut={bypass ? "Enabled" : "Enable"}
+          onClick={() => setBypass((b) => !b)}
+        />
+      </Popover>
+    </>
   );
 }
 
 export function ModelPicker() {
-  const [model, setModel] = useState(MODELS[0]);
+  const [model, setModel] = useState(MODELS[0].name);
+  const [showMore, setShowMore] = useState(false);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+
+  function close() {
+    setOpen(false);
+    setShowMore(false);
+  }
+
   return (
-    <button type="button" className="pill pill-ghost" onClick={() => setModel((m) => cyclePill(MODELS, m))}>
-      {model}
-    </button>
+    <>
+      <button type="button" ref={anchorRef} className="pill pill-ghost" onClick={() => setOpen((o) => !o)}>
+        {model}
+      </button>
+      <Popover open={open} onClose={close} anchorRef={anchorRef} width={220}>
+        <PopoverHeader title="Models" />
+        {MODELS.map((m, i) => (
+          <PopoverRow
+            key={m.name}
+            title={m.name}
+            shortcut={String(i + 1)}
+            checked={model === m.name}
+            badge={m.requiresUsageCredits ? "Requires usage credits" : undefined}
+            onClick={() => { setModel(m.name); close(); }}
+          />
+        ))}
+        <PopoverDivider />
+        <PopoverRow title="More models" chevron onClick={() => setShowMore((s) => !s)} />
+        {showMore &&
+          MORE_MODELS.map((name) => (
+            <PopoverRow key={name} title={name} indent checked={model === name} onClick={() => { setModel(name); close(); }} />
+          ))}
+      </Popover>
+    </>
   );
 }
 
 export function EffortPicker() {
   const [effort, setEffort] = useState(EFFORTS[0]);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   return (
-    <button type="button" className="pill pill-ghost" onClick={() => setEffort((e) => cyclePill(EFFORTS, e))}>
-      {effort}
-    </button>
+    <>
+      <button type="button" ref={anchorRef} className="pill pill-ghost" onClick={() => setOpen((o) => !o)}>
+        {effort}
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={220}>
+        <PopoverHeader title="Effort" />
+        {EFFORTS.map((e, i) => (
+          <PopoverRow
+            key={e}
+            title={e}
+            shortcut={String(i + 1)}
+            checked={effort === e}
+            tint={e === "Max" ? "purple" : undefined}
+            onClick={() => { setEffort(e); setOpen(false); }}
+          />
+        ))}
+      </Popover>
+    </>
   );
 }
 
