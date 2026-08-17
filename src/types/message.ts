@@ -25,6 +25,10 @@ export function userMessage(text: string): Message {
   return { role: "user", blocks: [{ kind: "text", text }], complete: true };
 }
 
+export function errorMessage(text: string): Message {
+  return { role: "assistant", blocks: [{ kind: "text", text: `⚠️ ${text}` }], complete: true };
+}
+
 /**
  * Reduces one ClaudeEvent into the running Message[] list. Text and tool-use
  * blocks accumulate onto the same, currently-open message as one ordered

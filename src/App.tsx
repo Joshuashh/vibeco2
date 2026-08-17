@@ -11,7 +11,7 @@ import { ChatSwitcher } from "./components/ChatSwitcher";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView } from "./components/CanvasView";
 import type { ChatRow } from "./types/chat";
-import { applyChatEvent, applyRealtimeMessage, addUserMessage, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
+import { applyChatEvent, applyRealtimeMessage, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
@@ -116,10 +116,7 @@ function AppShell({ session }: { session: Session }) {
         resumeSessionId: chat?.claude_session_id ?? null,
       }).catch((err) => {
         console.error("start_session failed", err);
-        setChatStates((prev) => ({
-          ...prev,
-          [chatId]: { ...(prev[chatId] ?? initChatState()), streaming: false },
-        }));
+        setChatStates((prev) => setSessionError(prev, chatId, "Couldn't reach the Claude CLI. Are you running the native app (`npx tauri dev`), not the browser dev server?"));
       });
     },
     [chats, updateMyPresence]

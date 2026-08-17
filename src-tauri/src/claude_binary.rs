@@ -3,8 +3,13 @@ use std::process::Command;
 
 /// Resolves the path to the `claude` CLI binary.
 /// GUI apps on macOS launch with a minimal PATH, so we check common
-/// install locations first, then fall back to the user's login shell
-/// (`which claude` under `sh -lic`) which picks up nvm/homebrew/etc shims.
+/// install locations first, then fall back to the user's actual login
+/// shell (`which claude` under `<$SHELL> -lic`) which picks up
+/// nvm/homebrew/`~/.local/bin`/etc shims. This must be the user's real
+/// shell (from $SHELL), not a hardcoded `sh` — `sh -lic` does not source
+/// `~/.zshrc`, so on a zsh machine any PATH additions made only there
+/// (e.g. `~/.local/bin`, where the official installer puts `claude`)
+/// are invisible to it.
 pub fn resolve_claude_binary() -> Option<PathBuf> {
     let common_paths = ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"];
     for path in common_paths {
@@ -14,7 +19,8 @@ pub fn resolve_claude_binary() -> Option<PathBuf> {
         }
     }
 
-    let output = Command::new("sh").arg("-lic").arg("which claude").output().ok()?;
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let output = Command::new(shell).arg("-lic").arg("which claude").output().ok()?;
 
     if !output.status.success() {
         return None;
