@@ -1,40 +1,44 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Session } from "@supabase/supabase-js";
 import { LiveMap } from "@liveblocks/client";
-import { ChatView } from "./components/ChatView";
-import { InputBar } from "./components/InputBar";
+import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { LoginScreen } from "./components/LoginScreen";
-import { ChatSwitcher } from "./components/ChatSwitcher";
+import { Sidebar } from "./components/Sidebar";
+import { ResizeDivider } from "./components/ResizeDivider";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView } from "./components/CanvasView";
+import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
 import { applyChatEvent, applyRealtimeMessage, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
   fetchAllChats,
-  updateChatSessionId,
+  updateChatSession,
   updateChatTitle,
   deleteChat,
   rowsToMessages,
   type StoredMessageRow,
 } from "./lib/persistChat";
+import { buildTranscriptPreamble } from "./lib/transcript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
 import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
-import { isClaimedByOther } from "./lib/claim";
+import { isClaimedByOther, computeClaimant } from "./lib/claim";
 
 function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
   const [viewMode, setViewMode] = useState<"chat" | "canvas">("canvas");
+  const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
   const others = useOthers();
@@ -62,7 +66,7 @@ function AppShell({ session }: { session: Session }) {
     const unlisten = listen<ChatEnvelope>("claude-event", (event) => {
       setChatStates((prev) => applyChatEvent(prev, event.payload));
       if (event.payload.event.type === "session_started") {
-        updateChatSessionId(event.payload.chatId, event.payload.event.session_id).catch((err) =>
+        updateChatSession(event.payload.chatId, event.payload.event.session_id, session.user.id).catch((err) =>
           console.error("failed to persist claude session id", err)
         );
       }
@@ -109,17 +113,25 @@ function AppShell({ session }: { session: Session }) {
         };
       });
       const chat = chats.find((c) => c.id === chatId);
+      // Native `--resume` only works for whoever's machine/account created the
+      // session (see decisions.md). A different claimant gets a fresh session
+      // primed with the stored transcript instead, so Claude isn't blind to
+      // what already happened.
+      const isOwner = !chat?.claude_session_id || chat.claude_session_owner === session.user.id;
+      const priorMessages = chatStates[chatId]?.messages ?? [];
+      const effectivePrompt = isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`;
       invoke("start_session", {
         chatId,
-        prompt,
+        prompt: effectivePrompt,
         workingDirectory: ".",
-        resumeSessionId: chat?.claude_session_id ?? null,
+        resumeSessionId: isOwner ? chat?.claude_session_id ?? null : null,
       }).catch((err) => {
         console.error("start_session failed", err);
-        setChatStates((prev) => setSessionError(prev, chatId, "Couldn't reach the Claude CLI. Are you running the native app (`npx tauri dev`), not the browser dev server?"));
+        const detail = err instanceof Error ? err.message : String(err);
+        setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
       });
     },
-    [chats, updateMyPresence]
+    [chats, chatStates, updateMyPresence, session.user.id]
   );
 
   const handleLeave = useCallback(
@@ -155,46 +167,60 @@ function AppShell({ session }: { session: Session }) {
           position_x: null,
           position_y: null,
           claude_session_id: null,
+          claude_session_owner: null,
           created_at: new Date().toISOString(),
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
+      setActiveChatId(id);
     });
   }, [session.user.id]);
 
+  const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
+  const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
+
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
-  const activeClaimedByOther = activeChatId
-    ? isClaimedByOther(
-        activeChatId,
-        self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null,
-        others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }))
-      )
-    : false;
+  const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
+  const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
+  const activeClaimedByOther = activeChatId ? isClaimedByOther(activeChatId, selfOccupant, otherOccupants) : false;
+
+  // Split-view right pane: whichever teammate currently has a chat claimed —
+  // simple "auto-follow" pick, no picker UI, since this is a two-person team.
+  const teammate = others.find((o) => o.presence.claimedChatId);
+  const teammateChatId = teammate?.presence.claimedChatId ?? null;
+  const teammateChat = teammateChatId ? chats.find((c) => c.id === teammateChatId) : undefined;
+  const teammateState = teammateChatId ? chatStates[teammateChatId] : undefined;
+  const teammateClaimant = teammateChatId ? computeClaimant(teammateChatId, selfOccupant, otherOccupants) : null;
+  const teammateClaimedByOther = teammateChatId ? isClaimedByOther(teammateChatId, selfOccupant, otherOccupants) : false;
+
+  const appRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
+      <LiveCursors containerRef={appRef} />
       <div className="toolbar">
-        <PresenceBar />
+        <div className="toolbar-side" />
         <ViewToggle mode={viewMode} onChange={setViewMode} />
-        <div className="toolbar-actions">
-          {viewMode === "canvas" ? (
+        <div className="toolbar-side toolbar-actions">
+          {viewMode === "canvas" && (
             <button className="btn btn-primary" onClick={handleCreateChat}>
               <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
               New chat
             </button>
-          ) : (
-            <ChatSwitcher chats={chats} activeChatId={activeChatId} onSelect={setActiveChatId} />
           )}
-          <button className="btn btn-ghost" onClick={() => signOut()}>
-            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <path d="M16 17l5-5-5-5" />
-              <path d="M21 12H9" />
-            </svg>
-            Sign out
-          </button>
+          {viewMode === "chat" && (
+            <div className="view-toggle">
+              <button className={chatLayout === "single" ? "active" : ""} onClick={() => setChatLayout("single")}>
+                Single
+              </button>
+              <button className={chatLayout === "split" ? "active" : ""} onClick={() => setChatLayout("split")}>
+                Split
+              </button>
+            </div>
+          )}
+          <PresenceBar />
         </div>
       </div>
       {viewMode === "canvas" ? (
@@ -211,13 +237,53 @@ function AppShell({ session }: { session: Session }) {
           />
         </>
       ) : (
-        <>
-          <ChatView messages={activeState?.messages ?? []} streaming={activeState?.streaming ?? false} />
-          <InputBar
-            onSend={(prompt) => activeChatId && handleSend(activeChatId, prompt)}
-            disabled={!activeChatId || activeState?.streaming === true || activeClaimedByOther}
-          />
-        </>
+        <div className="chat-workspace">
+          <div className="sidebar-panel" style={{ width: sidebarWidth }}>
+            <Sidebar
+              chats={chats}
+              activeChatId={activeChatId}
+              onSelect={setActiveChatId}
+              onCreateChat={handleCreateChat}
+              onRename={handleRename}
+              onDelete={handleDelete}
+              userEmail={session.user.email ?? "you"}
+              onSignOut={() => signOut()}
+            />
+          </div>
+          <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
+          <div className="chat-panes">
+            {activeChatId && activeChat ? (
+              <ChatPane
+                chat={activeChat}
+                state={activeState}
+                claimant={activeClaimant}
+                isSelf={activeClaimant === session.user.email}
+                disabled={activeState?.streaming === true || activeClaimedByOther}
+                onSend={(prompt) => handleSend(activeChatId, prompt)}
+                onRename={(title) => handleRename(activeChatId, title)}
+                onDelete={() => handleDelete(activeChatId)}
+              />
+            ) : (
+              <ChatPaneEmpty text="Select a chat, or start a new one." />
+            )}
+
+            {chatLayout === "split" &&
+              (teammateChatId && teammateChat ? (
+                <ChatPane
+                  chat={teammateChat}
+                  state={teammateState}
+                  claimant={teammateClaimant}
+                  isSelf={teammateClaimant === session.user.email}
+                  disabled={teammateState?.streaming === true || teammateClaimedByOther}
+                  onSend={(prompt) => handleSend(teammateChatId, prompt)}
+                  onRename={(title) => handleRename(teammateChatId, title)}
+                  onDelete={() => handleDelete(teammateChatId)}
+                />
+              ) : (
+                <ChatPaneEmpty text="No teammate is in a chat right now." />
+              ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -237,7 +303,7 @@ function App() {
   return (
     <RoomProvider
       id={ROOM_ID}
-      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null }}
+      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <AppShell session={session} />

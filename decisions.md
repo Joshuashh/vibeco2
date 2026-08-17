@@ -1,5 +1,45 @@
 # Vibeco2 — Decisions Log
 
+## Hand-off (2026-08-17 session)
+
+**Goal for this session:** get to an MVP for a weekend co-founder test.
+
+**What changed (uncommitted — see "Open items" below):**
+- **Real bugs fixed:** native `.app` was silently stale after the redesign commit (rebuilt); `claude` CLI binary lookup failed under GUI launch because it shelled out via `sh` instead of the user's real login shell, missing `~/.local/bin` (`src-tauri/src/claude_binary.rs`); failed `start_session` calls now surface as a message instead of vanishing; canvas cards had two overlapping dot-grid layers (removed the static CSS one, kept React Flow's); card drag was whole-card instead of header-only, with no way to pan without accidentally dragging a card (added Space-to-pan, `src/components/CanvasView.tsx`); a `useLayoutEffect` with no dependency array in the new `Popover` component caused an infinite render loop that blanked the UI on open (fixed with a dependency array + `ResizeObserver`); a global content-box sizing gap meant any `width:100%` + padding element (the input bar in split view) rendered wider than its parent and got clipped — fixed with a global `box-sizing: border-box` reset in `src/App.css`, not a one-off patch.
+- **Session ownership vs. shared chats:** `claude_session_owner` column (migration `0005_session_owner.sql`, already applied to the live Supabase project) + transcript-priming handoff in `src/lib/transcript.ts` — see the decision entry below this one for the full rationale.
+- **Chat view rebuilt** to match the sibling Claude Code GUI: real sidebar (`src/components/Sidebar.tsx`) with search/rename/delete, resizable via `src/components/ResizeDivider.tsx`, markdown rendering (`react-markdown`, new dependency), auto-scroll, centered/capped message column, per-chat title bar.
+- **Split view:** two chat panes side by side (`src/components/ChatPane.tsx`) — your active chat + whichever chat your co-founder currently has claimed (auto-follow, no picker — reasonable only because it's a 2-person team). Single/Split toggle added to the toolbar.
+- **Presence & live cursors:** deterministic per-user color (`src/lib/presenceColor.ts`, tested), face-pile avatars top-right, live multiplayer cursors (`src/components/LiveCursors.tsx`), colored claim indicators on canvas cards and chat pane title bars.
+- **Real popup menus** (`src/components/Popover.tsx`) replacing the old click-to-cycle model/effort/permission pills — same collision/flip-to-avoid-edges logic as the Swift app's `DropdownMenu.swift`.
+- Toolbar redocked as a normal top bar (was a floating overlay); several visual cleanups (removed terminal icon placeholder, some divider lines, cursor styling, chat-view sizes/colors matched to the Swift app's exact point values).
+- Dev workflow switched from `tauri build --debug` + relaunch to `npx tauri dev` (hot reload) — much faster iteration; currently running in the background of this session.
+
+**Open items / known gaps:**
+- **Nothing is committed.** The entire list above is sitting in the working tree uncommitted (see `git status` — new dependency `react-markdown` in `package.json`/`package-lock.json` too). This is the single most important thing to resolve before anything else.
+- Sign-out only lives in the Chat view sidebar now (moved there per explicit request) — **Canvas view currently has no way to sign out.** Deliberately left as-is; revisit when Canvas gets its own overhaul pass.
+- `npx tauri dev` is running in this session's background process — it will die when this session ends. Next session needs to run it again for hot reload (or `tauri build --debug` for a real bundle check).
+- Manual multi-person verification (two real accounts, claim handoff, split-view auto-follow) hasn't been exercised end-to-end — only single-account testing this session.
+
+**Next steps:**
+1. Review the diff and commit (probably worth a few logical commits rather than one giant one — CLI/bug fixes, chat-view redesign, split-view + presence, styling — rather than a single commit).
+2. Push — `main` is currently 14 commits ahead of `origin/main` from *before* this session even started, plus everything new.
+3. Test the split-view + presence + session-handoff features with an actual second person/account.
+4. Canvas-view sign-out gap, if it matters before the co-founder test.
+
+## Session ownership vs. shared chats: transcript-priming for handoff, not shared native resume (2026-08-06)
+
+**The conflict:** chats are a shared, claimable resource (any teammate can pick one up and send the next message — the whole point of the canvas-view multi-chat model). But `claude --resume <session_id>` is not portable — the CLI reads a transcript file that lives on whoever's machine/account created that session. A different person claiming a chat and hitting send would silently fail to resume (or the Rust `invoke` would error) because that session doesn't exist on their machine.
+
+**Decided:** Track a `claude_session_owner` (the Supabase user id) alongside `claude_session_id` on `chats` (migration `0005_session_owner.sql`). On send (`App.tsx` `handleSend`):
+- If the sender **is** the owner (or no session exists yet): behave as before — native `--resume`, cheap and perfectly faithful.
+- If the sender is **not** the owner: skip `--resume` entirely (`resumeSessionId: null`), and instead prepend a compact serialized transcript of the chat's stored message history (`src/lib/transcript.ts`'s `buildTranscriptPreamble`) ahead of the new prompt, so the fresh CLI session Claude starts under the new claimant's account still has situational awareness of what happened before. Ownership then transfers to whoever's session just started (`updateChatSession` sets both fields together on `session_started`).
+
+**Why this option over the alternatives considered:**
+- *Never use native resume, always inject transcript* — rejected: makes even the common case (same person continuing their own chat) pay the reconstruction cost and lose the CLI's native transcript fidelity, for no benefit in that case.
+- *Don't attempt context handoff at all* — rejected: defeats the actual point of a shared/claimable chat model; a teammate picking up someone else's in-flight work would have Claude respond as if it had no idea what was being discussed.
+
+**Consequence:** The first message after a handoff costs more tokens (full prior transcript resent as a preamble) and tool-use results are summarized as `[used tool: X]` rather than replayed in full — a deliberate lossy compromise to keep the preamble cheap. Every message after that handoff is a normal, cheap native resume again until the next handoff.
+
 ## Realtime/multiplayer backend: Liveblocks, not Supabase Realtime (2026-08-04)
 
 **Decided:** Split the backend — Supabase (Postgres + Auth) for durable state, Liveblocks for the realtime/multiplayer layer (chat delivery, live cursors, canvas card position sync, live-streamed AI conversation content). Supabase remains the persistence/auth layer; it is not being replaced.

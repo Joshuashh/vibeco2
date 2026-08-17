@@ -1,3 +1,14 @@
+/* Without this, any `width: 100%` element with its own padding (content-box
+   is the default) renders wider than its parent by exactly that padding —
+   e.g. .input-bar in a split chat pane overflowed and got clipped by the
+   pane's rounded corners. Standard modern-CSS baseline; fixes the whole
+   category at once instead of patching each overflowing element. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 /* React Flow (and any absolutely-positioned full-screen view) needs a sized
    ancestor chain — without this, html/body/#root default to height:auto and
    collapse to zero since every child here is position:absolute. */
@@ -52,6 +63,8 @@ body,
   position: relative;
   width: 100%;
   height: 100vh;
+  display: flex;
+  flex-direction: column;
   background-color: var(--bg-primary);
 }
 
@@ -84,7 +97,7 @@ button {
 }
 
 button {
-  cursor: pointer;
+  cursor: default;
 }
 
 button:hover {
@@ -159,29 +172,80 @@ button:disabled {
 /* ---- Toolbar ---- */
 
 .toolbar {
-  position: absolute;
-  top: 1em;
-  left: 1em;
-  right: 1em;
-  z-index: 5;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-bottom: 1px solid var(--border);
   padding: 0.7em 1em;
 }
 
-.toolbar-actions {
+.toolbar-side {
+  flex: 1;
   display: flex;
   align-items: center;
+}
+
+.toolbar-actions {
+  justify-content: flex-end;
   gap: 0.6em;
 }
 
-.presence-bar {
-  font-size: 0.8em;
-  color: var(--text-secondary);
+.presence-facepile {
+  display: flex;
+}
+
+.presence-avatar {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid;
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: -8px;
+}
+.presence-avatar:first-child {
+  margin-left: 0;
+}
+
+/* ---- Live cursors ---- */
+
+.live-cursors-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.live-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.live-cursor svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.live-cursor-label {
+  display: inline-block;
+  margin-left: 14px;
+  margin-top: -4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
 }
 
 .view-toggle {
@@ -211,19 +275,287 @@ button:disabled {
   color: var(--text-primary);
 }
 
-.chat-switcher {
+.view-toggle button:disabled {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+/* ---- Chat view (docked sidebar + chat, ported from the sibling
+   Claude Code GUI's AppShell/Sidebar) ---- */
+
+.chat-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.resize-divider {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+}
+.resize-divider::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.resize-divider-hover::before {
+  background: var(--accent);
+}
+
+.sidebar-panel {
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar-navrow {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
   font-size: 0.85em;
-  padding: 0.5em 0.8em;
+  padding: 0.55em 0.7em;
+  margin: 0.15em 0.6em;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: default;
+}
+.sidebar-navrow svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
+}
+.sidebar-navrow:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+.sidebar-navrow:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+.sidebar-navrow-primary {
+  margin-top: 0.8em;
+  font-weight: 500;
+}
+.sidebar-navrow-selected {
+  background: var(--bg-tertiary);
+}
+
+.sidebar-nav {
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0.7em 0.6em;
+  padding: 0.5em 0.6em;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+.sidebar-search svg {
+  width: 14px;
+  height: 14px;
+  stroke: var(--text-tertiary);
+  fill: none;
+  flex-shrink: 0;
+}
+.sidebar-search input {
+  all: unset;
+  flex: 1;
+  font-size: 0.8em;
+  color: var(--text-primary);
+}
+
+.sidebar-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-section-header {
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  padding: 0.4em 1em;
+}
+
+.sidebar-empty {
+  font-size: 0.8em;
+  color: var(--text-tertiary);
+  padding: 0 1em;
+}
+
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4em;
+  margin: 0.05em 0.6em;
+  padding: 0.5em 0.6em;
+  border-radius: 6px;
+  cursor: default;
+}
+.sidebar-row:hover {
+  background: var(--bg-secondary);
+}
+.sidebar-row-active {
+  background: var(--bg-tertiary);
+}
+.sidebar-row-title {
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.7em;
+  border-top: 1px solid var(--border);
+}
+.sidebar-avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  font-size: 0.7em;
+  font-weight: 500;
+}
+.sidebar-email {
+  flex: 1;
+  font-size: 0.78em;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button-sm {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+/* Split view: your own chat and a teammate's, side by side, each its own
+   rounded card — not one flush full-width pane. */
+.chat-panes {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+}
+
+.chat-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #151515;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.chat-pane-empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 0.9em;
+}
+
+/* Matches the sibling Claude Code GUI's fixed 770pt conversation column:
+   full-width title bar and scroll container (so the scrollbar sits at the
+   real edge), with only the content inside capped and centered. */
+.chat-pane > .input-bar {
+  width: 100%;
+  max-width: 770px;
+  margin: 0 auto;
+}
+
+.chat-view-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-view-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 0.9em 1em;
+  flex-shrink: 0;
+}
+
+.chat-view-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chat-view-claim {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-left: 0.8em;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-view-titlebar-actions {
+  position: absolute;
+  right: 1em;
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
 }
 
 /* ---- Canvas ---- */
 
 .canvas-view {
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-height: 0;
+  position: relative;
   background-color: var(--canvas-bg);
-  background-image: radial-gradient(circle, var(--canvas-dot) 1.5px, transparent 1.5px);
-  background-size: 28px 28px;
+}
+
+.canvas-view .react-flow__pane {
+  cursor: default;
+}
+
+/* Beats the library's own `.react-flow__node.draggable { cursor: grab }`
+   (same specificity) so the whole card isn't grab-cursored — only the
+   header (the actual drag handle) should be. */
+.canvas-view .react-flow__node.draggable {
+  cursor: default;
 }
 
 .group-label {
@@ -236,7 +568,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.3em 0.9em;
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
 }
 
@@ -305,7 +637,7 @@ button:disabled {
   display: flex;
   gap: 1em;
   align-items: center;
-  cursor: pointer;
+  cursor: default;
   font-size: 13px;
 }
 
@@ -371,8 +703,8 @@ button:disabled {
 /* ---- Chat card ---- */
 
 .chat-card {
-  width: 640px;
-  max-height: 82vh;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -382,12 +714,37 @@ button:disabled {
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
 }
 
+/* Resize handles: invisible until the card is hovered, per edge/corner. */
+.chat-card-resize-line {
+  border-color: transparent;
+}
+.chat-card-resize-handle {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  width: 12px !important;
+  height: 12px !important;
+}
+.react-flow__node:hover .chat-card-resize-line {
+  border-color: var(--te-accent, #ed6b26);
+}
+.react-flow__node:hover .chat-card-resize-handle {
+  opacity: 1;
+  background: var(--te-accent, #ed6b26);
+  border-radius: 3px;
+}
+
 .chat-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 1.1em 1.3em;
   border-bottom: 1px solid var(--border);
+  cursor: grab;
+}
+
+.react-flow__node.dragging .chat-card-header {
+  cursor: grabbing;
 }
 
 .chat-card-title {
@@ -402,24 +759,25 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.3em;
+  flex-shrink: 0;
 }
 
 .chat-card-claim {
   font-size: 0.8em;
-  color: var(--held);
+  color: var(--text-secondary);
   padding: 0.6em 1.3em;
   border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
   display: flex;
   align-items: center;
-  gap: 0.4em;
+  gap: 0.5em;
 }
 
-.chat-card-claim svg {
-  width: 13px;
-  height: 13px;
-  stroke: var(--held);
-  fill: none;
-  stroke-width: 2;
+.claim-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .chat-card-held,
@@ -450,7 +808,7 @@ button:disabled {
 
 .icon-button {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   width: 34px;
   height: 34px;
   display: flex;
@@ -458,7 +816,6 @@ button:disabled {
   justify-content: center;
   color: var(--text-tertiary);
   border-radius: 8px;
-  box-sizing: border-box;
 }
 
 .icon-button svg {
@@ -502,8 +859,8 @@ button:disabled {
 
 .chat-card-menu-dropdown button {
   all: unset;
-  cursor: pointer;
-  font-size: 0.85em;
+  cursor: default;
+  font-size: 13px;
   padding: 0.55em 0.7em;
   border-radius: 6px;
   color: var(--text-primary);
@@ -522,6 +879,104 @@ button:disabled {
   background: transparent;
 }
 
+.chat-card-menu-dropdown button.destructive {
+  color: var(--danger);
+}
+
+/* ---- Popover (model/effort/permission pickers) — matches the sibling
+   Claude Code GUI's popoverChrome()/PopoverRow exactly (colors, sizes). ---- */
+
+.popover-menu {
+  z-index: 100;
+  padding: 4px 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.popover-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  padding: 10px 14px 4px;
+}
+
+.popover-row {
+  all: unset;
+  display: flex;
+  align-items: center;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.popover-row:hover {
+  background: rgba(236, 236, 236, 0.08);
+}
+
+.popover-row-indent {
+  padding-left: 24px;
+}
+
+.popover-row-title {
+  color: var(--text-primary);
+}
+
+.popover-row-tint-purple {
+  color: #a855f7;
+}
+
+.popover-row-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 2px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+.popover-row-spacer {
+  flex: 1;
+}
+
+.popover-row-check {
+  display: flex;
+  width: 11px;
+  height: 11px;
+  color: var(--text-primary);
+}
+.popover-row-check svg {
+  width: 100%;
+  height: 100%;
+}
+
+.popover-row-chevron {
+  display: flex;
+  width: 10px;
+  height: 10px;
+  color: var(--text-tertiary);
+}
+.popover-row-chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.popover-row-shortcut {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.popover-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
 .chat-card-rename-input {
   width: 100%;
   font-size: 0.85em;
@@ -529,6 +984,13 @@ button:disabled {
 }
 
 /* ---- Messages ---- */
+
+.chat-card-scroll-region {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .message-list,
 .chat-view {
@@ -541,6 +1003,19 @@ button:disabled {
   min-height: 0;
 }
 
+/* Docked chat view: .chat-view is the real (full-width) scroll container so
+   its scrollbar sits at the window edge; the nested .message-list becomes a
+   plain, capped/centered content block instead of scrolling itself. */
+.chat-view .message-list {
+  flex: none;
+  overflow-y: visible;
+  max-width: 770px;
+  width: 100%;
+  margin: 0 auto;
+  padding-left: 1em;
+  padding-right: 1em;
+}
+
 .message-user {
   display: flex;
   justify-content: flex-end;
@@ -548,8 +1023,8 @@ button:disabled {
 
 .message-bubble {
   background: var(--user-bubble);
-  border-radius: 20px;
-  padding: 0.7em 1.1em;
+  border-radius: 16px;
+  padding: 9px 14px;
   max-width: 82%;
 }
 
@@ -562,12 +1037,90 @@ button:disabled {
 }
 
 .message-text {
+  font-size: 14px;
   margin: 0 0 0.4em;
   line-height: 1.6;
 }
 
 .message-text:last-child {
   margin-bottom: 0;
+}
+
+.markdown > *:first-child {
+  margin-top: 0;
+}
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.8em 0 0.3em;
+}
+.markdown h1 {
+  font-size: 18px;
+}
+.markdown h2 {
+  font-size: 16px;
+}
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 15px;
+}
+.markdown p {
+  margin: 0 0 0.7em;
+}
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+.markdown li {
+  margin: 0.15em 0;
+}
+.markdown a {
+  color: var(--accent);
+}
+.markdown strong {
+  font-weight: 700;
+}
+.markdown code {
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-size: 13px;
+  background: var(--bg-secondary);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+.markdown pre {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 0 0 0.7em;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+.markdown blockquote {
+  margin: 0 0 0.7em;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--border);
+  color: var(--text-secondary);
+}
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
 }
 
 /* ---- Tool rows ---- */
@@ -580,12 +1133,12 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.5em;
-  font-size: 0.85em;
+  font-size: 13px;
   color: var(--text-tertiary);
 }
 
 .tool-row-expandable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .tool-icon {
@@ -618,7 +1171,7 @@ button:disabled {
 
 .tool-file {
   font-family: "SF Mono", monospace;
-  font-size: 0.92em;
+  font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-secondary);
   padding: 0.15em 0.5em;
@@ -636,7 +1189,7 @@ button:disabled {
 
 .tool-detail {
   font-family: "SF Mono", monospace;
-  font-size: 0.82em;
+  font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-secondary);
   padding: 0.7em 0.9em;
@@ -653,13 +1206,14 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.5em;
-  font-size: 0.85em;
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 
 .flower-spinner {
   color: var(--accent);
-  font-size: 1.05em;
+  font-size: 13px;
+  font-weight: 300;
 }
 
 /* ---- Input bar ---- */
@@ -672,19 +1226,28 @@ button:disabled {
   gap: 0.6em;
 }
 
+.chat-pane .input-bar {
+  border-top: none;
+  padding-left: 1em;
+  padding-right: 1em;
+}
+
 .input-toprow,
 .input-bottomrow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 0.4em;
   gap: 0.4em;
 }
 
 .input-spacer {
-  flex: 1;
+  flex: 1 1 0%;
+  min-width: 0;
 }
 
 .input-box {
-  background: var(--bg-secondary);
+  background: #20201f;
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 0.9em 3em 0.9em 1em;
@@ -696,7 +1259,7 @@ button:disabled {
   display: block;
   width: 100%;
   resize: none;
-  font-size: 1em;
+  font-size: 14px;
   color: var(--text-primary);
   font-family: inherit;
   line-height: 1.4;
@@ -712,7 +1275,7 @@ button:disabled {
 
 .send-button {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   position: absolute;
   right: 0.6em;
   top: 0.6em;
@@ -723,7 +1286,6 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
 }
 
 .send-button svg {
@@ -749,7 +1311,7 @@ button:disabled {
 
 .pill {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
@@ -784,7 +1346,7 @@ button:disabled {
 
 .context-button {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   width: 26px;
   height: 26px;
   display: flex;
@@ -826,7 +1388,7 @@ button:disabled {
 
 .attachment-chip button {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   color: var(--text-tertiary);
   font-size: 1.1em;
   line-height: 1;
