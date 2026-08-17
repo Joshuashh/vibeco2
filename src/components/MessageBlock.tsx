@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import type { ContentBlock } from "../types/message";
 
 function describeTool(name: string, input: unknown): { summary: string; file: string | null } {
@@ -17,11 +18,19 @@ function describeTool(name: string, input: unknown): { summary: string; file: st
   }
 }
 
-export function MessageBlock({ block }: { block: ContentBlock }) {
+export function MessageBlock({ block, markdown = false }: { block: ContentBlock; markdown?: boolean }) {
   const [expanded, setExpanded] = useState(false);
 
   if (block.kind === "text") {
-    return <p className="message-text">{block.text}</p>;
+    // Matches the sibling Claude Code GUI: only assistant text is rendered as
+    // markdown (MarkdownText.swift) — user bubbles show plain text there too.
+    return markdown ? (
+      <div className="message-text markdown">
+        <ReactMarkdown>{block.text}</ReactMarkdown>
+      </div>
+    ) : (
+      <p className="message-text">{block.text}</p>
+    );
   }
 
   const { summary, file } = describeTool(block.name, block.input);

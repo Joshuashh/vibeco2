@@ -12,6 +12,11 @@ export function MessageList({ messages, streaming }: { messages: Message[]; stre
     streamStartRef.current = streaming ? Date.now() : null;
   }, [streaming]);
 
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length, streaming]);
+
   return (
     <div className="message-list">
       {messages.map((message, i) =>
@@ -26,12 +31,13 @@ export function MessageList({ messages, streaming }: { messages: Message[]; stre
         ) : (
           <div key={i} className="message-assistant">
             {message.blocks.map((block, j) => (
-              <MessageBlock key={j} block={block} />
+              <MessageBlock key={j} block={block} markdown />
             ))}
           </div>
         )
       )}
       {streaming && <ThinkingIndicator startedAt={streamStartRef.current ?? Date.now()} />}
+      <div ref={bottomRef} />
     </div>
   );
 }

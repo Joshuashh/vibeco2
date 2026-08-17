@@ -1,28 +1,13 @@
 import { useState } from "react";
 
-export function TerminalToggle() {
-  const [active, setActive] = useState(false);
-  return (
-    <button
-      type="button"
-      className={active ? "icon-button icon-button-active" : "icon-button"}
-      title="Terminal"
-      onClick={() => setActive((a) => !a)}
-    >
-      <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M7 9l3 3-3 3M13 15h4" />
-      </svg>
-    </button>
-  );
-}
-
 export function ChatCardMenu({
   title,
   onRename,
+  onDelete,
 }: {
   title: string;
   onRename: (newTitle: string) => void;
+  onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -80,6 +65,18 @@ export function ChatCardMenu({
             <button type="button" disabled title="Not yet available">
               Archive
             </button>
+            {onDelete && (
+              <button
+                type="button"
+                className="destructive"
+                onClick={() => {
+                  setOpen(false);
+                  onDelete();
+                }}
+              >
+                Delete
+              </button>
+            )}
           </div>
         ))}
     </div>
