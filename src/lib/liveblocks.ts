@@ -32,6 +32,7 @@ export const ROOM_ID = "vibeco2-global";
 type Presence = {
   email: string;
   claimedChatId: string | null;
+  cursor: { x: number; y: number } | null;
 };
 
 type Storage = {

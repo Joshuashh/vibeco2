@@ -13,6 +13,11 @@ export function ViewToggle({
       <button className={mode === "canvas" ? "active" : ""} onClick={() => onChange("canvas")}>
         Canvas
       </button>
+      {/* ponytail: no build-preview backend yet — visual slot only, per this
+          project's established pattern (see Sidebar's Projects/Skills rows). */}
+      <button disabled title="Not yet available">
+        Preview
+      </button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -47,6 +47,41 @@ function FocusOnNewChats({ chatIds }: { chatIds: string[] }) {
   }, [chatIds, fitView]);
 
   return null;
+}
+
+// Figma-style pan gesture: dragging the empty canvas only pans while Space
+// is held, so an accidental drag never moves the whole board. Ignored while
+// focus is in a text field so typing a literal space doesn't trigger it.
+function useSpaceHeld(): boolean {
+  const [held, setHeld] = useState(false);
+
+  useEffect(() => {
+    function isTyping(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return false;
+      return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "Space" && !isTyping(e.target)) setHeld(true);
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === "Space") setHeld(false);
+    }
+    function onBlur() {
+      setHeld(false);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  return held;
 }
 
 interface CanvasViewProps {
@@ -145,6 +180,8 @@ export function CanvasView({
           id: chat.id,
           type: "chatCard",
           position,
+          dragHandle: ".chat-card-header",
+          style: existing?.style ?? { width: 640, height: 760 },
           data: {
             chat,
             state: chatStates[chat.id] ?? { messages: [], streaming: false },
@@ -266,6 +303,8 @@ export function CanvasView({
     [nodes, setPosition, recomputeGroups]
   );
 
+  const spaceHeld = useSpaceHeld();
+
   return (
     <div className="canvas-view">
       <ReactFlowProvider>
@@ -277,9 +316,10 @@ export function CanvasView({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
+          panOnDrag={spaceHeld}
           fitView
         >
-          <Background />
+          <Background color="var(--canvas-dot)" gap={28} size={1.5} />
           <FocusOnNewChats chatIds={chats.map((c) => c.id)} />
         </ReactFlow>
       </ReactFlowProvider>

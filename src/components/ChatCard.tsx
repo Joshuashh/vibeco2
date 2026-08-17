@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { Node, NodeProps } from "@xyflow/react";
+import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
+import { colorForUser } from "../lib/presenceColor";
 import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
-import { ChatCardMenu, TerminalToggle } from "./ChatCardMenu";
+import { ChatCardMenu } from "./ChatCardMenu";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
 
@@ -70,11 +71,11 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
 
   return (
     <div className={flagged ? `chat-card chat-card-${mergeStatus}` : "chat-card"}>
+      <NodeResizer minWidth={420} minHeight={320} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
       <div className="chat-card-header">
         <span className="chat-card-title">{chat.title ?? "Untitled chat"}</span>
         <div className="chat-card-actions">
           {flagged && <span className="chat-card-badge">⚠ {mergeStatus}</span>}
-          <TerminalToggle />
           <button className="icon-button" title="Expand" onClick={() => onExpand(chat.id)}>
             <ExpandIcon />
           </button>
@@ -96,16 +97,17 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
         </div>
       </div>
       {claimant && (
-        <div className="chat-card-claim">
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
-          </svg>
+        <div className="chat-card-claim" style={{ borderLeftColor: colorForUser(claimant) }}>
+          <span className="claim-dot" style={{ background: colorForUser(claimant) }} />
           {claimant} is working here
         </div>
       )}
-      <MessageList messages={state.messages} streaming={state.streaming} />
-      <InputBar onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
+      <div className="nodrag nowheel chat-card-scroll-region">
+        <MessageList messages={state.messages} streaming={state.streaming} />
+      </div>
+      <div className="nodrag nowheel">
+        <InputBar onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
+      </div>
     </div>
   );
 }
