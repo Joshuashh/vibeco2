@@ -60,8 +60,11 @@ export async function updateChatTitle(chatId: string, title: string): Promise<vo
   if (error) throw new Error(`failed to update chat title: ${error.message}`);
 }
 
-export async function updateChatSessionId(chatId: string, sessionId: string): Promise<void> {
-  const { error } = await supabase.from("chats").update({ claude_session_id: sessionId }).eq("id", chatId);
+export async function updateChatSession(chatId: string, sessionId: string, ownerId: string): Promise<void> {
+  const { error } = await supabase
+    .from("chats")
+    .update({ claude_session_id: sessionId, claude_session_owner: ownerId })
+    .eq("id", chatId);
   if (error) throw new Error(`failed to update chat session id: ${error.message}`);
 }
 

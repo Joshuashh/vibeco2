@@ -5,5 +5,6 @@ export interface ChatRow {
   position_x: number | null;
   position_y: number | null;
   claude_session_id: string | null;
+  claude_session_owner: string | null;
   created_at: string;
 }

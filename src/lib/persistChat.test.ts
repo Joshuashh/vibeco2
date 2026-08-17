@@ -4,7 +4,7 @@ import {
   rowsToMessages,
   fetchAllChats,
   updateChatPosition,
-  updateChatSessionId,
+  updateChatSession,
   deleteChat,
 } from "./persistChat";
 import type { Message } from "../types/message";
@@ -63,17 +63,17 @@ describe("updateChatPosition", () => {
   });
 });
 
-describe("updateChatSessionId", () => {
+describe("updateChatSession", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("updates claude_session_id for the given chat id", async () => {
+  it("updates claude_session_id and claude_session_owner for the given chat id", async () => {
     const eq = vi.fn().mockResolvedValue({ error: null });
     const update = vi.fn().mockReturnValue({ eq });
     vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
-    await updateChatSessionId("c1", "sess-1");
+    await updateChatSession("c1", "sess-1", "user-1");
 
-    expect(update).toHaveBeenCalledWith({ claude_session_id: "sess-1" });
+    expect(update).toHaveBeenCalledWith({ claude_session_id: "sess-1", claude_session_owner: "user-1" });
     expect(eq).toHaveBeenCalledWith("id", "c1");
   });
 });
