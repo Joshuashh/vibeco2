@@ -42,12 +42,16 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
             {promoting ? "Promoting…" : "Promote to main"}
           </button>
         </div>
-        <iframe
-          key={data.refreshKey}
-          className="build-preview-frame"
-          src={TEAM_PREVIEW_URL}
-          title="Live team preview"
-        />
+        {data.mergeEvents.length === 0 ? (
+          <div className="build-preview-empty">No preview yet — press Render Preview on a chat to start one</div>
+        ) : (
+          <iframe
+            key={data.refreshKey}
+            className="build-preview-frame"
+            src={TEAM_PREVIEW_URL}
+            title="Live team preview"
+          />
+        )}
       </div>
       <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>
         <span className="main-agent-label">⬡ MAIN AGENT</span>
