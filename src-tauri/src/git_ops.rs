@@ -41,7 +41,11 @@ pub fn ensure_chat_worktree(root: &Path, chat_id: &str) -> Result<PathBuf, Strin
     }
     let branch = merge_paths::chat_branch_name(chat_id);
     let path_str = path.to_string_lossy().to_string();
-    let output = run_git(root, &["worktree", "add", "-b", &branch, &path_str, "main"])?;
+    let output = if branch_exists(root, &branch) {
+        run_git(root, &["worktree", "add", &path_str, &branch])?
+    } else {
+        run_git(root, &["worktree", "add", "-b", &branch, &path_str, "main"])?
+    };
     if !output.status.success() {
         return Err(format!("git worktree add failed: {}", String::from_utf8_lossy(&output.stderr)));
     }
