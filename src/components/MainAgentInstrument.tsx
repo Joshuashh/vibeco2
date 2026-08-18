@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import type { Node, NodeProps } from "@xyflow/react";
+import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MergeEvent } from "../lib/mergeEvents";
 import { countByStatus, insertMergeEvent } from "../lib/mergeEvents";
+import { RenderPreviewButton } from "./RenderPreviewButton";
 
 export interface MainAgentInstrumentData {
   mergeEvents: MergeEvent[];
   refreshKey: number;
+  // Whichever chat the current user has claimed, if any — the preview box
+  // renders/merges *that* chat's work rather than needing its own per-chat
+  // picker (moved here from the chat card itself per explicit request).
+  activeChatId: string | null;
   [key: string]: unknown;
 }
 
@@ -50,12 +55,20 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
 
   return (
     <div className="main-agent-instrument">
+      <NodeResizer minWidth={360} minHeight={280} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
       <div className="build-preview-panel">
         <div className="build-preview-header">
-          BUILD · PREVIEW
-          <button type="button" className="pill" onClick={promote} disabled={promoting}>
-            {promoting ? "Promoting…" : "Promote to main"}
-          </button>
+          <span>BUILD · PREVIEW</span>
+          <div className="build-preview-actions nodrag">
+            {data.activeChatId ? (
+              <RenderPreviewButton chatId={data.activeChatId} />
+            ) : (
+              <span className="build-preview-hint">Claim a chat to render its preview</span>
+            )}
+            <button type="button" className="pill" onClick={promote} disabled={promoting}>
+              {promoting ? "Promoting…" : "Promote to main"}
+            </button>
+          </div>
         </div>
         {previewStatus === "ready" ? (
           <iframe

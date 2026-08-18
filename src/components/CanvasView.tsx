@@ -218,12 +218,19 @@ export function CanvasView({
         };
       });
 
+      const existingInstrument = byId.get("main-agent") as MainAgentInstrumentNode | undefined;
       const instrumentPosition = positions?.["main-agent"] ?? { x: 260, y: -220 };
       const instrumentNode: MainAgentInstrumentNode = {
         id: "main-agent",
         type: "mainAgentInstrument",
         position: instrumentPosition,
-        data: { mergeEvents, refreshKey: refreshKeyRef.current },
+        dragHandle: ".build-preview-header",
+        style: existingInstrument?.style ?? { width: 640, height: 420 },
+        data: {
+          mergeEvents,
+          refreshKey: refreshKeyRef.current,
+          activeChatId: self?.presence.claimedChatId ?? null,
+        },
       };
 
       return [...chatNodes, ...groupNodes, instrumentNode];
