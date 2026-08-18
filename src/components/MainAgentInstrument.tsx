@@ -70,18 +70,20 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
             </button>
           </div>
         </div>
-        {previewStatus === "ready" ? (
-          <iframe
-            key={data.refreshKey}
-            className="build-preview-frame"
-            src={TEAM_PREVIEW_URL}
-            title="Live team preview"
-          />
-        ) : (
-          <div className="build-preview-empty">
-            {previewStatus === "starting" ? "Starting preview…" : "Couldn't start the preview server."}
-          </div>
-        )}
+        <div className="nodrag nowheel build-preview-content">
+          {previewStatus === "ready" ? (
+            <iframe
+              key={data.refreshKey}
+              className="build-preview-frame"
+              src={TEAM_PREVIEW_URL}
+              title="Live team preview"
+            />
+          ) : (
+            <div className="build-preview-empty">
+              {previewStatus === "starting" ? "Starting preview…" : "Couldn't start the preview server."}
+            </div>
+          )}
+        </div>
       </div>
       <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>
         <span className="main-agent-label">⬡ MAIN AGENT</span>
@@ -90,7 +92,7 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
         <span className="main-agent-count main-agent-count-conflict">{counts.conflict} conflict</span>
       </div>
       {logOpen && (
-        <div className="main-agent-log">
+        <div className="nodrag nowheel main-agent-log">
           {data.mergeEvents.length === 0 && <div className="main-agent-log-empty">No merge activity yet.</div>}
           {data.mergeEvents.map((event) => (
             <div key={event.id} className={`main-agent-log-row main-agent-log-row-${event.status}`}>

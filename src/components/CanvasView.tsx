@@ -180,7 +180,13 @@ export function CanvasView({
           id: chat.id,
           type: "chatCard",
           position,
-          dragHandle: ".chat-card-header",
+          // No dragHandle: NodeResizer's own corner/edge controls already
+          // exclude themselves from starting a node drag (via its internal
+          // nodrag marking). A custom dragHandle selector doesn't know
+          // about those controls, so restricting drag to the header — which
+          // visually contains the top corner resize handles — made the two
+          // fight over the same mousedown. The scroll region and input bar
+          // are still excluded from dragging via their own `.nodrag` class.
           style: existing?.style ?? { width: 640, height: 760 },
           data: {
             chat,
@@ -224,7 +230,9 @@ export function CanvasView({
         id: "main-agent",
         type: "mainAgentInstrument",
         position: instrumentPosition,
-        dragHandle: ".build-preview-header",
+        // Same reasoning as chatCard above — no dragHandle, so it doesn't
+        // fight with NodeResizer's own corner controls. Interactive
+        // sub-regions (buttons, iframe, log) are marked `.nodrag` instead.
         style: existingInstrument?.style ?? { width: 640, height: 420 },
         data: {
           mergeEvents,

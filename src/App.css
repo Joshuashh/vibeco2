@@ -629,6 +629,13 @@ button:disabled {
   color: var(--text-tertiary);
 }
 
+.build-preview-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .build-preview-frame {
   flex: 1;
   border: none;
@@ -733,14 +740,19 @@ button:disabled {
 /* Resize handles: always invisible, shared by chat cards and the Main Agent
    instrument. The handles are still real, hit-testable elements positioned
    along each edge/corner, so hovering them still shows the browser's native
-   resize cursor — that's the only affordance, no highlight border or dots. */
+   resize cursor — that's the only affordance, no highlight border or dots.
+   !important is needed here: React Flow's own base stylesheet targets these
+   elements as `.react-flow__resize-control.line`/`.handle` (two classes,
+   higher specificity than our one-class override), so a plain override
+   loses the cascade and its default blue (#3367d9) wins regardless of
+   source order. */
 .chat-card-resize-line {
-  border-color: transparent;
+  border-color: transparent !important;
 }
 .chat-card-resize-handle {
-  opacity: 0;
-  border: none;
-  background: transparent;
+  opacity: 0 !important;
+  border: none !important;
+  background: transparent !important;
   width: 12px !important;
   height: 12px !important;
 }
