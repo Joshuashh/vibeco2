@@ -1,5 +1,13 @@
 # Vibeco2 — Decisions Log
 
+## Known gap: `promote_to_main` doesn't advance the local `main` ref in the primary checkout (2026-08-18)
+
+**What happened:** `promote_to_main` (`src-tauri/src/git_ops.rs`) fast-forwards the *remote* `main` by pushing `origin/team:main`, but never fetches/updates the local `main` ref in the developer's own primary repo checkout. `ensure_chat_worktree` branches new chats off local `main` (`-b <branch> <path> main`), so after a promotion, new chats keep branching off an increasingly stale local `main` until someone manually runs `git pull`/`git fetch` on the primary checkout.
+
+**Why not fixed now:** updating a ref while it may be the currently-checked-out branch in the primary worktree is fiddlier than it looks (`git fetch origin main:main` refuses to update a ref that's checked out elsewhere in some configurations), and this self-heals with a manual pull — accepted as a known limitation for this lite pass rather than risking a blind fix to the primary checkout's HEAD.
+
+**Revisit when:** this starts causing real friction (new chats branching off visibly stale `main` more than once a session), or when the app gains a place to safely run `git fetch` against the primary checkout without disturbing whatever's open there.
+
 ## Merge-orchestration leaf components call `lib/*` directly, bypassing the App.tsx callback convention (2026-08-18)
 
 **What happened:** `RenderPreviewButton` (and `MainAgentInstrument`'s Promote button, same pattern) call `invoke()` and `lib/mergeEvents.ts`'s `insertMergeEvent` directly from a deeply-nested leaf component, rather than lifting the action up to an `App.tsx`-owned handler the way `handleDelete`/`handleRename` work for every other chat mutation (`ChatCardMenu`/`Sidebar` only ever call passed-in callbacks).
