@@ -33,7 +33,7 @@ export function ChatPane({
         onRename={onRename}
         onDelete={onDelete}
       />
-      <InputBar onSend={onSend} disabled={disabled} />
+      <InputBar chatId={chat.id} onSend={onSend} disabled={disabled} />
     </div>
   );
 }
