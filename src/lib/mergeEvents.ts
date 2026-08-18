@@ -35,3 +35,12 @@ export function latestStatusByChat(events: MergeEvent[]): Record<string, MergeEv
   for (const [chatId, e] of latestByChat) result[chatId] = e.status;
   return result;
 }
+
+export async function insertMergeEvent(
+  chatId: string | null,
+  status: MergeEvent["status"],
+  detail: string | null
+): Promise<void> {
+  const { error } = await supabase.from("merge_events").insert({ chat_id: chatId, status, detail });
+  if (error) throw new Error(`failed to record merge event: ${error.message}`);
+}

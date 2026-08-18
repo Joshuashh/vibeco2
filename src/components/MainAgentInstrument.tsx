@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
+import { invoke } from "@tauri-apps/api/core";
 import type { MergeEvent } from "../lib/mergeEvents";
-import { countByStatus } from "../lib/mergeEvents";
+import { countByStatus, insertMergeEvent } from "../lib/mergeEvents";
 
 export interface MainAgentInstrumentData {
   mergeEvents: MergeEvent[];
@@ -11,28 +12,62 @@ export interface MainAgentInstrumentData {
 
 export type MainAgentInstrumentNode = Node<MainAgentInstrumentData, "mainAgentInstrument">;
 
-// No same-origin fallback: this instrument's own default dev server would
-// otherwise preview itself recursively. Stays blank until a real, separate
-// target-app URL is configured (see .env.example).
-const PREVIEW_URL = import.meta.env.VITE_BUILD_PREVIEW_URL as string | undefined;
+// The team-branch dev server preview_server.rs keeps running for the app's
+// lifetime, always on this fixed port (see src-tauri/src/preview_server.rs).
+const TEAM_PREVIEW_URL = "http://localhost:5180";
 
 export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>) {
   const [logOpen, setLogOpen] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  // Whether *this* process has actually started (or confirmed running) the
+  // team preview server. Deliberately not derived from `mergeEvents` (shared
+  // Supabase state) — that stays non-empty across app restarts and other
+  // machines, so gating on it kept rendering the iframe against a server
+  // nothing in this process had actually started.
+  const [previewStatus, setPreviewStatus] = useState<"starting" | "ready" | "error">("starting");
   const counts = countByStatus(data.mergeEvents);
+
+  useEffect(() => {
+    invoke("ensure_team_preview_running")
+      .then(() => setPreviewStatus("ready"))
+      .catch((err) => {
+        console.error("ensure_team_preview_running failed", err);
+        setPreviewStatus("error");
+      });
+  }, []);
+
+  async function promote() {
+    setPromoting(true);
+    try {
+      await invoke("promote_to_main");
+      await insertMergeEvent(null, "merged", "promoted team → main");
+    } catch (err) {
+      console.error("promote_to_main failed", err);
+    } finally {
+      setPromoting(false);
+    }
+  }
 
   return (
     <div className="main-agent-instrument">
       <div className="build-preview-panel">
-        <div className="build-preview-header">BUILD · PREVIEW</div>
-        {PREVIEW_URL ? (
+        <div className="build-preview-header">
+          BUILD · PREVIEW
+          <button type="button" className="pill" onClick={promote} disabled={promoting}>
+            {promoting ? "Promoting…" : "Promote to main"}
+          </button>
+        </div>
+        {previewStatus === "ready" ? (
           <iframe
             key={data.refreshKey}
             className="build-preview-frame"
-            src={PREVIEW_URL}
-            title="Live build preview"
+            src={TEAM_PREVIEW_URL}
+            title="Live team preview"
           />
         ) : (
-          <div className="build-preview-empty">No build configured</div>
+          <div className="build-preview-empty">
+            {previewStatus === "starting" ? "Starting preview…" : "Couldn't start the preview server."}
+          </div>
         )}
       </div>
       <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>

@@ -106,7 +106,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
         <MessageList messages={state.messages} streaming={state.streaming} />
       </div>
       <div className="nodrag nowheel">
-        <InputBar onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
+        <InputBar chatId={chat.id} onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
       </div>
     </div>
   );

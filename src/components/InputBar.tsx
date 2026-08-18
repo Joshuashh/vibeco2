@@ -10,8 +10,17 @@ import {
   MicButton,
   AttachmentStrip,
 } from "./InputToolbelt";
+import { RenderPreviewButton } from "./RenderPreviewButton";
 
-export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => void; disabled: boolean }) {
+export function InputBar({
+  chatId,
+  onSend,
+  disabled,
+}: {
+  chatId: string;
+  onSend: (prompt: string) => void;
+  disabled: boolean;
+}) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -41,6 +50,8 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
       <div className="input-toprow">
         <LocationPill />
         <DirectoryPill workingDirectory="." />
+        <span className="input-spacer" />
+        <RenderPreviewButton chatId={chatId} />
       </div>
 
       <AttachmentStrip

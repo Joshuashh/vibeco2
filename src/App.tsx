@@ -120,16 +120,28 @@ function AppShell({ session }: { session: Session }) {
       const isOwner = !chat?.claude_session_id || chat.claude_session_owner === session.user.id;
       const priorMessages = chatStates[chatId]?.messages ?? [];
       const effectivePrompt = isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`;
-      invoke("start_session", {
-        chatId,
-        prompt: effectivePrompt,
-        workingDirectory: ".",
-        resumeSessionId: isOwner ? chat?.claude_session_id ?? null : null,
-      }).catch((err) => {
-        console.error("start_session failed", err);
-        const detail = err instanceof Error ? err.message : String(err);
-        setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
-      });
+      // Every chat gets its own git worktree so concurrent chats never edit
+      // the same working directory (see docs/superpowers/specs/2026-08-18-
+      // main-agent-merge-orchestration-design.md §2). Falls back to the repo
+      // root if worktree creation fails, rather than blocking the send.
+      invoke<string>("ensure_chat_worktree", { chatId })
+        .catch((err) => {
+          console.error("ensure_chat_worktree failed, falling back to repo root", err);
+          return ".";
+        })
+        .then((workingDirectory) =>
+          invoke("start_session", {
+            chatId,
+            prompt: effectivePrompt,
+            workingDirectory,
+            resumeSessionId: isOwner ? chat?.claude_session_id ?? null : null,
+          })
+        )
+        .catch((err) => {
+          console.error("start_session failed", err);
+          const detail = err instanceof Error ? err.message : String(err);
+          setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
+        });
     },
     [chats, chatStates, updateMyPresence, session.user.id]
   );
@@ -143,6 +155,9 @@ function AppShell({ session }: { session: Session }) {
 
   const handleDelete = useCallback((chatId: string) => {
     deleteChat(chatId).catch((err) => console.error("failed to delete chat", err));
+    invoke("remove_chat_worktree", { chatId }).catch((err) =>
+      console.error("failed to remove chat worktree", err)
+    );
     setChats((prev) => prev.filter((c) => c.id !== chatId));
   }, []);
 
