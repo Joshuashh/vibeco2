@@ -1,5 +1,6 @@
 mod claude_binary;
 mod claude_process;
+mod merge_paths;
 mod stream_parser;
 
 use serde::Serialize;
