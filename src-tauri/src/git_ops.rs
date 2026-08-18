@@ -81,3 +81,60 @@ pub fn ensure_team_worktree(root: &Path) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+
+pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
+    let chat_path = merge_paths::chat_worktree_path(root, chat_id);
+    if !chat_path.exists() {
+        return Err(format!("no worktree for chat {chat_id} — call ensure_chat_worktree first"));
+    }
+
+    // Commit whatever's currently in the chat's worktree, if anything changed.
+    run_git(&chat_path, &["add", "-A"])?;
+    let status = run_git(&chat_path, &["status", "--porcelain"])?;
+    if !String::from_utf8_lossy(&status.stdout).trim().is_empty() {
+        let message = format!("chat/{chat_id}: render preview");
+        let commit = run_git(&chat_path, &["commit", "-m", &message])?;
+        if !commit.status.success() {
+            return Err(format!("git commit failed: {}", String::from_utf8_lossy(&commit.stderr)));
+        }
+    }
+
+    let branch = merge_paths::chat_branch_name(chat_id);
+    let push = run_git(&chat_path, &["push", "-u", "origin", &branch])?;
+    if !push.status.success() {
+        return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr)));
+    }
+
+    let team_path = ensure_team_worktree(root)?;
+
+    // Pick up anyone else's already-pushed merges before adding ours.
+    let fetch = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH])?;
+    if !fetch.status.success() {
+        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+    }
+    let ff = run_git(&team_path, &["merge", "--ff-only", &format!("origin/{TEAM_BRANCH}")])?;
+    if !ff.status.success() {
+        return Err(format!(
+            "failed to fast-forward team branch: {}",
+            String::from_utf8_lossy(&ff.stderr)
+        ));
+    }
+
+    let merge = run_git(&team_path, &["merge", "--no-edit", &branch])?;
+    if !merge.status.success() {
+        let conflicted = run_git(&team_path, &["diff", "--name-only", "--diff-filter=U"])?;
+        let files: Vec<String> = String::from_utf8_lossy(&conflicted.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+        run_git(&team_path, &["merge", "--abort"])?;
+        return Ok(MergeOutcome::Conflict { files });
+    }
+
+    let push_team = run_git(&team_path, &["push", "origin", TEAM_BRANCH])?;
+    if !push_team.status.success() {
+        return Err(format!("git push (team) failed: {}", String::from_utf8_lossy(&push_team.stderr)));
+    }
+
+    Ok(MergeOutcome::Clean)
+}
