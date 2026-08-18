@@ -81,7 +81,7 @@ fn remove_chat_worktree(chat_id: String) -> Result<(), String> {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase", tag = "status")]
+#[serde(tag = "status")]
 enum RenderPreviewResult {
     Clean,
     Conflict { files: Vec<String> },
