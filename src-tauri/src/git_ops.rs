@@ -138,3 +138,21 @@ pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String
 
     Ok(MergeOutcome::Clean)
 }
+
+pub fn promote_to_main(root: &Path) -> Result<(), String> {
+    let fetch = run_git(root, &["fetch", "origin", TEAM_BRANCH])?;
+    if !fetch.status.success() {
+        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+    }
+    // `main` only ever advances by fast-forward through this path — git
+    // itself refuses the push if that's not possible, which is exactly the
+    // safety net we want if that invariant is ever violated by mistake.
+    let push = run_git(root, &["push", "origin", &format!("origin/{TEAM_BRANCH}:main")])?;
+    if !push.status.success() {
+        return Err(format!(
+            "promotion failed (main may have moved — pull and retry): {}",
+            String::from_utf8_lossy(&push.stderr)
+        ));
+    }
+    Ok(())
+}
