@@ -2,6 +2,7 @@ mod claude_binary;
 mod claude_process;
 mod git_ops;
 mod merge_paths;
+mod preview_server;
 mod stream_parser;
 
 use serde::Serialize;
