@@ -67,11 +67,62 @@ fn start_session(
     Ok(())
 }
 
+#[tauri::command]
+fn ensure_chat_worktree(chat_id: String) -> Result<String, String> {
+    let root = git_ops::repo_root()?;
+    let path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn remove_chat_worktree(chat_id: String) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    git_ops::remove_chat_worktree(&root, &chat_id)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase", tag = "status")]
+enum RenderPreviewResult {
+    Clean,
+    Conflict { files: Vec<String> },
+}
+
+#[tauri::command]
+fn render_preview(
+    state: tauri::State<preview_server::TeamPreviewServer>,
+    chat_id: String,
+) -> Result<RenderPreviewResult, String> {
+    let root = git_ops::repo_root()?;
+    let outcome = git_ops::render_preview(&root, &chat_id)?;
+    if let git_ops::MergeOutcome::Clean = outcome {
+        let team_path = merge_paths::team_worktree_path(&root);
+        state.ensure_running(&team_path)?;
+    }
+    Ok(match outcome {
+        git_ops::MergeOutcome::Clean => RenderPreviewResult::Clean,
+        git_ops::MergeOutcome::Conflict { files } => RenderPreviewResult::Conflict { files },
+    })
+}
+
+#[tauri::command]
+fn promote_to_main() -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    git_ops::promote_to_main(&root)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, start_session])
+        .manage(preview_server::TeamPreviewServer::new())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            start_session,
+            ensure_chat_worktree,
+            remove_chat_worktree,
+            render_preview,
+            promote_to_main
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
