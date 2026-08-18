@@ -110,6 +110,13 @@ fn promote_to_main() -> Result<(), String> {
     git_ops::promote_to_main(&root)
 }
 
+#[tauri::command]
+fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewServer>) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    let team_path = git_ops::ensure_team_worktree(&root)?;
+    state.ensure_running(&team_path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -121,7 +128,8 @@ pub fn run() {
             ensure_chat_worktree,
             remove_chat_worktree,
             render_preview,
-            promote_to_main
+            promote_to_main,
+            ensure_team_preview_running
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

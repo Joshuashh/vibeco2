@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MergeEvent } from "../lib/mergeEvents";
@@ -19,7 +19,22 @@ const TEAM_PREVIEW_URL = "http://localhost:5180";
 export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>) {
   const [logOpen, setLogOpen] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  // Whether *this* process has actually started (or confirmed running) the
+  // team preview server. Deliberately not derived from `mergeEvents` (shared
+  // Supabase state) — that stays non-empty across app restarts and other
+  // machines, so gating on it kept rendering the iframe against a server
+  // nothing in this process had actually started.
+  const [previewStatus, setPreviewStatus] = useState<"starting" | "ready" | "error">("starting");
   const counts = countByStatus(data.mergeEvents);
+
+  useEffect(() => {
+    invoke("ensure_team_preview_running")
+      .then(() => setPreviewStatus("ready"))
+      .catch((err) => {
+        console.error("ensure_team_preview_running failed", err);
+        setPreviewStatus("error");
+      });
+  }, []);
 
   async function promote() {
     setPromoting(true);
@@ -42,15 +57,17 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
             {promoting ? "Promoting…" : "Promote to main"}
           </button>
         </div>
-        {data.mergeEvents.length === 0 ? (
-          <div className="build-preview-empty">No preview yet — press Render Preview on a chat to start one</div>
-        ) : (
+        {previewStatus === "ready" ? (
           <iframe
             key={data.refreshKey}
             className="build-preview-frame"
             src={TEAM_PREVIEW_URL}
             title="Live team preview"
           />
+        ) : (
+          <div className="build-preview-empty">
+            {previewStatus === "starting" ? "Starting preview…" : "Couldn't start the preview server."}
+          </div>
         )}
       </div>
       <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>

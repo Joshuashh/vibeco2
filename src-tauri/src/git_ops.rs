@@ -54,13 +54,19 @@ pub fn ensure_chat_worktree(root: &Path, chat_id: &str) -> Result<PathBuf, Strin
 
 pub fn remove_chat_worktree(root: &Path, chat_id: &str) -> Result<(), String> {
     let path = merge_paths::chat_worktree_path(root, chat_id);
-    if !path.exists() {
-        return Ok(());
+    if path.exists() {
+        let path_str = path.to_string_lossy().to_string();
+        let output = run_git(root, &["worktree", "remove", "--force", &path_str])?;
+        if !output.status.success() {
+            return Err(format!("git worktree remove failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
     }
-    let path_str = path.to_string_lossy().to_string();
-    let output = run_git(root, &["worktree", "remove", "--force", &path_str])?;
-    if !output.status.success() {
-        return Err(format!("git worktree remove failed: {}", String::from_utf8_lossy(&output.stderr)));
+    let branch = merge_paths::chat_branch_name(chat_id);
+    if branch_exists(root, &branch) {
+        let output = run_git(root, &["branch", "-D", &branch])?;
+        if !output.status.success() {
+            return Err(format!("git branch delete failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
     }
     Ok(())
 }
@@ -70,9 +76,16 @@ pub fn ensure_team_worktree(root: &Path) -> Result<PathBuf, String> {
     if path.exists() {
         return Ok(path);
     }
+    // Best-effort: pick up an already-pushed team branch from origin before
+    // deciding there isn't one yet — otherwise a second machine would branch
+    // a fresh, divergent `team` off `main` instead of tracking the real one.
+    let _ = run_git(root, &["fetch", "origin", TEAM_BRANCH]);
     let path_str = path.to_string_lossy().to_string();
+    let remote_branch = format!("origin/{TEAM_BRANCH}");
     let output = if branch_exists(root, TEAM_BRANCH) {
         run_git(root, &["worktree", "add", &path_str, TEAM_BRANCH])?
+    } else if branch_exists(root, &remote_branch) {
+        run_git(root, &["worktree", "add", "-b", TEAM_BRANCH, &path_str, &remote_branch])?
     } else {
         run_git(root, &["worktree", "add", "-b", TEAM_BRANCH, &path_str, "main"])?
     };
