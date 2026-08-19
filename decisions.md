@@ -158,3 +158,17 @@ Built per `docs/superpowers/plans/2026-08-19-preview-review-page.md` (all 11 tas
 ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ```
+
+## Planned: adopt Tailwind CSS + Radix/shadcn primitives (2026-08-19)
+
+**Status:** Recommended, not started. Next session should brainstorm/plan this properly before touching code.
+
+**Why:** App currently has zero UI kit — `App.css` is 1,663 lines of hand-rolled CSS across 24 components, including fully custom interactive primitives like `Popover.tsx` (164 lines reimplementing collision/flip-to-avoid-edges positioning). User flagged the app "looks awful" and asked what UI kit to adopt.
+
+**Recommendation:** Tailwind CSS v4 (`@tailwindcss/vite`, no PostCSS config needed) for utility styling, paired with Radix UI primitives (or shadcn/ui, which copies Radix-based components into the repo rather than installing a styled dependency) for interactive components — dropdowns, popovers, dialogs. Rejected MUI/Chakra/Ant Design: they impose their own visual identity, which fights the existing dark palette pulled from the sibling Claude Code GUI (Swift) project's `AC` color system rather than complementing it.
+
+**Migration shape:**
+- Port the existing `:root` palette (App.css:22-40) into a Tailwind `@theme` block so existing colors become real Tailwind tokens — preserves current look.
+- Tier 1 (swap for Radix, real behavior win): `Popover.tsx`, `ChatCardMenu.tsx`, Sidebar's delete-confirmation flow (→ `AlertDialog`), `ViewToggle.tsx` (→ `Tabs`).
+- Tier 2 (pure restyle, no behavior change): remaining ~20 components, one at a time.
+- Incremental, not big-bang: Tailwind can run alongside existing `App.css`; migrate file-by-file, deleting each file's old rules from `App.css` as it migrates, rather than one large rewrite PR.

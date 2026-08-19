@@ -2,6 +2,32 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { ContentBlock } from "../types/message";
 
+function CodeBlock({ language, source }: { language: string; source: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="code-block">
+      <div className="code-block-header">
+        <span className="code-block-lang">{language || "code"}</span>
+        <button
+          type="button"
+          className="code-block-copy"
+          onClick={() => {
+            navigator.clipboard.writeText(source);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre>
+        <code>{source}</code>
+      </pre>
+    </div>
+  );
+}
+
 function describeTool(name: string, input: unknown): { summary: string; file: string | null } {
   const record = (input ?? {}) as Record<string, unknown>;
   switch (name) {
@@ -26,7 +52,20 @@ export function MessageBlock({ block, markdown = false }: { block: ContentBlock;
     // markdown (MarkdownText.swift) — user bubbles show plain text there too.
     return markdown ? (
       <div className="message-text markdown">
-        <ReactMarkdown>{block.text}</ReactMarkdown>
+        <ReactMarkdown
+          components={{
+            code({ className, children }) {
+              const match = /language-(\w+)/.exec(className ?? "");
+              if (!match) return <code>{children}</code>;
+              return <CodeBlock language={match[1]} source={String(children).replace(/\n$/, "")} />;
+            },
+            pre({ children }) {
+              return <>{children}</>;
+            },
+          }}
+        >
+          {block.text}
+        </ReactMarkdown>
       </div>
     ) : (
       <p className="message-text">{block.text}</p>
