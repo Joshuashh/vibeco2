@@ -39,22 +39,26 @@ export function ChatCardMenu({
 
   if (renaming) {
     return (
-      <input
-        className="chat-card-rename-input"
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commitRename();
-          if (e.key === "Escape") setRenaming(false);
-        }}
-        onBlur={commitRename}
-      />
+      <div className="chat-card-menu">
+        <div className="chat-card-menu-dropdown">
+          <input
+            className="chat-card-rename-input"
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") setRenaming(false);
+            }}
+            onBlur={commitRename}
+          />
+        </div>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="chat-card-menu">
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <button
@@ -98,11 +102,13 @@ export function ChatCardMenu({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={onDelete}>Delete</AlertDialogAction>
+              <AlertDialogAction variant="destructive" onClick={onDelete}>
+                Delete
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       )}
-    </>
+    </div>
   );
 }
