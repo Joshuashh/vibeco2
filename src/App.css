@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 /* Without this, any `width: 100%` element with its own padding (content-box
    is the default) renders wider than its parent by exactly that padding —
    e.g. .input-bar in a split chat pane overflowed and got clipped by the
