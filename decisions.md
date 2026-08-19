@@ -1,5 +1,17 @@
 # Vibeco2 — Decisions Log
 
+## Task 3 (shadcn init): pinned CLI to 3.8.5, fixed a variable clobber (2026-08-19)
+
+**What happened:** `npx shadcn@latest` now resolves to 4.18.0, which shipped a rewritten `init` flow — it defaults to Base UI (not Radix) as the component library and replaced the old "which base color?" (Neutral/Gray/Zinc/Stone/Slate) prompt with a preset picker (Nova/Vega/Maia/...), neither of which matches this plan's design intent (Radix primitives, Neutral base color — see the "Planned: adopt Tailwind CSS + Radix/shadcn primitives" entry below).
+
+**Fix:** pinned to `npx shadcn@3.8.5 init -y -b neutral --css-variables`, the last release with the classic `--base-color`/Radix-default flow the plan was written against. Confirmed via `npm view shadcn versions` that 3.8.5 is the top of the pre-rewrite 3.x line.
+
+**A second, more important issue this surfaced:** shadcn's init doesn't just append new CSS variables to `src/App.css` — where a variable name it wants (`--accent`, `--border`) already existed in the Task 2 `:root` palette block, it silently overwrote that line's value with its own oklch default instead of appending a duplicate. This clobbered `--accent: #ed6b26` → `oklch(0.97 0 0)` and `--border: #35373d` → `oklch(0.922 0 0)` in place. Restored both to their Task 2 values, then deleted everything shadcn actually appended (the `--radius`/`--background`/etc. block inside `:root`, plus the trailing `@theme inline`/`.dark`/`@layer base` blocks) per the plan's Step 4. Verified via the compiled CSS served by a running Vite instance that `--color-accent`/`--color-border` in the `@theme` block still resolve to the original hex values.
+
+**Kept:** `@import "tw-animate-css"` and `@import "shadcn/tailwind.css"` (data-state/data-open custom variants, accordion keyframes, scroll-fade/shimmer utilities) and `@custom-variant dark (&:is(.dark *));` — none of these collide with existing styles, and upcoming Radix-based components (starting Task 4) will need the custom variants.
+
+**Revisit when:** a later task in this plan needs a shadcn CLI feature only in 4.x (e.g. `add`ing a component) — re-evaluate whether to run that specific command unpinned and re-apply this same clobber check, or find 4.x's equivalent of `-b radix`/`--base-color`.
+
 ## Hand-off (2026-08-19 session, end)
 
 **What happened this session:** fixed the popover overflow bug and trimmed the input bar (removed token-spend circle and Local/Cloud toggle, repurposed the directory picker into a `RepoPill` — still just UI scaffolding); fixed all four merge-orchestration known gaps (`promote_to_main` local-ref advance, `render_preview` retry-on-race, orphaned worktree sweep, preview-server shutdown-on-exit); designed, planned, and implemented the Preview review page (live team preview + pin/draw annotation overlay + comment panel, no frozen snapshots — see the entry below this one). All of it is committed and pushed to `origin/main`.
