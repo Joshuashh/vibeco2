@@ -146,6 +146,8 @@ export function Sidebar({
   onDelete,
   userEmail,
   onSignOut,
+  chatLayout,
+  onChatLayoutChange,
 }: {
   chats: ChatRow[];
   activeChatId: string | null;
@@ -155,6 +157,8 @@ export function Sidebar({
   onDelete: (chatId: string) => void;
   userEmail: string;
   onSignOut: () => void;
+  chatLayout: "single" | "split";
+  onChatLayoutChange: (layout: "single" | "split") => void;
 }) {
   const [searchText, setSearchText] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -168,6 +172,25 @@ export function Sidebar({
 
   return (
     <div className="sidebar">
+      {/* ponytail: only toggles layout for now — content doesn't yet differ
+          by mode. Split-only (multiplayer) vs single-only (personal) panel
+          sections are a real follow-up, not built until that's scoped. */}
+      <div className="sidebar-layout-toggle view-toggle">
+        <button
+          type="button"
+          className={chatLayout === "single" ? "active" : ""}
+          onClick={() => onChatLayoutChange("single")}
+        >
+          Single
+        </button>
+        <button
+          type="button"
+          className={chatLayout === "split" ? "active" : ""}
+          onClick={() => onChatLayoutChange("split")}
+        >
+          Split
+        </button>
+      </div>
       <button type="button" className="sidebar-navrow sidebar-navrow-primary" onClick={onCreateChat}>
         <PlusIcon />
         New Chat
