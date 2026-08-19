@@ -1,5 +1,18 @@
 # Vibeco2 — Decisions Log
 
+## Hand-off (2026-08-19 session, end)
+
+**What happened this session:** fixed the popover overflow bug and trimmed the input bar (removed token-spend circle and Local/Cloud toggle, repurposed the directory picker into a `RepoPill` — still just UI scaffolding); fixed all four merge-orchestration known gaps (`promote_to_main` local-ref advance, `render_preview` retry-on-race, orphaned worktree sweep, preview-server shutdown-on-exit); designed, planned, and implemented the Preview review page (live team preview + pin/draw annotation overlay + comment panel, no frozen snapshots — see the entry below this one). All of it is committed and pushed to `origin/main`.
+
+**Next requested feature, not started:** the user wants to **pick which repo/project a chat works on**, at the click of a button — i.e., make the `RepoPill` real. Right now every part of the merge-orchestration backend (`git_ops::repo_root()`, chat/team worktrees, the `BUILD · PREVIEW` box, and the new Preview tab) is hardcoded to operate on *this* Vibeco2 repo (`repo_root()` just resolves wherever the Tauri process's CWD is) — there's no concept of "a project" as a switchable thing at all.
+
+**Why this is a new design task, not a quick add-on:**
+- Needs a UI for choosing/adding a repo (local path picker? clone-a-GitHub-URL flow? a list of previously-used projects?) and probably a "project" concept persisted somewhere (Supabase table? per-chat column?).
+- `git_ops.rs`'s worktree functions all take a `root: &Path` already — the plumbing to parameterize by a chosen repo instead of `repo_root()` is plausible, but every call site (`ensure_chat_worktree`, `render_preview`, `promote_to_main`, `ensure_team_preview_running`) currently derives `root` from the hardcoded resolver, not from anything chat- or project-scoped.
+- The `BUILD · PREVIEW` box and the new Preview tab both assume `npm run dev` on a fixed port serves something meaningful — that's true for a Vite/React project (this one) but not for an arbitrary target repo, and definitely not for "just an HTML file with no dev server." The user's triggering example — asking a chat to "create a basic html screen" and wanting it to show up in the preview automatically — needs either a static-file preview path (no dev server, just serve the file) or a smarter per-project preview strategy, neither of which exists today.
+
+**Recommendation:** start a fresh session for this — it's a real design question (brainstorm the repo-selection UX and the preview strategy for non-Vite projects before planning), not a continuation of the preview-page work just finished. Paste this hand-off in to pick it up.
+
 ## Preview review page implemented (2026-08-19 session, continued)
 
 Built per `docs/superpowers/plans/2026-08-19-preview-review-page.md` (all 11 tasks): the top-level Preview tab now shows the live team preview full-bleed with a floating Cursor/Pin/Draw/Comments toolbar, pin notes with threaded replies and resolve/unresolve (resolved hidden by default, toggle to show), and freehand strokes with per-user undo. New Supabase tables `preview_pins`/`preview_pin_replies`/`preview_strokes` (migration `0007_preview_comments.sql`, applied), synced live via the same `postgres_changes` pattern as `merge_events`.
