@@ -7,6 +7,11 @@ export function ViewToggle({
 }) {
   return (
     <div className="view-toggle">
+      {/* ponytail: no planning-mode backend yet — visual slot only, matching
+          the Preview slot below and Sidebar's Projects/Skills rows. */}
+      <button disabled title="Not yet available">
+        Plan
+      </button>
       <button className={mode === "chat" ? "active" : ""} onClick={() => onChange("chat")}>
         Chat
       </button>
