@@ -79,6 +79,34 @@ body,
   --color-canvas-bg: #0d0e10;
   --color-canvas-dot: #24262b;
   --color-danger: #e2584f;
+
+  /* shadcn's default template (dropdown-menu.tsx, alert-dialog.tsx, button.tsx,
+     everything the CLI generates via `npx shadcn add`) references a standard
+     semantic token set — background/foreground/popover/muted/destructive/
+     primary/secondary/input/ring — that Task 3 deliberately deleted as
+     shadcn-init clobber (see decisions.md). That was fine while every Radix
+     component was hand-written (Task 4's Popover never used these names),
+     but the first CLI-`add`ed component exposed the gap: with these tokens
+     undefined, `bg-popover`/`bg-background`/`bg-destructive`/`bg-primary`
+     all resolved to transparent (confirmed via computed-style inspection of
+     a production build — DropdownMenuContent/AlertDialogContent rendered
+     with an invisible surface). Mapped onto this app's own palette rather
+     than reintroducing shadcn's oklch defaults, so future CLI-added
+     components stay visually consistent with the rest of the app. */
+  --color-background: var(--color-bg-tertiary);
+  --color-foreground: var(--color-text-primary);
+  --color-popover: var(--color-bg-tertiary);
+  --color-popover-foreground: var(--color-text-primary);
+  --color-muted: var(--color-bg-tertiary);
+  --color-muted-foreground: var(--color-text-secondary);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-text-primary);
+  --color-secondary: var(--color-bg-secondary);
+  --color-secondary-foreground: var(--color-text-primary);
+  --color-destructive: var(--color-danger);
+  --color-accent-foreground: var(--color-text-primary);
+  --color-input: var(--color-border);
+  --color-ring: var(--color-accent);
 }
 
 .mono {
@@ -104,35 +132,52 @@ h1 {
   text-align: center;
 }
 
-/* ---- Base form controls ---- */
+/* ---- Base form controls ----
+   Wrapped in Tailwind's own `base` layer (merges into the layer Tailwind
+   already declares via `@import "tailwindcss"`, at that layer's original
+   position) rather than left unlayered. Per the CSS Cascade Layers spec,
+   ANY unlayered rule beats ANY layered rule regardless of specificity — so
+   left unlayered, this plain-element reset was silently overriding every
+   Tailwind utility class (padding, color, border, transition, ...) on real
+   <button>/<input> elements inside shadcn/Radix components, no matter how
+   specific those utility classes looked. Confirmed via computed-style
+   inspection of a production build: AlertDialogCancel/Action's `px-4 py-2`
+   was being fully ignored in favor of this rule's `padding: 0.6em 1em`
+   before this change. Moving it into `base` puts it below Tailwind's own
+   `utilities` layer, restoring normal cascade behavior for every future
+   shadcn component too — without affecting any of this file's other
+   (still-unlayered) class-based rules, which already out-specificity this
+   plain element selector regardless of layer. */
 
-input,
-textarea,
-select,
-button {
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  padding: 0.6em 1em;
-  font-size: 0.95em;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--text-primary);
-  background-color: var(--bg-secondary);
-  outline: none;
-  transition: border-color 0.15s, background-color 0.15s;
-}
+@layer base {
+  input,
+  textarea,
+  select,
+  button {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 0.6em 1em;
+    font-size: 0.95em;
+    font-weight: 500;
+    font-family: inherit;
+    color: var(--text-primary);
+    background-color: var(--bg-secondary);
+    outline: none;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
 
-button {
-  cursor: default;
-}
+  button {
+    cursor: default;
+  }
 
-button:hover {
-  border-color: var(--accent);
-}
+  button:hover {
+    border-color: var(--accent);
+  }
 
-button:disabled {
-  cursor: default;
-  opacity: 0.5;
+  button:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
 }
 
 /* ---- Buttons ---- */
@@ -927,11 +972,6 @@ button:disabled {
 .chat-card-menu-dropdown button:disabled:hover {
   background: transparent;
 }
-
-.chat-card-menu-dropdown button.destructive {
-  color: var(--danger);
-}
-
 
 .chat-card-rename-input {
   width: 100%;

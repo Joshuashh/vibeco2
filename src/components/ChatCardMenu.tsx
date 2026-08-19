@@ -1,4 +1,20 @@
 import { useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function ChatCardMenu({
   title,
@@ -11,6 +27,7 @@ export function ChatCardMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(title);
 
   function commitRename() {
@@ -20,65 +37,72 @@ export function ChatCardMenu({
     setOpen(false);
   }
 
-  return (
-    <div className="chat-card-menu">
-      <button
-        type="button"
-        className="icon-button"
-        title="Chat settings"
-        onClick={() => {
-          setDraft(title);
-          setOpen((o) => !o);
+  if (renaming) {
+    return (
+      <input
+        className="chat-card-rename-input"
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitRename();
+          if (e.key === "Escape") setRenaming(false);
         }}
-      >
-        <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="5" cy="12" r="1.5" />
-          <circle cx="12" cy="12" r="1.5" />
-          <circle cx="19" cy="12" r="1.5" />
-        </svg>
-      </button>
-      {open &&
-        (renaming ? (
-          <div className="chat-card-menu-dropdown">
-            <input
-              className="chat-card-rename-input"
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRename();
-                if (e.key === "Escape") setRenaming(false);
-              }}
-              onBlur={commitRename}
-            />
-          </div>
-        ) : (
-          <div className="chat-card-menu-dropdown">
-            <button type="button" onClick={() => setRenaming(true)}>
-              Rename
-            </button>
-            {/* ponytail: no branching/fork concept in Vibeco2 yet — visual only, per explicit request to keep the slot even though it's a no-op */}
-            <button type="button" disabled title="Not yet available">
-              Fork conversation
-            </button>
-            {/* ponytail: no archived flag on chats yet — visual only */}
-            <button type="button" disabled title="Not yet available">
-              Archive
-            </button>
-            {onDelete && (
-              <button
-                type="button"
-                className="destructive"
-                onClick={() => {
-                  setOpen(false);
-                  onDelete();
-                }}
-              >
-                Delete
-              </button>
-            )}
-          </div>
-        ))}
-    </div>
+        onBlur={commitRename}
+      />
+    );
+  }
+
+  return (
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="icon-button"
+            title="Chat settings"
+            onClick={() => setDraft(title)}
+          >
+            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="5" cy="12" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="19" cy="12" r="1.5" />
+            </svg>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+          {/* ponytail: no branching/fork concept in Vibeco2 yet — visual only, per explicit request to keep the slot even though it's a no-op */}
+          <DropdownMenuItem disabled>Fork conversation</DropdownMenuItem>
+          {/* ponytail: no archived flag on chats yet — visual only */}
+          <DropdownMenuItem disabled>Archive</DropdownMenuItem>
+          {onDelete && (
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setConfirmingDelete(true)}
+            >
+              Delete
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {onDelete && (
+        <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete "{title}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes the chat and its message history. This can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={onDelete}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </>
   );
 }
