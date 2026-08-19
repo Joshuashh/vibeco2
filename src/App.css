@@ -332,10 +332,6 @@ button:disabled {
   min-height: 0;
 }
 
-.sidebar-layout-toggle {
-  margin: 0.6em 0.6em 0;
-}
-
 .sidebar-navrow {
   all: unset;
   display: flex;
@@ -477,12 +473,21 @@ button:disabled {
 /* Split view: your own chat and a teammate's, side by side, each its own
    rounded card — not one flush full-width pane. */
 .chat-panes {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   gap: 16px;
   padding: 16px;
+}
+
+.chat-panes-layout-toggle {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 1;
+  background: var(--bg-tertiary);
 }
 
 .chat-pane {

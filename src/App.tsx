@@ -259,12 +259,27 @@ function AppShell({ session }: { session: Session }) {
               onDelete={handleDelete}
               userEmail={session.user.email ?? "you"}
               onSignOut={() => signOut()}
-              chatLayout={chatLayout}
-              onChatLayoutChange={setChatLayout}
             />
           </div>
           <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
           <div className="chat-panes">
+            <button
+              type="button"
+              className="icon-button chat-panes-layout-toggle"
+              title={chatLayout === "split" ? "Switch to single pane" : "Switch to split view"}
+              onClick={() => setChatLayout((l) => (l === "split" ? "single" : "split"))}
+            >
+              {chatLayout === "split" ? (
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="8" height="16" rx="1.5" />
+                  <rect x="13" y="4" width="8" height="16" rx="1.5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="1.5" />
+                </svg>
+              )}
+            </button>
             {activeChatId && activeChat ? (
               <ChatPane
                 chat={activeChat}
