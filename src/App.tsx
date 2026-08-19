@@ -232,30 +232,32 @@ function AppShell({ session }: { session: Session }) {
               New chat
             </button>
           )}
-          {viewMode === "chat" && (
-            <div className="flex gap-[0.2em] bg-bg-tertiary rounded-lg p-[3px]">
-              <button
-                className={
-                  chatLayout === "single"
-                    ? "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-bg-primary text-text-primary"
-                    : "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-transparent text-text-secondary"
-                }
-                onClick={() => setChatLayout("single")}
-              >
-                Single
-              </button>
-              <button
-                className={
-                  chatLayout === "split"
-                    ? "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-bg-primary text-text-primary"
-                    : "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-transparent text-text-secondary"
-                }
-                onClick={() => setChatLayout("split")}
-              >
-                Split
-              </button>
-            </div>
-          )}
+          {viewMode === "chat" &&
+            (() => {
+              // ponytail: mirrors ViewToggle.tsx's base/active/inactive
+              // pattern — see decisions.md for why base must never carry
+              // a background/text-color utility that active/inactive also
+              // set on the same element.
+              const base = "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md";
+              const active = "bg-bg-primary text-text-primary";
+              const inactive = "bg-transparent text-text-secondary";
+              return (
+                <div className="flex gap-[0.2em] bg-bg-tertiary rounded-lg p-[3px]">
+                  <button
+                    className={chatLayout === "single" ? `${base} ${active}` : `${base} ${inactive}`}
+                    onClick={() => setChatLayout("single")}
+                  >
+                    Single
+                  </button>
+                  <button
+                    className={chatLayout === "split" ? `${base} ${active}` : `${base} ${inactive}`}
+                    onClick={() => setChatLayout("split")}
+                  >
+                    Split
+                  </button>
+                </div>
+              );
+            })()}
           <PresenceBar />
         </div>
       </div>
