@@ -184,3 +184,14 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 - Tier 1 (swap for Radix, real behavior win): `Popover.tsx`, `ChatCardMenu.tsx`, Sidebar's delete-confirmation flow (→ `AlertDialog`), `ViewToggle.tsx` (→ `Tabs`).
 - Tier 2 (pure restyle, no behavior change): remaining ~20 components, one at a time.
 - Incremental, not big-bang: Tailwind can run alongside existing `App.css`; migrate file-by-file, deleting each file's old rules from `App.css` as it migrates, rather than one large rewrite PR.
+
+## Task 4: Popover.tsx migrated to Radix Popover (2026-08-19)
+
+**What happened:** Replaced the hand-rolled 164-line collision/flip positioning logic in `Popover.tsx` with Radix's `Popover.Root`/`Anchor` (`virtualRef`)/`Portal`/`Content`, using `avoidCollisions` + `collisionPadding={8}` in place of the old manual edge-clamping math. Added `@radix-ui/react-popover` as a direct dependency (was previously only transitive via the `radix-ui` meta-package from shadcn init). Deleted all `.popover-*` CSS rules from `App.css`, translated pixel-for-pixel into Tailwind utility classes using the `@theme` tokens from Task 2.
+
+**Notable translation choices:**
+- `.popover-row`'s `all: unset` was NOT ported as a Tailwind `[all:unset]` arbitrary class — Tailwind v4 orders generated utilities by internal property grouping, not by class-list order, so an `all:unset` utility could unpredictably win or lose the cascade against `box-border`/`flex`/etc. sitting in the same class string. Used explicit resets instead (`appearance-none bg-transparent border-0 outline-none font-inherit text-left`), which is deterministic.
+- `.popover-row-badge`'s `background: var(--accent-dim)` kept as an inline `style` (not a Tailwind class) since `--accent-dim` isn't in the Task 2 `@theme` block — out of scope to add new theme tokens in this task.
+- `Sidebar.tsx` and `InputToolbelt.tsx` needed zero changes — `Popover`/`PopoverHeader`/`PopoverRow`/`PopoverDivider` kept identical export names and prop signatures.
+
+**Verified:** `npx tsc --noEmit` clean, `npm test` (58/58 pass), `npx vite build` succeeds.

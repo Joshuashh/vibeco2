@@ -1,14 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { createPortal } from "react-dom";
-
-const EDGE_INSET = 8;
-const MARGIN = 4;
+import * as RadixPopover from "@radix-ui/react-popover";
+import type { RefObject } from "react";
 
 /**
- * Chrome-free floating menu anchored to a trigger element, with the same
- * collision behavior as the sibling Claude Code GUI's DropdownMenu.swift:
- * prefer opening below the anchor, flip above if there isn't room, and
- * clamp both axes so it never renders outside the window.
+ * Chrome-free floating menu anchored to a trigger element. Built on Radix's
+ * Popover primitive, which handles edge-avoidance/collision flipping.
  */
 export function Popover({
   open,
@@ -23,81 +18,28 @@ export function Popover({
   width: number;
   children: React.ReactNode;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPosition(null);
-      return;
-    }
-    const anchor = anchorRef.current;
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-
-    function measure() {
-      const anchorRect = anchor!.getBoundingClientRect();
-      const menuHeight = menu!.offsetHeight;
-      const boundsWidth = window.innerWidth;
-      const boundsHeight = window.innerHeight;
-
-      let top: number;
-      if (anchorRect.bottom + MARGIN + menuHeight <= boundsHeight - EDGE_INSET) {
-        top = anchorRect.bottom + MARGIN;
-      } else if (anchorRect.top - MARGIN - menuHeight >= EDGE_INSET) {
-        top = anchorRect.top - MARGIN - menuHeight;
-      } else {
-        top = Math.max(EDGE_INSET, boundsHeight - EDGE_INSET - menuHeight);
-      }
-
-      const left = Math.min(Math.max(anchorRect.left, EDGE_INSET), boundsWidth - EDGE_INSET - width);
-
-      setPosition((prev) => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
-    }
-
-    measure();
-    // Re-measure when the menu's own content changes size (e.g. "More models"
-    // expanding) — a real resize signal, not a render-count hack, so this
-    // can't loop the way re-running on every render would.
-    const observer = new ResizeObserver(measure);
-    observer.observe(menu);
-    return () => observer.disconnect();
-  }, [open, anchorRef, width]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      const target = e.target as Node;
-      if (menuRef.current?.contains(target)) return;
-      if (anchorRef.current?.contains(target)) return;
-      onClose();
-    }
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [open, onClose, anchorRef]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      className="popover-menu"
-      style={{
-        position: "fixed",
-        top: position?.top ?? -9999,
-        left: position?.left ?? -9999,
-        width,
-        visibility: position ? "visible" : "hidden",
-      }}
-    >
-      {children}
-    </div>,
-    document.body
+  return (
+    <RadixPopover.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <RadixPopover.Anchor virtualRef={anchorRef} />
+      <RadixPopover.Portal>
+        <RadixPopover.Content
+          className="bg-bg-tertiary border border-border rounded-lg py-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100]"
+          style={{ width }}
+          side="bottom"
+          align="start"
+          sideOffset={4}
+          collisionPadding={8}
+          avoidCollisions
+        >
+          {children}
+        </RadixPopover.Content>
+      </RadixPopover.Portal>
+    </RadixPopover.Root>
   );
 }
 
 export function PopoverHeader({ title }: { title: string }) {
-  return <div className="popover-header">{title}</div>;
+  return <div className="text-[11px] font-semibold text-text-tertiary px-3.5 pt-2.5 pb-1">{title}</div>;
 }
 
 function CheckIcon() {
@@ -138,27 +80,36 @@ export function PopoverRow({
   return (
     <button
       type="button"
-      className={indent ? "popover-row popover-row-indent" : "popover-row"}
+      className={`appearance-none bg-transparent border-0 outline-none font-inherit text-left box-border flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 rounded-md text-[13px] cursor-default hover:bg-[rgba(236,236,236,0.08)] ${
+        indent ? "pl-6" : ""
+      }`}
       onClick={onClick}
     >
-      <span className={tint ? `popover-row-title popover-row-tint-${tint}` : "popover-row-title"}>{title}</span>
-      {badge && <span className="popover-row-badge">{badge}</span>}
-      <span className="popover-row-spacer" />
+      <span className={tint ? "text-[#a855f7]" : "text-text-primary"}>{title}</span>
+      {badge && (
+        <span
+          className="text-[10px] font-medium text-accent px-1.5 py-0.5 rounded-full ml-1.5"
+          style={{ background: "var(--accent-dim)" }}
+        >
+          {badge}
+        </span>
+      )}
+      <span className="flex-1" />
       {checked ? (
-        <span className="popover-row-check">
+        <span className="flex w-[11px] h-[11px] text-text-primary [&>svg]:w-full [&>svg]:h-full">
           <CheckIcon />
         </span>
       ) : chevron ? (
-        <span className="popover-row-chevron">
+        <span className="flex w-2.5 h-2.5 text-text-tertiary [&>svg]:w-full [&>svg]:h-full">
           <ChevronIcon />
         </span>
       ) : shortcut ? (
-        <span className="popover-row-shortcut">{shortcut}</span>
+        <span className="text-xs text-text-tertiary">{shortcut}</span>
       ) : null}
     </button>
   );
 }
 
 export function PopoverDivider() {
-  return <div className="popover-divider" />;
+  return <div className="h-px bg-border my-1" />;
 }
