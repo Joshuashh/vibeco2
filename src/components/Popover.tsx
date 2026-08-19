@@ -80,7 +80,7 @@ export function PopoverRow({
   return (
     <button
       type="button"
-      className={`appearance-none bg-transparent border-0 outline-none font-inherit text-left box-border flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 rounded-md text-[13px] cursor-default hover:bg-[rgba(236,236,236,0.08)] ${
+      className={`appearance-none bg-transparent border-0 outline-none font-normal text-left box-border flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 rounded-md text-[13px] cursor-default hover:bg-[rgba(236,236,236,0.08)] ${
         indent ? "pl-6" : ""
       }`}
       onClick={onClick}
