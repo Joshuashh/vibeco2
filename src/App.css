@@ -370,24 +370,12 @@ h1 {
   padding: 16px;
 }
 
-.chat-pane {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: #151515;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.chat-pane-empty {
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: 0.9em;
-}
+/* .chat-pane's own box model (flex/bg/border/radius/overflow) now lives on
+   the component as Tailwind utilities. The bare selector below stays
+   because .chat-pane > .input-bar and .chat-pane .input-bar (further down)
+   target InputBar.tsx by ancestor combinator and need the class name to
+   keep existing on the wrapping div; InputBar.tsx itself is out of this
+   task's scope. */
 
 /* Matches the sibling Claude Code GUI's fixed 770pt conversation column:
    full-width title bar and scroll container (so the scrollbar sits at the
@@ -396,45 +384,6 @@ h1 {
   width: 100%;
   max-width: 770px;
   margin: 0 auto;
-}
-
-.chat-view-shell {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-view-titlebar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  padding: 0.9em 1em;
-  flex-shrink: 0;
-}
-
-.chat-view-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.chat-view-claim {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  margin-left: 0.8em;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.chat-view-titlebar-actions {
-  position: absolute;
-  right: 1em;
-  display: flex;
-  align-items: center;
-  gap: 0.3em;
 }
 
 /* ---- Canvas ---- */
@@ -840,36 +789,6 @@ h1 {
   padding-right: 1em;
 }
 
-.message-user {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.message-bubble {
-  background: var(--user-bubble);
-  border-radius: 16px;
-  padding: 9px 14px;
-  max-width: 82%;
-}
-
-.message-bubble .message-text {
-  margin: 0;
-}
-
-.message-assistant {
-  color: var(--text-primary);
-}
-
-.message-text {
-  font-size: 14px;
-  margin: 0 0 0.4em;
-  line-height: 1.6;
-}
-
-.message-text:last-child {
-  margin-bottom: 0;
-}
-
 .markdown > *:first-child {
   margin-top: 0;
 }
@@ -922,45 +841,6 @@ h1 {
   padding: 0.15em 0.35em;
   border-radius: 4px;
 }
-.code-block {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin: 0 0 0.7em;
-  overflow: hidden;
-}
-.code-block-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.code-block-lang {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-.code-block-copy {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-}
-.code-block-copy:hover {
-  color: var(--text-primary);
-}
-.code-block pre {
-  margin: 0;
-  padding: 0.8em 1em;
-  overflow-x: auto;
-}
-.code-block pre code {
-  background: none;
-  padding: 0;
-  font-size: 12px;
-}
 .markdown blockquote {
   margin: 0 0 0.7em;
   padding-left: 0.9em;
@@ -971,83 +851,6 @@ h1 {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1em 0;
-}
-
-/* ---- Tool rows ---- */
-
-.tool-block {
-  margin-top: 0.6em;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.tool-row-expandable {
-  cursor: default;
-}
-
-.tool-icon {
-  display: flex;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.tool-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.tool-icon-ok {
-  color: var(--text-tertiary);
-}
-
-.tool-icon-error {
-  color: var(--conflict);
-}
-
-.tool-icon-pending {
-  color: var(--accent);
-}
-
-.flower-spinner-small {
-  font-size: 12px;
-}
-
-.tool-file {
-  font-family: "SF Mono", monospace;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 0.15em 0.5em;
-  border-radius: 5px;
-}
-
-.tool-chevron {
-  color: var(--text-tertiary);
-  transition: transform 0.15s;
-}
-
-.tool-chevron-open {
-  transform: rotate(90deg);
-}
-
-.tool-detail {
-  font-family: "SF Mono", monospace;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 0.7em 0.9em;
-  border-radius: 8px;
-  margin: 0.5em 0 0;
-  white-space: pre-wrap;
-  max-height: 220px;
-  overflow-y: auto;
 }
 
 /* ---- Thinking indicator ---- */

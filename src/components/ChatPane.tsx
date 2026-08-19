@@ -23,7 +23,7 @@ export function ChatPane({
   onDelete: () => void;
 }) {
   return (
-    <div className="chat-pane">
+    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-[#151515] border border-border rounded-2xl overflow-hidden">
       <ChatView
         chat={chat}
         messages={state?.messages ?? []}
@@ -40,7 +40,7 @@ export function ChatPane({
 
 export function ChatPaneEmpty({ text }: { text: string }) {
   return (
-    <div className="chat-pane chat-pane-empty">
+    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-[#151515] border border-border rounded-2xl overflow-hidden items-center justify-center text-text-tertiary text-[0.9em]">
       <span>{text}</span>
     </div>
   );

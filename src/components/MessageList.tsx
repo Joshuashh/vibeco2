@@ -21,15 +21,15 @@ export function MessageList({ messages, streaming }: { messages: Message[]; stre
     <div className="message-list">
       {messages.map((message, i) =>
         message.role === "user" ? (
-          <div key={i} className="message-user">
-            <div className="message-bubble">
+          <div key={i} className="flex justify-end">
+            <div className="bg-user-bubble rounded-2xl px-[14px] py-[9px] max-w-[82%]">
               {message.blocks.map((block, j) => (
                 <MessageBlock key={j} block={block} />
               ))}
             </div>
           </div>
         ) : (
-          <div key={i} className="message-assistant">
+          <div key={i} className="text-text-primary">
             {message.blocks.map((block, j) => (
               <MessageBlock key={j} block={block} markdown />
             ))}

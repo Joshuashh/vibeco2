@@ -22,16 +22,19 @@ export function ChatView({
   onDelete: () => void;
 }) {
   return (
-    <div className="chat-view-shell">
-      <div className="chat-view-titlebar">
-        <span className="chat-view-title">{chat.title ?? "Untitled chat"}</span>
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex items-center justify-center relative py-[0.9em] px-[1em] shrink-0">
+        <span className="text-[13px] font-medium text-text-secondary">{chat.title ?? "Untitled chat"}</span>
         {claimant && (
-          <span className="chat-view-claim" title={`${isSelf ? "You" : claimant} claimed this chat`}>
-            <span className="claim-dot" style={{ background: colorForUser(claimant) }} />
+          <span
+            className="flex items-center gap-[0.4em] ml-[0.8em] text-[12px] text-text-tertiary"
+            title={`${isSelf ? "You" : claimant} claimed this chat`}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorForUser(claimant) }} />
             {isSelf ? "You" : claimant}
           </span>
         )}
-        <div className="chat-view-titlebar-actions">
+        <div className="absolute right-[1em] flex items-center gap-[0.3em]">
           <ChatCardMenu title={chat.title ?? "Untitled chat"} onRename={onRename} onDelete={onDelete} />
         </div>
       </div>
