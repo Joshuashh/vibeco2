@@ -3,9 +3,9 @@ import { Popover, PopoverHeader, PopoverRow, PopoverDivider } from "./Popover";
 
 // ponytail: every picker here holds local-only state — none of it is wired to
 // real backend behavior yet (no per-chat model/effort/permission columns, no
-// directory picker, no voice input, no token-usage tracking). Included as
-// real, clickable UI scaffolding per explicit request, so the wiring has
-// somewhere to land later instead of being invented from scratch then.
+// repo picker, no voice input). Included as real, clickable UI scaffolding
+// per explicit request, so the wiring has somewhere to land later instead of
+// being invented from scratch then.
 
 const MODELS = [
   { name: "Fable 5", requiresUsageCredits: true },
@@ -17,41 +17,13 @@ const MORE_MODELS = ["Opus 4.8", "Opus 4.7", "Opus 4.6", "Sonnet 4.6"];
 const EFFORTS = ["Low", "Medium", "High", "X-High", "Max"];
 const PERMISSIONS = ["Manual", "Accept edits", "Plan", "Auto"];
 
-export function LocationPill() {
-  const [local, setLocal] = useState(true);
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
+export function RepoPill({ repo }: { repo?: string }) {
   return (
-    <>
-      <button type="button" ref={anchorRef} className="pill" onClick={() => setOpen((o) => !o)}>
-        {local ? (
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="12" rx="2" />
-            <path d="M8 20h8M12 16v4" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.4-1.5A5 5 0 0 0 6.5 19h11z" />
-          </svg>
-        )}
-        {local ? "Local" : "Cloud"}
-      </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={180}>
-        <PopoverHeader title="Run on" />
-        <PopoverRow title="Local" checked={local} onClick={() => { setLocal(true); setOpen(false); }} />
-        <PopoverRow title="Cloud" checked={!local} onClick={() => { setLocal(false); setOpen(false); }} />
-      </Popover>
-    </>
-  );
-}
-
-export function DirectoryPill({ workingDirectory }: { workingDirectory: string }) {
-  return (
-    <button type="button" className="pill" title={workingDirectory}>
-      <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    <button type="button" className="pill" title={repo ?? "Select a GitHub repo"}>
+      <svg viewBox="0 0 24 24" style={{ fill: "currentColor", stroke: "none" }}>
+        <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2z" />
       </svg>
-      {workingDirectory}
+      {repo ?? "Select repo"}
     </button>
   );
 }
@@ -150,30 +122,6 @@ export function EffortPicker() {
         ))}
       </Popover>
     </>
-  );
-}
-
-export function ContextButton({ fraction = 0 }: { fraction?: number }) {
-  const r = 8;
-  const circumference = 2 * Math.PI * r;
-  return (
-    <button type="button" className="context-button" title="Context window">
-      <svg viewBox="0 0 20 20">
-        <circle cx="10" cy="10" r={r} fill="none" stroke="var(--border)" strokeWidth="2.5" />
-        <circle
-          cx="10"
-          cy="10"
-          r={r}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - fraction)}
-          transform="rotate(-90 10 10)"
-        />
-      </svg>
-    </button>
   );
 }
 

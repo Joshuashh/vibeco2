@@ -1,11 +1,9 @@
 import { useRef, useState } from "react";
 import {
-  LocationPill,
-  DirectoryPill,
+  RepoPill,
   PermissionPill,
   ModelPicker,
   EffortPicker,
-  ContextButton,
   AttachButton,
   MicButton,
   AttachmentStrip,
@@ -39,8 +37,7 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
   return (
     <div className="input-bar">
       <div className="input-toprow">
-        <LocationPill />
-        <DirectoryPill workingDirectory="." />
+        <RepoPill />
       </div>
 
       <AttachmentStrip
@@ -81,7 +78,6 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         <span className="input-spacer" />
         <ModelPicker />
         <EffortPicker />
-        <ContextButton />
       </div>
     </div>
   );
