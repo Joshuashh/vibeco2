@@ -10,6 +10,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView } from "./components/CanvasView";
+import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
 import { applyChatEvent, applyRealtimeMessage, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
@@ -35,7 +36,7 @@ function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas">("canvas");
+  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("canvas");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -257,6 +258,8 @@ function AppShell({ session }: { session: Session }) {
             onRename={handleRename}
           />
         </>
+      ) : viewMode === "preview" ? (
+        <PreviewPage session={session} />
       ) : (
         <div className="chat-workspace">
           <div className="sidebar-panel" style={{ width: sidebarWidth }}>
