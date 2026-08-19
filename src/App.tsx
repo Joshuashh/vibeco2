@@ -8,7 +8,7 @@ import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { LoginScreen } from "./components/LoginScreen";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
-import { ViewToggle } from "./components/ViewToggle";
+import { ViewToggle, type WorkflowTab, type BuildView } from "./components/ViewToggle";
 import { CanvasView } from "./components/CanvasView";
 import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
@@ -35,7 +35,8 @@ function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas">("canvas");
+  const [workflowTab, setWorkflowTab] = useState<WorkflowTab>("build");
+  const [viewMode, setViewMode] = useState<BuildView>("canvas");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -215,7 +216,12 @@ function AppShell({ session }: { session: Session }) {
       <LiveCursors containerRef={appRef} />
       <div className="toolbar">
         <div className="toolbar-side" />
-        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <ViewToggle
+          workflowTab={workflowTab}
+          onWorkflowTabChange={setWorkflowTab}
+          buildView={viewMode}
+          onBuildViewChange={setViewMode}
+        />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
             <button className="btn btn-primary" onClick={handleCreateChat}>
@@ -224,16 +230,6 @@ function AppShell({ session }: { session: Session }) {
               </svg>
               New chat
             </button>
-          )}
-          {viewMode === "chat" && (
-            <div className="view-toggle">
-              <button className={chatLayout === "single" ? "active" : ""} onClick={() => setChatLayout("single")}>
-                Single
-              </button>
-              <button className={chatLayout === "split" ? "active" : ""} onClick={() => setChatLayout("split")}>
-                Split
-              </button>
-            </div>
           )}
           <PresenceBar />
         </div>
@@ -267,6 +263,23 @@ function AppShell({ session }: { session: Session }) {
           </div>
           <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
           <div className="chat-panes">
+            <button
+              type="button"
+              className="icon-button chat-panes-layout-toggle"
+              title={chatLayout === "split" ? "Switch to single pane" : "Switch to split view"}
+              onClick={() => setChatLayout((l) => (l === "split" ? "single" : "split"))}
+            >
+              {chatLayout === "split" ? (
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="8" height="16" rx="1.5" />
+                  <rect x="13" y="4" width="8" height="16" rx="1.5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="1.5" />
+                </svg>
+              )}
+            </button>
             {activeChatId && activeChat ? (
               <ChatPane
                 chat={activeChat}
