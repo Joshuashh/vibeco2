@@ -7,7 +7,7 @@ mod stream_parser;
 
 use serde::Serialize;
 use std::io::BufRead;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +80,12 @@ fn remove_chat_worktree(chat_id: String) -> Result<(), String> {
     git_ops::remove_chat_worktree(&root, &chat_id)
 }
 
+#[tauri::command]
+fn prune_orphaned_chat_worktrees(known_chat_ids: Vec<String>) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    git_ops::prune_orphaned_chat_worktrees(&root, &known_chat_ids)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "status")]
 enum RenderPreviewResult {
@@ -127,12 +133,18 @@ pub fn run() {
             start_session,
             ensure_chat_worktree,
             remove_chat_worktree,
+            prune_orphaned_chat_worktrees,
             render_preview,
             promote_to_main,
             ensure_team_preview_running
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                app_handle.state::<preview_server::TeamPreviewServer>().shutdown();
+            }
+        });
 }
 
 #[cfg(test)]

@@ -55,6 +55,12 @@ function AppShell({ session }: { session: Session }) {
         });
         return next;
       });
+      // Sweeps any chat worktree/branch left behind by a delete that never
+      // finished (app quit mid-delete, was offline, etc) — known gap, see
+      // decisions.md.
+      invoke("prune_orphaned_chat_worktrees", { knownChatIds: rows.map((row) => row.id) }).catch((err) =>
+        console.error("failed to prune orphaned chat worktrees", err)
+      );
     });
   }, []);
 

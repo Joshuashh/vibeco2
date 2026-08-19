@@ -71,6 +71,27 @@ pub fn remove_chat_worktree(root: &Path, chat_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Removes any chat worktree/branch left behind for a chat that no longer
+/// exists on the frontend's known list — e.g. a prior `remove_chat_worktree`
+/// call never completed because the app quit mid-delete, or ran offline.
+/// Never touches the `team` worktree or any id still in `known_chat_ids`.
+/// Best-effort per entry: one awkward leftover shouldn't block the sweep.
+pub fn prune_orphaned_chat_worktrees(root: &Path, known_chat_ids: &[String]) -> Result<(), String> {
+    let worktrees_root = merge_paths::worktrees_root(root);
+    if !worktrees_root.exists() {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(&worktrees_root).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == TEAM_BRANCH || known_chat_ids.iter().any(|id| id == &name) {
+            continue;
+        }
+        let _ = remove_chat_worktree(root, &name);
+    }
+    Ok(())
+}
+
 pub fn ensure_team_worktree(root: &Path) -> Result<PathBuf, String> {
     let path = merge_paths::team_worktree_path(root);
     if path.exists() {
@@ -120,36 +141,49 @@ pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String
 
     let team_path = ensure_team_worktree(root)?;
 
-    // Pick up anyone else's already-pushed merges before adding ours.
-    let fetch = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH])?;
-    if !fetch.status.success() {
-        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
-    }
-    let ff = run_git(&team_path, &["merge", "--ff-only", &format!("origin/{TEAM_BRANCH}")])?;
-    if !ff.status.success() {
-        return Err(format!(
-            "failed to fast-forward team branch: {}",
-            String::from_utf8_lossy(&ff.stderr)
-        ));
-    }
+    // Two chats can render at once, both racing to push `team`. Git's own
+    // fast-forward check is the real lock — whichever push loses just needs
+    // to resync and retry rather than surface a raw error, so retry a few
+    // times against a fresh `origin/team` instead of failing on the first loss.
+    const MAX_ATTEMPTS: u32 = 5;
+    for attempt in 1..=MAX_ATTEMPTS {
+        // Pick up anyone else's already-pushed merges before adding ours.
+        // `reset --hard` (not `merge --ff-only`) because a losing retry's
+        // local `team` branch has a merge commit that never made it to
+        // origin — this worktree only ever holds merges it's about to push
+        // below, never independent work of its own, so discarding it is safe.
+        let fetch = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH])?;
+        if !fetch.status.success() {
+            return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+        }
+        let sync = run_git(&team_path, &["reset", "--hard", &format!("origin/{TEAM_BRANCH}")])?;
+        if !sync.status.success() {
+            return Err(format!("failed to sync team branch: {}", String::from_utf8_lossy(&sync.stderr)));
+        }
 
-    let merge = run_git(&team_path, &["merge", "--no-edit", &branch])?;
-    if !merge.status.success() {
-        let conflicted = run_git(&team_path, &["diff", "--name-only", "--diff-filter=U"])?;
-        let files: Vec<String> = String::from_utf8_lossy(&conflicted.stdout)
-            .lines()
-            .map(|s| s.to_string())
-            .collect();
-        run_git(&team_path, &["merge", "--abort"])?;
-        return Ok(MergeOutcome::Conflict { files });
-    }
+        let merge = run_git(&team_path, &["merge", "--no-edit", &branch])?;
+        if !merge.status.success() {
+            let conflicted = run_git(&team_path, &["diff", "--name-only", "--diff-filter=U"])?;
+            let files: Vec<String> = String::from_utf8_lossy(&conflicted.stdout)
+                .lines()
+                .map(|s| s.to_string())
+                .collect();
+            run_git(&team_path, &["merge", "--abort"])?;
+            return Ok(MergeOutcome::Conflict { files });
+        }
 
-    let push_team = run_git(&team_path, &["push", "origin", TEAM_BRANCH])?;
-    if !push_team.status.success() {
-        return Err(format!("git push (team) failed: {}", String::from_utf8_lossy(&push_team.stderr)));
+        let push_team = run_git(&team_path, &["push", "origin", TEAM_BRANCH])?;
+        if push_team.status.success() {
+            return Ok(MergeOutcome::Clean);
+        }
+        if attempt == MAX_ATTEMPTS {
+            return Err(format!(
+                "git push (team) failed after {MAX_ATTEMPTS} attempts — repeatedly lost the race to another render, try again: {}",
+                String::from_utf8_lossy(&push_team.stderr)
+            ));
+        }
     }
-
-    Ok(MergeOutcome::Clean)
+    unreachable!("loop above always returns by the final attempt")
 }
 
 pub fn promote_to_main(root: &Path) -> Result<(), String> {
@@ -167,5 +201,27 @@ pub fn promote_to_main(root: &Path) -> Result<(), String> {
             String::from_utf8_lossy(&push.stderr)
         ));
     }
+    // The remote `main` is now current; also advance the local `main` ref in
+    // *this* checkout (`root`) so `ensure_chat_worktree` branches new chats
+    // off what was just promoted instead of an increasingly stale snapshot.
+    // Best-effort — the promotion itself already succeeded above.
+    advance_local_main(root);
     Ok(())
+}
+
+fn advance_local_main(root: &Path) {
+    let Ok(fetch_main) = run_git(root, &["fetch", "origin", "main"]) else { return };
+    if !fetch_main.status.success() {
+        return;
+    }
+    let on_main = run_git(root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "main")
+        .unwrap_or(false);
+    if on_main {
+        // Fast-forwards the working tree too, not just the ref.
+        let _ = run_git(root, &["merge", "--ff-only", "origin/main"]);
+    } else {
+        // `main` isn't checked out here, so moving the ref directly is safe.
+        let _ = run_git(root, &["update-ref", "refs/heads/main", "origin/main"]);
+    }
 }

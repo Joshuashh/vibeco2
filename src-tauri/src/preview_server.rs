@@ -63,6 +63,16 @@ impl TeamPreviewServer {
         *guard = Some(child);
         Ok(())
     }
+
+    /// Kills the tracked `npm run dev` child, if any. Called on app exit so
+    /// it doesn't orphan a process holding `TEAM_PREVIEW_PORT` after the
+    /// window closes (previously nothing ever stopped it).
+    pub fn shutdown(&self) {
+        let Ok(mut guard) = self.child.lock() else { return };
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+        }
+    }
 }
 
 impl Default for TeamPreviewServer {

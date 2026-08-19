@@ -1,5 +1,16 @@
 # Vibeco2 — Decisions Log
 
+## Fixed the four merge-orchestration known gaps (2026-08-19 session, continued)
+
+**Context:** user confirmed the concurrent-render-preview concern is mitigated by design already — the button lives once on the shared preview box (`MainAgentInstrument.tsx`), scoped to whichever chat the current user has claimed, not duplicated per chat. But two *different* users can still each have their own chat claimed and press it at the same moment, so the race is cross-client, not fixable by having one button per client. Fixed all four gaps:
+
+- **`promote_to_main` now advances local `main`** (`git_ops.rs`): after the remote push succeeds, best-effort fetch + fast-forward (or `update-ref` if `main` isn't the checked-out branch in the primary checkout) so new chats stop branching off a stale snapshot. Failure here doesn't fail the whole promotion — the important push already happened.
+- **`render_preview`'s team-branch push now retries on loss** instead of erroring immediately: git's own fast-forward check is the real lock (two renders can't both win), so a losing push now re-fetches, `reset --hard`s the team worktree to the fresh `origin/team` (safe — that worktree only ever holds merges about to be pushed, never independent work), redoes the merge, and retries, up to 5 attempts. Considered adding a same-process `Mutex` too; skipped as redundant — the client button already disables mid-request, and the real race is cross-process, which only a retry-on-loss (or a real distributed lock) actually addresses.
+- **Orphaned worktree sweep** (`prune_orphaned_chat_worktrees`, new Tauri command): chat deletion already called `remove_chat_worktree` (this was already wired, not actually missing), but if that call failed to complete (app quit mid-delete, offline), nothing ever retried it. Now, once at startup after chats load, the app tells the backend the known chat ids and any worktree under `vibeco-worktrees/` not in that list (and not `team`) gets removed.
+- **Preview server now shuts down on app exit** (`preview_server.rs`'s new `shutdown()`, called from a `tauri::RunEvent::Exit` handler in `lib.rs`): kills the tracked `npm run dev` child so it can't orphan a process holding port 5180 after the window closes.
+
+**Verified:** `cargo check`, `cargo test` (15 passed), `npx tsc --noEmit` all clean. Not exercised against a real concurrent-render scenario (would need two machines/processes racing on the same repo) — logic reasoning only.
+
 ## Hand-off (2026-08-19 session)
 
 **What happened this session:**
