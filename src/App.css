@@ -248,22 +248,12 @@ button:disabled {
   white-space: nowrap;
 }
 
-.view-toggle-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-}
-
 .view-toggle {
   display: flex;
   gap: 0.2em;
   background: var(--bg-tertiary);
   border-radius: 8px;
   padding: 3px;
-}
-
-.view-toggle-sub button {
-  font-size: 0.8em;
 }
 
 .view-toggle button {
@@ -473,21 +463,12 @@ button:disabled {
 /* Split view: your own chat and a teammate's, side by side, each its own
    rounded card — not one flush full-width pane. */
 .chat-panes {
-  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   gap: 16px;
   padding: 16px;
-}
-
-.chat-panes-layout-toggle {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  z-index: 1;
-  background: var(--bg-tertiary);
 }
 
 .chat-pane {

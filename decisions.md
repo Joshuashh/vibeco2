@@ -1,13 +1,5 @@
 # Vibeco2 — Decisions Log
 
-## Top-level tabs restructured to a Plan / Build / Review workflow (2026-08-19)
-
-**What changed:** The toolbar's Chat/Canvas/Preview tabs became a two-level structure: a top-level **Plan / Build / Review** workflow toggle (`src/components/ViewToggle.tsx`), where **Build** is the only functional tab today and expands to a second-level Chat/Canvas sub-tab row (what the old top-level toggle used to be). **Plan** and **Review** are disabled placeholders — Plan is a future multiplayer planning/prompt-writing mode; Review is the paused preview-and-markup page (`docs/superpowers/specs/2026-08-19-preview-review-page-design.md`).
-
-**Why a two-level shape now, before Plan/Review have real content:** explicitly requested so the sub-tab pattern is already in place when Plan and Review get their own views later, rather than needing a restructure at that point. `App.tsx` now has separate `workflowTab` (Plan/Build/Review) and `viewMode`/`buildView` (Chat/Canvas) state instead of one flat mode.
-
-**Single/Split moved out of the tab row:** it was previously a second `.view-toggle` pair living in the toolbar next to the view tabs. Moved to a single compact icon button floating in the top-right corner of the chat panes themselves (`.chat-panes-layout-toggle`) — a per-view layout preference, not a workflow tab, so it shouldn't compete for space in the tab row per explicit request to "limit the UI on tabs."
-
 ## Known gap: `promote_to_main` doesn't advance the local `main` ref in the primary checkout (2026-08-18)
 
 **What happened:** `promote_to_main` (`src-tauri/src/git_ops.rs`) fast-forwards the *remote* `main` by pushing `origin/team:main`, but never fetches/updates the local `main` ref in the developer's own primary repo checkout. `ensure_chat_worktree` branches new chats off local `main` (`-b <branch> <path> main`), so after a promotion, new chats keep branching off an increasingly stale local `main` until someone manually runs `git pull`/`git fetch` on the primary checkout.
