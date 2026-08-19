@@ -1,6 +1,22 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChatRow } from "../types/chat";
 import { Popover, PopoverRow } from "./Popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function PlusIcon() {
   return (
@@ -77,6 +93,7 @@ function SidebarRow({
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(chat.title ?? "");
 
   function commitRename() {
@@ -88,50 +105,57 @@ function SidebarRow({
 
   return (
     <div className={isActive ? "sidebar-row sidebar-row-active" : "sidebar-row"} onClick={onSelect}>
-      <span className="sidebar-row-title">{chat.title ?? "Untitled chat"}</span>
-      <div className="chat-card-menu" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="icon-button icon-button-sm"
-          title="Chat options"
-          onClick={() => {
-            setDraft(chat.title ?? "");
-            setOpen((o) => !o);
+      {renaming ? (
+        <input
+          className="chat-card-rename-input"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") setRenaming(false);
           }}
-        >
-          <DotsIcon />
-        </button>
-        {open &&
-          (renaming ? (
-            <div className="chat-card-menu-dropdown">
-              <input
-                className="chat-card-rename-input"
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename();
-                  if (e.key === "Escape") setRenaming(false);
-                }}
-                onBlur={commitRename}
-              />
-            </div>
-          ) : (
-            <div className="chat-card-menu-dropdown">
-              <button type="button" onClick={() => setRenaming(true)}>
-                Rename
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onDelete();
-                }}
-              >
+          onBlur={commitRename}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span className="sidebar-row-title">{chat.title ?? "Untitled chat"}</span>
+      )}
+      <div onClick={(e) => e.stopPropagation()}>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="icon-button icon-button-sm"
+              title="Chat options"
+              onClick={() => setDraft(chat.title ?? "")}
+            >
+              <DotsIcon />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete "{chat.title ?? "Untitled chat"}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes the chat and its message history. This can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onDelete}>
                 Delete
-              </button>
-            </div>
-          ))}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
