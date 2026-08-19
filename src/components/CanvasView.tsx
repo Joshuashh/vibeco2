@@ -118,6 +118,16 @@ export function CanvasView({
   // dependency of the node-building effect below, that would refire the
   // effect on every render the effect itself causes — an infinite loop.
   const statusByChat = useMemo(() => latestStatusByChat(mergeEvents), [mergeEvents]);
+  // `self`/`others` change identity on every presence update, including the
+  // live cursor position (broadcast on every pointermove — see
+  // LiveCursors.tsx). Using them directly as effect dependencies below was
+  // rebuilding every canvas node, including tearing down and recreating
+  // NodeResizer's internal drag state, on nearly every mouse movement — the
+  // actual cause of resize/drag fighting itself mid-gesture. These derived
+  // strings only change when what the effect actually cares about (email,
+  // claimed chat) changes, not on cursor movement.
+  const selfClaimKey = self ? `${self.presence.email}:${self.presence.claimedChatId ?? ""}` : "";
+  const othersClaimKey = others.map((o) => `${o.presence.email}:${o.presence.claimedChatId ?? ""}`).join(",");
   const mergedCount = mergeEvents.filter((e) => e.status === "merged").length;
   const refreshKeyRef = useRef(0);
   const lastMergedCountRef = useRef(mergedCount);
@@ -243,14 +253,16 @@ export function CanvasView({
 
       return [...chatNodes, ...groupNodes, instrumentNode];
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- self/others intentionally
+    // replaced by selfClaimKey/othersClaimKey above; see comment there.
   }, [
     chats,
     chatStates,
     positions,
     chatGroups,
     groupLabels,
-    self,
-    others,
+    selfClaimKey,
+    othersClaimKey,
     statusByChat,
     mergeEvents,
     onSend,
