@@ -23,7 +23,7 @@ export function GroupLabel({ data }: NodeProps<GroupLabelNode>) {
   if (editing) {
     return (
       <input
-        className="group-label group-label-input"
+        className="[font-family:inherit] text-[12px] tracking-[0.06em] uppercase text-text-primary bg-bg-tertiary border border-accent rounded-xl px-[0.9em] py-[0.3em] cursor-default whitespace-nowrap"
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -40,7 +40,10 @@ export function GroupLabel({ data }: NodeProps<GroupLabelNode>) {
   }
 
   return (
-    <div className="group-label" onClick={() => setEditing(true)}>
+    <div
+      className="font-[SF_Mono,monospace] text-[12px] tracking-[0.06em] uppercase text-text-tertiary bg-bg-tertiary border border-border rounded-xl px-[0.9em] py-[0.3em] cursor-default whitespace-nowrap"
+      onClick={() => setEditing(true)}
+    >
       {data.label}
     </div>
   );

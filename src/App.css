@@ -263,62 +263,6 @@ h1 {
   gap: 0.6em;
 }
 
-.presence-facepile {
-  display: flex;
-}
-
-.presence-avatar {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  border: 1.5px solid;
-  background: var(--bg-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  margin-left: -8px;
-}
-.presence-avatar:first-child {
-  margin-left: 0;
-}
-
-/* ---- Live cursors ---- */
-
-.live-cursors-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.live-cursor {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-}
-
-.live-cursor svg {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-
-.live-cursor-label {
-  display: inline-block;
-  margin-left: 14px;
-  margin-top: -4px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #fff;
-  white-space: nowrap;
-}
-
 /* ---- Chat view (docked sidebar + chat, ported from the sibling
    Claude Code GUI's AppShell/Sidebar) ---- */
 
@@ -404,30 +348,6 @@ h1 {
    header (the actual drag handle) should be. */
 .canvas-view .react-flow__node.draggable {
   cursor: default;
-}
-
-.group-label {
-  font-family: "SF Mono", "JetBrains Mono", monospace;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.3em 0.9em;
-  cursor: default;
-  white-space: nowrap;
-}
-
-.group-label-input {
-  font-family: inherit;
-  font-size: 12px;
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  padding: 0.3em 0.9em;
 }
 
 /* ---- Main Agent instrument ---- */

@@ -40,18 +40,27 @@ export function LiveCursors({ containerRef }: { containerRef: RefObject<HTMLElem
   }, [containerRef, updateMyPresence]);
 
   return (
-    <div className="live-cursors-layer">
+    <div className="absolute inset-0 z-50 pointer-events-none overflow-hidden">
       {others.map((other) =>
         other.presence.cursor ? (
           <div
             key={other.connectionId}
-            className="live-cursor"
+            className="absolute top-0 left-0 pointer-events-none"
             style={{ transform: `translate(${other.presence.cursor.x}px, ${other.presence.cursor.y}px)` }}
           >
-            <svg viewBox="0 0 24 24" fill={colorForUser(other.presence.email)} stroke="var(--bg-primary)" strokeWidth="1">
+            <svg
+              className="w-[18px] h-[18px] block"
+              viewBox="0 0 24 24"
+              fill={colorForUser(other.presence.email)}
+              stroke="var(--bg-primary)"
+              strokeWidth="1"
+            >
               <path d="M4 2l16 8-6.5 2L11 20 4 2z" />
             </svg>
-            <span className="live-cursor-label" style={{ background: colorForUser(other.presence.email) }}>
+            <span
+              className="inline-block ml-[14px] -mt-1 px-[7px] py-0.5 rounded-md text-[11px] font-medium text-white whitespace-nowrap"
+              style={{ background: colorForUser(other.presence.email) }}
+            >
               {other.presence.email}
             </span>
           </div>

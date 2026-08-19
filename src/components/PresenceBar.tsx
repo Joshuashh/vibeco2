@@ -11,13 +11,13 @@ export function PresenceBar() {
   ];
 
   return (
-    <div className="presence-facepile">
+    <div className="flex">
       {people.map((p) => {
         const color = colorForUser(p.email);
         return (
           <div
             key={p.email}
-            className="presence-avatar"
+            className="w-[26px] h-[26px] flex items-center justify-center rounded-full border-[1.5px] bg-bg-tertiary text-[11px] font-semibold -ml-2 first:ml-0"
             style={{ borderColor: color, color, background: `${color}26` }}
             title={p.isSelf ? `You (${p.email})` : p.email}
           >
