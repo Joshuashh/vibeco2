@@ -1,5 +1,15 @@
 # Vibeco2 — Decisions Log
 
+## Preview review page implemented (2026-08-19 session, continued)
+
+Built per `docs/superpowers/plans/2026-08-19-preview-review-page.md` (all 11 tasks): the top-level Preview tab now shows the live team preview full-bleed with a floating Cursor/Pin/Draw/Comments toolbar, pin notes with threaded replies and resolve/unresolve (resolved hidden by default, toggle to show), and freehand strokes with per-user undo. New Supabase tables `preview_pins`/`preview_pin_replies`/`preview_strokes` (migration `0007_preview_comments.sql`, applied), synced live via the same `postgres_changes` pattern as `merge_events`.
+
+**Verification done:** `npm test` (58 passed, including the two new pure-logic suites), `cargo test` (15 passed, untouched by this plan), `tsc --noEmit` clean, no console errors on load in the running `tauri dev` session (HMR picked up the change).
+
+**Verification NOT done:** the app is sign-in gated and this session had no credentials, so the actual click-through — placing a pin, drawing a stroke, resolving a comment, confirming realtime sync between two accounts — was never exercised live. Next session should sign in and walk Task 11 Step 3's manual checklist before trusting this feature end-to-end.
+
+**Mid-session correction, worth remembering:** a chunk of earlier work in this same session (the popover box-sizing fix's component-code half, and all four merge-orchestration gap fixes) sat uncommitted for several turns and nearly got silently absorbed into an unrelated commit when `git add src/App.css` swept up stale changes alongside new ones. Caught by checking `git status` before assuming "done" meant "committed." Worth double-checking `git status` after any turn where code was edited but the commit step wasn't explicitly the last action.
+
 ## Fixed the four merge-orchestration known gaps (2026-08-19 session, continued)
 
 **Context:** user confirmed the concurrent-render-preview concern is mitigated by design already — the button lives once on the shared preview box (`MainAgentInstrument.tsx`), scoped to whichever chat the current user has claimed, not duplicated per chat. But two *different* users can still each have their own chat claimed and press it at the same moment, so the race is cross-client, not fixable by having one button per client. Fixed all four gaps:
