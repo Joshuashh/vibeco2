@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 /* Without this, any `width: 100%` element with its own padding (content-box
    is the default) renders wider than its parent by exactly that padding —
