@@ -319,38 +319,6 @@ h1 {
   white-space: nowrap;
 }
 
-.view-toggle {
-  display: flex;
-  gap: 0.2em;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 3px;
-}
-
-.view-toggle button {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.85em;
-  font-weight: 500;
-  padding: 0.5em 1.1em;
-  border-radius: 6px;
-}
-
-.view-toggle button:hover {
-  border-color: transparent;
-}
-
-.view-toggle button.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.view-toggle button:disabled {
-  color: var(--text-tertiary);
-  opacity: 0.6;
-}
-
 /* ---- Chat view (docked sidebar + chat, ported from the sibling
    Claude Code GUI's AppShell/Sidebar) ---- */
 

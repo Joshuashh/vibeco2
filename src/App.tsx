@@ -233,11 +233,25 @@ function AppShell({ session }: { session: Session }) {
             </button>
           )}
           {viewMode === "chat" && (
-            <div className="view-toggle">
-              <button className={chatLayout === "single" ? "active" : ""} onClick={() => setChatLayout("single")}>
+            <div className="flex gap-[0.2em] bg-bg-tertiary rounded-lg p-[3px]">
+              <button
+                className={
+                  chatLayout === "single"
+                    ? "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-bg-primary text-text-primary"
+                    : "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-transparent text-text-secondary"
+                }
+                onClick={() => setChatLayout("single")}
+              >
                 Single
               </button>
-              <button className={chatLayout === "split" ? "active" : ""} onClick={() => setChatLayout("split")}>
+              <button
+                className={
+                  chatLayout === "split"
+                    ? "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-bg-primary text-text-primary"
+                    : "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md bg-transparent text-text-secondary"
+                }
+                onClick={() => setChatLayout("split")}
+              >
                 Split
               </button>
             </div>
