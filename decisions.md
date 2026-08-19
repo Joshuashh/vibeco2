@@ -1,5 +1,26 @@
 # Vibeco2 — Decisions Log
 
+## Hand-off (2026-08-19 session)
+
+**What happened this session:**
+- Fixed the canvas drag/resize glitch reported after the merge-orchestration work: root cause was `CanvasView.tsx`'s node-rebuilding effect depending on Liveblocks `self`/`others` presence objects, which change identity on every mouse move (live cursor broadcast) — every pointer move was rebuilding all canvas nodes, resetting `NodeResizer`'s internal drag state mid-gesture. Root-caused by building the real `.app` bundle (the raw `tauri dev` process isn't Launch-Services-registered and can't be driven via screen automation) and temporarily rendering the resize handles visible to confirm hit-testing was fine before finding the actual cause.
+- Along the way: fixed a real `dragHandle`/`NodeResizer` conflict and a CSS specificity bug (React Flow's own stylesheet was winning over our resize-handle override, causing a persistent blue highlight).
+- Merged the 2026-08-18 merge-orchestration branch to local `main` (worktree-per-chat, `chat → team → main` git plumbing, Render Preview / Promote buttons) — see that session's plan/spec docs.
+- Brainstormed a **Preview review page** (live prototype + click-to-pin comments + freehand markup) but paused mid-design at the user's request — written up as `docs/superpowers/specs/2026-08-19-preview-review-page-design.md` for a fresh session to pick up. Not implemented.
+- Restructured the top tabs into Plan/Build/Review, then reverted that per feedback ("didn't like this UI at all") back to the original flat toggle — kept only a disabled **Plan** tab ahead of Chat. Toolbar is now Plan | Chat | Canvas | Preview, both disabled, Single/Split back in its original toolbar spot.
+
+**Current state:** working tree clean, all changes committed to local `main`. **30 commits are unpushed to `origin/main`**, spanning this entire session plus the prior merge-orchestration session — nothing has been pushed since before this project's rename to Vibeco.
+
+**Open items:**
+- Preview review page — spec written, not planned or implemented. See its own "open questions" section (native screen-capture approach, snapshot-strip placement, image storage).
+- The merge-orchestration work's own known gaps are still open (see the 2026-08-18 entries below): `promote_to_main` doesn't advance the local `main` ref, no lock around concurrent Render Preview, no chat-worktree cleanup after promotion, no app-quit cleanup of the preview server.
+- The revert of the tab restructure was via `git revert` (clean history, not squashed) — the two Plan/Build/Review commits and their reverts are all still in history if that direction is wanted again later.
+
+**Next steps:**
+1. Decide whether to push the 30 local commits to `origin/main` — flagged, not done automatically.
+2. Pick up the Preview review page spec in a fresh session, or continue on the merge-orchestration known gaps.
+
+
 ## Known gap: `promote_to_main` doesn't advance the local `main` ref in the primary checkout (2026-08-18)
 
 **What happened:** `promote_to_main` (`src-tauri/src/git_ops.rs`) fast-forwards the *remote* `main` by pushing `origin/team:main`, but never fetches/updates the local `main` ref in the developer's own primary repo checkout. `ensure_chat_worktree` branches new chats off local `main` (`-b <branch> <path> main`), so after a promotion, new chats keep branching off an increasingly stale local `main` until someone manually runs `git pull`/`git fetch` on the primary checkout.
