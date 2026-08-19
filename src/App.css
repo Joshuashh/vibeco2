@@ -25,23 +25,23 @@ body,
    system (Sources/Claudeville/Models.swift) — reused rather than invented,
    so this app's chat surface matches the product it's evolving from. */
 :root {
-  --bg-primary: #1c1c1c;
-  --bg-sidebar: #161616;
-  --bg-secondary: #282828;
-  --bg-tertiary: #323232;
-  --text-primary: #ececec;
-  --text-secondary: #999999;
-  --text-tertiary: #707070;
+  --bg-primary: #18191c;
+  --bg-sidebar: #131417;
+  --bg-secondary: #232529;
+  --bg-tertiary: #2b2d33;
+  --text-primary: #eef0f4;
+  --text-secondary: #8d92a0;
+  --text-tertiary: #63676f;
   --accent: #ed6b26;
   --accent-dim: rgba(237, 107, 38, 0.16);
-  --border: #404040;
-  --user-bubble: #383838;
-  --send-active: #bfbfbf;
+  --border: #35373d;
+  --user-bubble: #2a2c31;
+  --send-active: #c4c8d1;
   --merged: #5fd97a;
   --held: #e8b84a;
   --conflict: #e2584f;
-  --canvas-bg: #0c0c0d;
-  --canvas-dot: #232326;
+  --canvas-bg: #0d0e10;
+  --canvas-dot: #24262b;
   --danger: #e2584f;
 
   font-family: -apple-system, "SF Pro Text", Inter, Avenir, Helvetica, Arial, sans-serif;
@@ -55,6 +55,26 @@ body,
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+@theme {
+  --color-bg-primary: #18191c;
+  --color-bg-sidebar: #131417;
+  --color-bg-secondary: #232529;
+  --color-bg-tertiary: #2b2d33;
+  --color-text-primary: #eef0f4;
+  --color-text-secondary: #8d92a0;
+  --color-text-tertiary: #63676f;
+  --color-accent: #ed6b26;
+  --color-border: #35373d;
+  --color-user-bubble: #2a2c31;
+  --color-send-active: #c4c8d1;
+  --color-merged: #5fd97a;
+  --color-held: #e8b84a;
+  --color-conflict: #e2584f;
+  --color-canvas-bg: #0d0e10;
+  --color-canvas-dot: #24262b;
+  --color-danger: #e2584f;
 }
 
 .mono {
