@@ -1,3 +1,6 @@
+import { supabase } from "./supabase";
+import type { PercentPoint } from "./overlayGeometry";
+
 export interface PreviewPin {
   id: string;
   x_pct: number;
@@ -41,4 +44,50 @@ export function repliesByPin(replies: PreviewPinReply[]): Record<string, Preview
     (map[reply.pin_id] ??= []).push(reply);
   }
   return map;
+}
+
+export async function fetchPreviewPins(): Promise<PreviewPin[]> {
+  const { data, error } = await supabase.from("preview_pins").select("*").order("created_at", { ascending: true });
+  if (error) throw new Error(`failed to fetch preview pins: ${error.message}`);
+  return (data ?? []) as PreviewPin[];
+}
+
+export async function fetchPreviewPinReplies(): Promise<PreviewPinReply[]> {
+  const { data, error } = await supabase
+    .from("preview_pin_replies")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`failed to fetch preview pin replies: ${error.message}`);
+  return (data ?? []) as PreviewPinReply[];
+}
+
+export async function fetchPreviewStrokes(): Promise<PreviewStroke[]> {
+  const { data, error } = await supabase.from("preview_strokes").select("*").order("created_at", { ascending: true });
+  if (error) throw new Error(`failed to fetch preview strokes: ${error.message}`);
+  return (data ?? []) as PreviewStroke[];
+}
+
+export async function insertPreviewPin(point: PercentPoint, text: string): Promise<void> {
+  const { error } = await supabase.from("preview_pins").insert({ x_pct: point.x_pct, y_pct: point.y_pct, text });
+  if (error) throw new Error(`failed to add pin: ${error.message}`);
+}
+
+export async function insertPreviewPinReply(pinId: string, text: string): Promise<void> {
+  const { error } = await supabase.from("preview_pin_replies").insert({ pin_id: pinId, text });
+  if (error) throw new Error(`failed to add reply: ${error.message}`);
+}
+
+export async function setPinResolved(pinId: string, resolved: boolean): Promise<void> {
+  const { error } = await supabase.from("preview_pins").update({ resolved }).eq("id", pinId);
+  if (error) throw new Error(`failed to update pin: ${error.message}`);
+}
+
+export async function insertPreviewStroke(path: PercentPoint[]): Promise<void> {
+  const { error } = await supabase.from("preview_strokes").insert({ path });
+  if (error) throw new Error(`failed to add stroke: ${error.message}`);
+}
+
+export async function deletePreviewStroke(strokeId: string): Promise<void> {
+  const { error } = await supabase.from("preview_strokes").delete().eq("id", strokeId);
+  if (error) throw new Error(`failed to remove stroke: ${error.message}`);
 }
