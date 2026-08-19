@@ -104,7 +104,12 @@ function SidebarRow({
   }
 
   return (
-    <div className={isActive ? "sidebar-row sidebar-row-active" : "sidebar-row"} onClick={onSelect}>
+    <div
+      className={`flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.5em] rounded-md cursor-default hover:bg-bg-secondary ${
+        isActive ? "bg-bg-tertiary" : ""
+      }`}
+      onClick={onSelect}
+    >
       {renaming ? (
         <input
           className="chat-card-rename-input"
@@ -119,7 +124,7 @@ function SidebarRow({
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="sidebar-row-title">{chat.title ?? "Untitled chat"}</span>
+        <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
       )}
       <div onClick={(e) => e.stopPropagation()}>
         <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -190,39 +195,51 @@ export function Sidebar({
     return chats.filter((c) => (c.title ?? "").toLowerCase().includes(q));
   }, [chats, searchText]);
 
+  const navRowBase =
+    "flex items-center gap-[0.6em] text-[0.85em] font-normal mx-[0.6em] my-[0.15em] px-[0.7em] py-[0.55em] rounded-md text-text-primary cursor-default bg-transparent border-0 outline-none text-left [&:hover:not(:disabled)]:bg-bg-secondary disabled:text-text-tertiary [&>svg]:w-[15px] [&>svg]:h-[15px] [&>svg]:shrink-0";
+
   return (
-    <div className="sidebar">
-      <button type="button" className="sidebar-navrow sidebar-navrow-primary" onClick={onCreateChat}>
+    <div className="h-full flex flex-col min-h-0">
+      <button type="button" className={`${navRowBase} mt-[0.8em] font-medium`} onClick={onCreateChat}>
         <PlusIcon />
         New Chat
       </button>
 
-      <div className="sidebar-nav">
-        <div className="sidebar-navrow sidebar-navrow-selected">
+      <div className="pb-[0.4em] border-b border-border">
+        <div className={`${navRowBase} bg-bg-tertiary`}>
           <ChatBubbleIcon />
           Chats
         </div>
         {/* ponytail: no Projects/Skills backend yet — visual slots only, per this
             project's established pattern of keeping inert UI in place (see
             ChatCardMenu's fork/archive rows) rather than omitting it. */}
-        <button type="button" className="sidebar-navrow" disabled title="Not yet available">
+        <button type="button" className={navRowBase} disabled title="Not yet available">
           <TrayIcon />
           Projects
         </button>
-        <button type="button" className="sidebar-navrow" disabled title="Not yet available">
+        <button type="button" className={navRowBase} disabled title="Not yet available">
           <PuzzleIcon />
           Skills
         </button>
       </div>
 
-      <div className="sidebar-search">
+      <div className="flex items-center gap-[0.5em] mx-[0.6em] my-[0.7em] px-[0.6em] py-[0.5em] bg-bg-secondary rounded-lg [&>svg]:w-[14px] [&>svg]:h-[14px] [&>svg]:text-text-tertiary [&>svg]:shrink-0">
         <SearchIcon />
-        <input placeholder="Search" value={searchText} onChange={(e) => setSearchText(e.target.value)} />
+        <input
+          className="appearance-none bg-transparent border-0 outline-none p-0 flex-1 text-[0.8em] text-text-primary"
+          placeholder="Search"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
       </div>
 
-      <div className="sidebar-list">
-        <div className="sidebar-section-header">RECENTS</div>
-        {filtered.length === 0 && <div className="sidebar-empty">No chats yet</div>}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="text-[0.7em] font-semibold tracking-[0.06em] text-text-tertiary px-[1em] py-[0.4em]">
+          RECENTS
+        </div>
+        {filtered.length === 0 && (
+          <div className="text-[0.8em] text-text-tertiary px-[1em]">No chats yet</div>
+        )}
         {filtered.map((chat) => (
           <SidebarRow
             key={chat.id}
@@ -235,9 +252,11 @@ export function Sidebar({
         ))}
       </div>
 
-      <div className="sidebar-footer">
-        <span className="sidebar-avatar">{userEmail.slice(0, 1).toUpperCase()}</span>
-        <span className="sidebar-email">{userEmail}</span>
+      <div className="flex items-center gap-[0.6em] p-[0.7em] border-t border-border">
+        <span className="w-[22px] h-[22px] shrink-0 flex items-center justify-center rounded-full bg-bg-tertiary text-[0.7em] font-medium">
+          {userEmail.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="flex-1 text-[0.78em] text-text-secondary truncate">{userEmail}</span>
         <button
           type="button"
           ref={settingsAnchorRef}

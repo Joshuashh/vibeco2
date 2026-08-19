@@ -354,146 +354,6 @@ h1 {
   overflow: hidden;
 }
 
-.sidebar {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.sidebar-navrow {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 0.6em;
-  font-size: 0.85em;
-  padding: 0.55em 0.7em;
-  margin: 0.15em 0.6em;
-  border-radius: 6px;
-  color: var(--text-primary);
-  cursor: default;
-}
-.sidebar-navrow svg {
-  width: 15px;
-  height: 15px;
-  stroke: currentColor;
-  fill: none;
-  flex-shrink: 0;
-}
-.sidebar-navrow:hover:not(:disabled) {
-  background: var(--bg-secondary);
-}
-.sidebar-navrow:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
-}
-.sidebar-navrow-primary {
-  margin-top: 0.8em;
-  font-weight: 500;
-}
-.sidebar-navrow-selected {
-  background: var(--bg-tertiary);
-}
-
-.sidebar-nav {
-  padding-bottom: 0.4em;
-  border-bottom: 1px solid var(--border);
-}
-
-.sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  margin: 0.7em 0.6em;
-  padding: 0.5em 0.6em;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-}
-.sidebar-search svg {
-  width: 14px;
-  height: 14px;
-  stroke: var(--text-tertiary);
-  fill: none;
-  flex-shrink: 0;
-}
-.sidebar-search input {
-  all: unset;
-  flex: 1;
-  font-size: 0.8em;
-  color: var(--text-primary);
-}
-
-.sidebar-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.sidebar-section-header {
-  font-size: 0.7em;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  padding: 0.4em 1em;
-}
-
-.sidebar-empty {
-  font-size: 0.8em;
-  color: var(--text-tertiary);
-  padding: 0 1em;
-}
-
-.sidebar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4em;
-  margin: 0.05em 0.6em;
-  padding: 0.5em 0.6em;
-  border-radius: 6px;
-  cursor: default;
-}
-.sidebar-row:hover {
-  background: var(--bg-secondary);
-}
-.sidebar-row-active {
-  background: var(--bg-tertiary);
-}
-.sidebar-row-title {
-  font-size: 0.85em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 0.6em;
-  padding: 0.7em;
-  border-top: 1px solid var(--border);
-}
-.sidebar-avatar {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  font-size: 0.7em;
-  font-weight: 500;
-}
-.sidebar-email {
-  flex: 1;
-  font-size: 0.78em;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .icon-button-sm {
   width: 24px !important;
   height: 24px !important;
@@ -1206,15 +1066,13 @@ h1 {
   font-weight: 300;
 }
 
-/* ---- Input bar ---- */
-
-.input-bar {
-  border-top: 1px solid var(--border);
-  padding: 1em 1.3em 1.2em;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6em;
-}
+/* ---- Input bar ----
+   Base .input-bar layout/spacing now lives on the component as Tailwind
+   utilities; this contextual override (nested inside .chat-pane, itself
+   not yet migrated) stays here since it targets the .input-bar class by
+   descendant selector and always wins over the utility classes regardless
+   of specificity (unlayered beats layered — see the note above the
+   `@layer base` form-control reset). */
 
 .chat-pane .input-bar {
   border-top: none;
@@ -1222,82 +1080,10 @@ h1 {
   padding-right: 1em;
 }
 
-.input-toprow,
-.input-bottomrow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  row-gap: 0.4em;
-  gap: 0.4em;
-}
-
-.input-spacer {
-  flex: 1 1 0%;
-  min-width: 0;
-}
-
-.input-box {
-  background: #20201f;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 0.9em 3em 0.9em 1em;
-  position: relative;
-}
-
-.input-box textarea {
-  all: unset;
-  display: block;
-  width: 100%;
-  resize: none;
-  font-size: 14px;
-  color: var(--text-primary);
-  font-family: inherit;
-  line-height: 1.4;
-}
-
-.input-box textarea::placeholder {
-  color: var(--text-tertiary);
-}
-
-.input-box:focus-within {
-  border-color: var(--accent);
-}
-
-.send-button {
-  all: unset;
-  cursor: default;
-  position: absolute;
-  right: 0.6em;
-  top: 0.6em;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.send-button svg {
-  width: 15px;
-  height: 15px;
-  stroke: var(--text-tertiary);
-}
-
-.send-button:not(:disabled) {
-  background: var(--send-active);
-}
-
-.send-button:not(:disabled) svg {
-  stroke: #1c1c1c;
-}
-
-.send-button:disabled {
-  cursor: default;
-  opacity: 1;
-}
-
-/* ---- Pills (location / directory / permission / model / effort) ---- */
+/* ---- Pills (location / directory / permission / model / effort) ----
+   Still used, unmigrated, by MainAgentInstrument.tsx, RenderPreviewButton.tsx,
+   and PreviewCommentPanel.tsx — kept here even though InputToolbelt.tsx's own
+   usage has moved to Tailwind utilities. */
 
 .pill {
   all: unset;
@@ -1332,45 +1118,6 @@ h1 {
 
 .pill-ghost {
   background: transparent;
-}
-
-/* ---- Attachments ---- */
-
-.attachment-strip {
-  display: flex;
-  gap: 0.5em;
-  flex-wrap: wrap;
-}
-
-.attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  font-size: 0.78em;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 0.3em 0.6em;
-  border-radius: 8px;
-}
-
-.attachment-chip svg {
-  width: 12px;
-  height: 12px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-}
-
-.attachment-chip button {
-  all: unset;
-  cursor: default;
-  color: var(--text-tertiary);
-  font-size: 1.1em;
-  line-height: 1;
-}
-
-.attachment-chip button:hover {
-  color: var(--text-primary);
 }
 
 /* ---- Preview review page (docs/superpowers/specs/2026-08-19-preview-review-page-design.md) ---- */

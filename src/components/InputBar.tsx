@@ -35,8 +35,8 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
   }
 
   return (
-    <div className="input-bar">
-      <div className="input-toprow">
+    <div className="input-bar flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[1.2em] pl-[1.3em] border-t border-border">
+      <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <RepoPill />
       </div>
 
@@ -45,10 +45,11 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         onRemove={(name) => setAttachments((a) => a.filter((f) => f !== name))}
       />
 
-      <div className="input-box">
+      <div className="relative bg-[#20201f] border border-border rounded-2xl py-[0.9em] pr-[3em] pl-[1em] focus-within:border-accent">
         <textarea
           ref={textareaRef}
           rows={1}
+          className="appearance-none bg-transparent border-0 outline-none block w-full resize-none text-sm text-text-primary [font-family:inherit] leading-[1.4] placeholder:text-text-tertiary"
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
@@ -60,7 +61,7 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         />
         <button
           type="button"
-          className="send-button"
+          className="appearance-none border-0 outline-none absolute right-[0.6em] top-[0.6em] w-8 h-8 rounded-[10px] flex items-center justify-center bg-bg-tertiary [&_svg]:w-[15px] [&_svg]:h-[15px] [&_svg]:stroke-text-tertiary enabled:bg-send-active enabled:[&_svg]:stroke-[#1c1c1c] disabled:opacity-100"
           onClick={submit}
           disabled={disabled || (!value.trim() && attachments.length === 0)}
           aria-label="Send"
@@ -71,11 +72,11 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         </button>
       </div>
 
-      <div className="input-bottomrow">
+      <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <PermissionPill />
         <AttachButton onAttach={(files) => setAttachments((a) => [...a, ...Array.from(files).map((f) => f.name)])} />
         <MicButton />
-        <span className="input-spacer" />
+        <span className="flex-1 min-w-0" />
         <ModelPicker />
         <EffortPicker />
       </div>
