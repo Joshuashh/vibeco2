@@ -14,9 +14,14 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
   const [attachments, setAttachments] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Grows with content up to 10 lines, then scrolls internally rather than
+  // pushing the rest of the pane around indefinitely.
   function resize(el: HTMLTextAreaElement) {
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 19.6;
+    const maxHeight = lineHeight * 10;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
   function submit() {
@@ -24,7 +29,10 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
     onSend(value);
     setValue("");
     setAttachments([]);
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.overflowY = "hidden";
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -45,11 +53,11 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         onRemove={(name) => setAttachments((a) => a.filter((f) => f !== name))}
       />
 
-      <div className="relative bg-[#1e1f24] border border-border rounded-2xl py-[0.9em] pr-[3em] pl-[1em] focus-within:border-accent">
+      <div className="relative min-h-[50px] flex items-center bg-[#1e1f24] border border-border rounded-2xl py-[0.6em] pr-[3em] pl-[1em] focus-within:border-accent">
         <textarea
           ref={textareaRef}
           rows={1}
-          className="appearance-none bg-transparent border-0 outline-none block w-full resize-none text-sm text-text-primary [font-family:inherit] leading-[1.4] placeholder:text-text-tertiary"
+          className="appearance-none bg-transparent border-0 outline-none block w-full resize-none overflow-y-hidden text-sm text-text-primary [font-family:inherit] leading-[1.4] placeholder:text-text-tertiary"
           value={value}
           onChange={(e) => {
             setValue(e.target.value);

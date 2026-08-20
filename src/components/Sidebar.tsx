@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChatRow } from "../types/chat";
 import { Popover, PopoverRow } from "./Popover";
+import { computeSortOrder } from "../lib/reorder";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,10 +43,11 @@ function TrayIcon() {
   );
 }
 
-function PuzzleIcon() {
+function ArchiveIcon() {
   return (
     <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7h3a1 1 0 0 0 1-1V5a2 2 0 1 1 4 0v1a1 1 0 0 0 1 1h3v3a1 1 0 0 0 1 1h1a2 2 0 1 1 0 4h-1a1 1 0 0 0-1 1v3h-3a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0v-1a1 1 0 0 0-1-1H4v-3a1 1 0 0 0-1-1H2a2 2 0 1 1 0-4h1a1 1 0 0 0 1-1V7z" />
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 13h4" />
     </svg>
   );
 }
@@ -81,20 +83,40 @@ function DotsIcon() {
 function SidebarRow({
   chat,
   isActive,
+  archived,
+  draggable,
   onSelect,
   onRename,
+  onGroupChange,
+  onArchive,
+  onUnarchive,
   onDelete,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  dragOver,
 }: {
   chat: ChatRow;
   isActive: boolean;
+  archived: boolean;
+  draggable: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
+  onGroupChange: (groupName: string | null) => void;
+  onArchive?: () => void;
+  onUnarchive?: () => void;
   onDelete: () => void;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  dragOver?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [groupEditing, setGroupEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(chat.title ?? "");
+  const [groupDraft, setGroupDraft] = useState(chat.group_name ?? "");
 
   function commitRename() {
     const trimmed = draft.trim();
@@ -103,12 +125,22 @@ function SidebarRow({
     setOpen(false);
   }
 
+  function commitGroup() {
+    onGroupChange(groupDraft.trim() || null);
+    setGroupEditing(false);
+    setOpen(false);
+  }
+
   return (
     <div
       className={`flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.5em] rounded-md cursor-default hover:bg-bg-secondary ${
         isActive ? "bg-bg-tertiary" : ""
-      }`}
+      } ${dragOver ? "outline outline-1 outline-accent -outline-offset-1" : ""}`}
       onClick={onSelect}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       {renaming ? (
         <input
@@ -123,6 +155,20 @@ function SidebarRow({
           onBlur={commitRename}
           onClick={(e) => e.stopPropagation()}
         />
+      ) : groupEditing ? (
+        <input
+          className="chat-card-rename-input"
+          autoFocus
+          placeholder="Group name (blank to ungroup)"
+          value={groupDraft}
+          onChange={(e) => setGroupDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitGroup();
+            if (e.key === "Escape") setGroupEditing(false);
+          }}
+          onBlur={commitGroup}
+          onClick={(e) => e.stopPropagation()}
+        />
       ) : (
         <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
       )}
@@ -133,13 +179,26 @@ function SidebarRow({
               type="button"
               className="icon-button icon-button-sm"
               title="Chat options"
-              onClick={() => setDraft(chat.title ?? "")}
+              onClick={() => {
+                setDraft(chat.title ?? "");
+                setGroupDraft(chat.group_name ?? "");
+              }}
             >
               <DotsIcon />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+            {archived ? (
+              <DropdownMenuItem onSelect={() => onUnarchive?.()}>Restore</DropdownMenuItem>
+            ) : (
+              <>
+                <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setGroupEditing(true)}>
+                  {chat.group_name ? "Change group…" : "Add to group…"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onArchive?.()}>Archive</DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}>
               Delete
             </DropdownMenuItem>
@@ -166,6 +225,12 @@ function SidebarRow({
   );
 }
 
+function SidebarSectionHeader({ text }: { text: string }) {
+  return (
+    <div className="text-[0.7em] font-semibold tracking-[0.06em] text-text-tertiary px-[1em] py-[0.4em]">{text}</div>
+  );
+}
+
 export function Sidebar({
   chats,
   activeChatId,
@@ -173,6 +238,10 @@ export function Sidebar({
   onCreateChat,
   onRename,
   onDelete,
+  onReorder,
+  onGroupChange,
+  onArchive,
+  onUnarchive,
   userEmail,
   onSignOut,
 }: {
@@ -182,18 +251,74 @@ export function Sidebar({
   onCreateChat: () => void;
   onRename: (chatId: string, title: string) => void;
   onDelete: (chatId: string) => void;
+  onReorder: (chatId: string, sortOrder: number) => void;
+  onGroupChange: (chatId: string, groupName: string | null) => void;
+  onArchive: (chatId: string) => void;
+  onUnarchive: (chatId: string) => void;
   userEmail: string;
   onSignOut: () => void;
 }) {
   const [searchText, setSearchText] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mode, setMode] = useState<"chats" | "archive">("chats");
+  const [dragChatId, setDragChatId] = useState<string | null>(null);
+  const [dragOverChatId, setDragOverChatId] = useState<string | null>(null);
   const settingsAnchorRef = useRef<HTMLButtonElement>(null);
 
+  const activeChats = useMemo(() => chats.filter((c) => !c.archived_at), [chats]);
+  const archivedChats = useMemo(
+    () => chats.filter((c) => c.archived_at).sort((a, b) => (b.archived_at ?? "").localeCompare(a.archived_at ?? "")),
+    [chats]
+  );
+
+  const visible = mode === "chats" ? activeChats : archivedChats;
   const filtered = useMemo(() => {
-    if (!searchText.trim()) return chats;
+    if (!searchText.trim()) return visible;
     const q = searchText.toLowerCase();
-    return chats.filter((c) => (c.title ?? "").toLowerCase().includes(q));
-  }, [chats, searchText]);
+    return visible.filter((c) => (c.title ?? "").toLowerCase().includes(q));
+  }, [visible, searchText]);
+
+  // Recents (ungrouped) first, then named groups alphabetically — each
+  // internally ordered by sort_order, the field drag-and-drop rewrites.
+  const sections = useMemo(() => {
+    if (mode === "archive") return [{ title: "ARCHIVED", chats: filtered }];
+    const byGroup = new Map<string | null, ChatRow[]>();
+    for (const chat of filtered) {
+      const key = chat.group_name;
+      const list = byGroup.get(key) ?? [];
+      list.push(chat);
+      byGroup.set(key, list);
+    }
+    const groupNames = [...byGroup.keys()].filter((k): k is string => k != null).sort((a, b) => a.localeCompare(b));
+    const result = [{ title: "RECENTS", chats: (byGroup.get(null) ?? []).sort((a, b) => a.sort_order - b.sort_order) }];
+    for (const name of groupNames) {
+      result.push({ title: name.toUpperCase(), chats: (byGroup.get(name) ?? []).sort((a, b) => a.sort_order - b.sort_order) });
+    }
+    return result;
+  }, [filtered, mode]);
+
+  function dropOnto(targetChat: ChatRow, sectionChats: ChatRow[], targetGroupName: string | null) {
+    if (!dragChatId || dragChatId === targetChat.id) return;
+    const targetIndex = sectionChats.findIndex((c) => c.id === targetChat.id);
+    const before = targetIndex > 0 ? sectionChats[targetIndex - 1].sort_order : null;
+    const sortOrder = computeSortOrder(before, targetChat.sort_order);
+    const dragged = chats.find((c) => c.id === dragChatId);
+    if (dragged && dragged.group_name !== targetGroupName) onGroupChange(dragChatId, targetGroupName);
+    onReorder(dragChatId, sortOrder);
+    setDragChatId(null);
+    setDragOverChatId(null);
+  }
+
+  function dropAtEnd(sectionChats: ChatRow[], targetGroupName: string | null) {
+    if (!dragChatId) return;
+    const last = sectionChats[sectionChats.length - 1];
+    const sortOrder = computeSortOrder(last?.sort_order ?? null, null);
+    const dragged = chats.find((c) => c.id === dragChatId);
+    if (dragged && dragged.group_name !== targetGroupName) onGroupChange(dragChatId, targetGroupName);
+    onReorder(dragChatId, sortOrder);
+    setDragChatId(null);
+    setDragOverChatId(null);
+  }
 
   const navRowBase =
     "flex items-center gap-[0.6em] text-[0.85em] font-normal mx-[0.6em] my-[0.15em] px-[0.7em] py-[0.55em] rounded-md text-text-primary cursor-default bg-transparent border-0 outline-none text-left [&:hover:not(:disabled)]:bg-bg-secondary disabled:text-text-tertiary [&>svg]:w-[15px] [&>svg]:h-[15px] [&>svg]:shrink-0";
@@ -206,20 +331,28 @@ export function Sidebar({
       </button>
 
       <div className="pb-[0.4em] border-b border-border">
-        <div className={`${navRowBase} bg-bg-tertiary`}>
+        <button
+          type="button"
+          className={mode === "chats" ? `${navRowBase} bg-bg-tertiary` : navRowBase}
+          onClick={() => setMode("chats")}
+        >
           <ChatBubbleIcon />
           Chats
-        </div>
-        {/* ponytail: no Projects/Skills backend yet — visual slots only, per this
+        </button>
+        {/* ponytail: no Projects backend yet — visual slot only, per this
             project's established pattern of keeping inert UI in place (see
-            ChatCardMenu's fork/archive rows) rather than omitting it. */}
+            ChatCardMenu's fork row) rather than omitting it. */}
         <button type="button" className={navRowBase} disabled title="Not yet available">
           <TrayIcon />
           Projects
         </button>
-        <button type="button" className={navRowBase} disabled title="Not yet available">
-          <PuzzleIcon />
-          Skills
+        <button
+          type="button"
+          className={mode === "archive" ? `${navRowBase} bg-bg-tertiary` : navRowBase}
+          onClick={() => setMode("archive")}
+        >
+          <ArchiveIcon />
+          Archive
         </button>
       </div>
 
@@ -234,22 +367,54 @@ export function Sidebar({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="text-[0.7em] font-semibold tracking-[0.06em] text-text-tertiary px-[1em] py-[0.4em]">
-          RECENTS
-        </div>
         {filtered.length === 0 && (
-          <div className="text-[0.8em] text-text-tertiary px-[1em]">No chats yet</div>
+          <div className="text-[0.8em] text-text-tertiary px-[1em]">
+            {mode === "archive" ? "No archived chats" : "No chats yet"}
+          </div>
         )}
-        {filtered.map((chat) => (
-          <SidebarRow
-            key={chat.id}
-            chat={chat}
-            isActive={chat.id === activeChatId}
-            onSelect={() => onSelect(chat.id)}
-            onRename={(title) => onRename(chat.id, title)}
-            onDelete={() => onDelete(chat.id)}
-          />
-        ))}
+        {sections.map(
+          (section) =>
+            section.chats.length > 0 && (
+              <div key={section.title}>
+                <SidebarSectionHeader text={section.title} />
+                {section.chats.map((chat) => (
+                  <SidebarRow
+                    key={chat.id}
+                    chat={chat}
+                    isActive={chat.id === activeChatId}
+                    archived={mode === "archive"}
+                    draggable={mode === "chats"}
+                    dragOver={dragOverChatId === chat.id}
+                    onSelect={() => onSelect(chat.id)}
+                    onRename={(title) => onRename(chat.id, title)}
+                    onGroupChange={(groupName) => onGroupChange(chat.id, groupName)}
+                    onArchive={() => onArchive(chat.id)}
+                    onUnarchive={() => onUnarchive(chat.id)}
+                    onDelete={() => onDelete(chat.id)}
+                    onDragStart={() => setDragChatId(chat.id)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverChatId(chat.id);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      dropOnto(chat, section.chats, section.title === "RECENTS" ? null : chat.group_name);
+                    }}
+                  />
+                ))}
+                {mode === "chats" && (
+                  <div
+                    className="h-[0.6em]"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      dropAtEnd(section.chats, section.title === "RECENTS" ? null : section.chats[0]?.group_name ?? null);
+                    }}
+                  />
+                )}
+              </div>
+            )
+        )}
       </div>
 
       <div className="flex items-center gap-[0.6em] p-[0.7em] border-t border-border">

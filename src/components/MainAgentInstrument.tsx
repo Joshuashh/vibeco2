@@ -78,7 +78,7 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
             </button>
           </div>
         </div>
-        <div className="nodrag nowheel flex-1 min-h-0 flex flex-col">
+        <div className="nodrag flex-1 min-h-0 flex flex-col">
           {previewStatus === "ready" ? (
             <iframe
               key={data.refreshKey}
@@ -103,7 +103,7 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
         <span className="text-conflict">{counts.conflict} conflict</span>
       </div>
       {logOpen && (
-        <div className="nodrag nowheel bg-bg-sidebar border border-border border-t-0 max-h-[200px] overflow-y-auto text-[12px]">
+        <div className="nodrag bg-bg-sidebar border border-border border-t-0 max-h-[200px] overflow-y-auto text-[12px]">
           {data.mergeEvents.length === 0 && (
             <div className="py-[0.6em] px-[1em] text-text-tertiary">No merge activity yet.</div>
           )}

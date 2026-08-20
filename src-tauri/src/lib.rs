@@ -29,13 +29,18 @@ fn start_session(
     prompt: String,
     working_directory: String,
     resume_session_id: Option<String>,
+    model: String,
+    permission_mode: String,
+    effort: String,
 ) -> Result<(), String> {
     let claude_path =
         claude_binary::resolve_claude_binary().ok_or_else(|| "claude binary not found".to_string())?;
 
     let config = claude_process::SpawnConfig {
         prompt,
-        model: "sonnet".to_string(),
+        model,
+        permission_mode,
+        effort,
         working_directory: std::path::PathBuf::from(working_directory),
         resume_session_id,
     };

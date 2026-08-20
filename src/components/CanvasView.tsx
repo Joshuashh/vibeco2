@@ -42,12 +42,13 @@ const edgeTypes = { pulse: PulseEdge };
 export type FlowScreenApi = {
   screenToFlowPosition: (pos: { x: number; y: number }) => { x: number; y: number };
   flowToScreenPosition: (pos: { x: number; y: number }) => { x: number; y: number };
+  zoomTo: (level: number, options?: { duration?: number }) => void;
 };
 
 function ReportFlowApi({ apiRef }: { apiRef: RefObject<FlowScreenApi | null> }) {
-  const { screenToFlowPosition, flowToScreenPosition } = useReactFlow();
+  const { screenToFlowPosition, flowToScreenPosition, zoomTo } = useReactFlow();
   useEffect(() => {
-    apiRef.current = { screenToFlowPosition, flowToScreenPosition };
+    apiRef.current = { screenToFlowPosition, flowToScreenPosition, zoomTo };
     return () => {
       apiRef.current = null;
     };
@@ -111,22 +112,27 @@ interface CanvasViewProps {
   onSend: (chatId: string, prompt: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
+  onArchive: (chatId: string) => void;
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
   flowApiRef: RefObject<FlowScreenApi | null>;
 }
 
 export function CanvasView({
-  chats,
+  chats: allChats,
   chatStates,
   mergeEvents,
   onSend,
   onLeave,
   onDelete,
+  onArchive,
   onExpand,
   onRename,
   flowApiRef,
 }: CanvasViewProps) {
+  // Archived chats stay in Supabase/the sidebar's Archive list but shouldn't
+  // float around as an active card on the canvas.
+  const chats = useMemo(() => allChats.filter((c) => !c.archived_at), [allChats]);
   const positions = useStorage((root) => root.positions);
   const chatGroups = useStorage((root) => root.chatGroups);
   const groupLabels = useStorage((root) => root.groupLabels);
@@ -229,6 +235,7 @@ export function CanvasView({
             onSend,
             onLeave,
             onDelete,
+            onArchive,
             onExpand,
             onRename,
           },
@@ -290,6 +297,7 @@ export function CanvasView({
     onSend,
     onLeave,
     onDelete,
+    onArchive,
     onExpand,
     onRename,
     setNodes,
@@ -366,6 +374,9 @@ export function CanvasView({
           onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
           panOnDrag={spaceHeld}
+          panOnScroll
+          zoomOnScroll={false}
+          zoomOnPinch
           fitView
         >
           <Background color="var(--canvas-dot)" gap={28} size={1.5} />

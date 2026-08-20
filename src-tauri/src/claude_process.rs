@@ -53,6 +53,8 @@ use std::path::PathBuf;
 pub struct SpawnConfig {
     pub prompt: String,
     pub model: String,
+    pub permission_mode: String,
+    pub effort: String,
     pub working_directory: PathBuf,
     pub resume_session_id: Option<String>,
 }
@@ -68,7 +70,9 @@ pub fn build_args(config: &SpawnConfig) -> Vec<String> {
         "--model".to_string(),
         config.model.clone(),
         "--permission-mode".to_string(),
-        "acceptEdits".to_string(),
+        config.permission_mode.clone(),
+        "--effort".to_string(),
+        config.effort.clone(),
     ];
     if let Some(id) = &config.resume_session_id {
         args.push("--resume".to_string());
@@ -86,6 +90,8 @@ mod spawn_config_tests {
         let config = SpawnConfig {
             prompt: "hello".to_string(),
             model: "sonnet".to_string(),
+            permission_mode: "acceptEdits".to_string(),
+            effort: "high".to_string(),
             working_directory: PathBuf::from("/tmp"),
             resume_session_id: None,
         };
@@ -98,10 +104,28 @@ mod spawn_config_tests {
     }
 
     #[test]
+    fn build_args_includes_model_permission_and_effort() {
+        let config = SpawnConfig {
+            prompt: "hello".to_string(),
+            model: "opus".to_string(),
+            permission_mode: "plan".to_string(),
+            effort: "max".to_string(),
+            working_directory: PathBuf::from("/tmp"),
+            resume_session_id: None,
+        };
+        let args = build_args(&config);
+        assert!(args.contains(&"--model".to_string()) && args.contains(&"opus".to_string()));
+        assert!(args.contains(&"--permission-mode".to_string()) && args.contains(&"plan".to_string()));
+        assert!(args.contains(&"--effort".to_string()) && args.contains(&"max".to_string()));
+    }
+
+    #[test]
     fn build_args_includes_resume_when_present() {
         let config = SpawnConfig {
             prompt: "continue".to_string(),
             model: "sonnet".to_string(),
+            permission_mode: "acceptEdits".to_string(),
+            effort: "high".to_string(),
             working_directory: PathBuf::from("/tmp"),
             resume_session_id: Some("abc-123".to_string()),
         };

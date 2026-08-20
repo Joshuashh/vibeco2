@@ -45,7 +45,7 @@ export async function createChat(title: string | null): Promise<string> {
 }
 
 export async function fetchAllChats(): Promise<ChatRow[]> {
-  const { data, error } = await supabase.from("chats").select("*").order("created_at", { ascending: true });
+  const { data, error } = await supabase.from("chats").select("*").order("sort_order", { ascending: true });
   if (error) throw new Error(`failed to fetch chats: ${error.message}`);
   return (data ?? []) as ChatRow[];
 }
@@ -58,6 +58,24 @@ export async function updateChatPosition(chatId: string, x: number, y: number): 
 export async function updateChatTitle(chatId: string, title: string): Promise<void> {
   const { error } = await supabase.from("chats").update({ title }).eq("id", chatId);
   if (error) throw new Error(`failed to update chat title: ${error.message}`);
+}
+
+export async function updateChatSortOrder(chatId: string, sortOrder: number): Promise<void> {
+  const { error } = await supabase.from("chats").update({ sort_order: sortOrder }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat order: ${error.message}`);
+}
+
+export async function updateChatGroup(chatId: string, groupName: string | null): Promise<void> {
+  const { error } = await supabase.from("chats").update({ group_name: groupName }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat group: ${error.message}`);
+}
+
+export async function setChatArchived(chatId: string, archived: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("chats")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("id", chatId);
+  if (error) throw new Error(`failed to update chat archived state: ${error.message}`);
 }
 
 export async function updateChatSession(chatId: string, sessionId: string, ownerId: string): Promise<void> {

@@ -16,6 +16,7 @@ export interface ChatCardData {
   onSend: (chatId: string, prompt: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
+  onArchive: (chatId: string) => void;
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
   [key: string]: unknown;
@@ -55,7 +56,7 @@ function LeaveIcon() {
 }
 
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
-  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onExpand, onRename } = data;
+  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onArchive, onExpand, onRename } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
@@ -93,7 +94,11 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
               <TrashIcon />
             </button>
           )}
-          <ChatCardMenu title={chat.title ?? "Untitled chat"} onRename={(title) => onRename(chat.id, title)} />
+          <ChatCardMenu
+            title={chat.title ?? "Untitled chat"}
+            onRename={(title) => onRename(chat.id, title)}
+            onArchive={() => onArchive(chat.id)}
+          />
         </div>
       </div>
       {claimant && (
@@ -102,7 +107,11 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           {claimant} is working here
         </div>
       )}
-      <div className="nodrag nowheel chat-card-scroll-region">
+      {/* nowheel deliberately omitted: two-finger pan/pinch-zoom on the
+          canvas should work even with the pointer over a card's message
+          list — trades away scrolling a long history via mouse wheel while
+          hovering it on the canvas; open the chat for that instead. */}
+      <div className="nodrag chat-card-scroll-region">
         <MessageList messages={state.messages} streaming={state.streaming} />
       </div>
       <div className="nodrag nowheel">

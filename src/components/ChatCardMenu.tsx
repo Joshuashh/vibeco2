@@ -19,10 +19,12 @@ import {
 export function ChatCardMenu({
   title,
   onRename,
+  onArchive,
   onDelete,
 }: {
   title: string;
   onRename: (newTitle: string) => void;
+  onArchive?: () => void;
   onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -78,8 +80,7 @@ export function ChatCardMenu({
           <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
           {/* ponytail: no branching/fork concept in Vibeco2 yet — visual only, per explicit request to keep the slot even though it's a no-op */}
           <DropdownMenuItem disabled>Fork conversation</DropdownMenuItem>
-          {/* ponytail: no archived flag on chats yet — visual only */}
-          <DropdownMenuItem disabled>Archive</DropdownMenuItem>
+          {onArchive && <DropdownMenuItem onSelect={onArchive}>Archive</DropdownMenuItem>}
           {onDelete && (
             <DropdownMenuItem
               variant="destructive"

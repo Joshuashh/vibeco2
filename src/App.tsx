@@ -20,10 +20,14 @@ import {
   fetchAllChats,
   updateChatSession,
   updateChatTitle,
+  updateChatSortOrder,
+  updateChatGroup,
+  setChatArchived,
   deleteChat,
   saveChatMessages,
 } from "./lib/persistChat";
 import { userMessage } from "./types/message";
+import { deriveChatTitle } from "./lib/chatTitle";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
@@ -31,6 +35,7 @@ import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers, useBroa
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
 import { isClaimedByOther, computeClaimant } from "./lib/claim";
+import { PrefsProvider, usePrefs } from "./lib/prefs";
 
 function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
@@ -45,6 +50,7 @@ function AppShell({ session }: { session: Session }) {
   const self = useSelf();
   const others = useOthers();
   const broadcastEvent = useBroadcastEvent();
+  const prefs = usePrefs();
 
   useEffect(() => {
     fetchAllChats().then(async (rows) => {
@@ -139,6 +145,12 @@ function AppShell({ session }: { session: Session }) {
   const handleSend = useCallback(
     (chatId: string, prompt: string) => {
       updateMyPresence({ claimedChatId: chatId });
+      const chat = chats.find((c) => c.id === chatId);
+      const isFirstMessage = (chatStates[chatId]?.messages.length ?? 0) === 0;
+      if (isFirstMessage && !chat?.title) {
+        const title = deriveChatTitle(prompt);
+        if (title) handleRename(chatId, title);
+      }
       setChatStates((prev) => {
         const withUserMessage = addUserMessage(prev, chatId, prompt);
         return {
@@ -149,7 +161,6 @@ function AppShell({ session }: { session: Session }) {
       saveChatMessages(chatId, [userMessage(prompt)]).catch((err) =>
         console.error("failed to save user message", err)
       );
-      const chat = chats.find((c) => c.id === chatId);
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
       // primed with the stored transcript instead, so Claude isn't blind to
@@ -172,6 +183,9 @@ function AppShell({ session }: { session: Session }) {
             prompt: effectivePrompt,
             workingDirectory,
             resumeSessionId: isOwner ? chat?.claude_session_id ?? null : null,
+            model: prefs.model.cliValue,
+            permissionMode: prefs.effectivePermissionMode,
+            effort: prefs.effort.cliValue,
           })
         )
         .catch((err) => {
@@ -180,7 +194,7 @@ function AppShell({ session }: { session: Session }) {
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
     },
-    [chats, chatStates, updateMyPresence, session.user.id]
+    [chats, chatStates, updateMyPresence, session.user.id, prefs]
   );
 
   const handleLeave = useCallback(
@@ -203,6 +217,29 @@ function AppShell({ session }: { session: Session }) {
     updateChatTitle(chatId, title).catch((err) => console.error("failed to rename chat", err));
   }, []);
 
+  const handleReorder = useCallback((chatId: string, sortOrder: number) => {
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, sort_order: sortOrder } : c)).sort((a, b) => a.sort_order - b.sort_order)
+    );
+    updateChatSortOrder(chatId, sortOrder).catch((err) => console.error("failed to reorder chat", err));
+  }, []);
+
+  const handleGroupChange = useCallback((chatId: string, groupName: string | null) => {
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, group_name: groupName } : c)));
+    updateChatGroup(chatId, groupName).catch((err) => console.error("failed to update chat group", err));
+  }, []);
+
+  const handleArchive = useCallback((chatId: string) => {
+    const archivedAt = new Date().toISOString();
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, archived_at: archivedAt } : c)));
+    setChatArchived(chatId, true).catch((err) => console.error("failed to archive chat", err));
+  }, []);
+
+  const handleUnarchive = useCallback((chatId: string) => {
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, archived_at: null } : c)));
+    setChatArchived(chatId, false).catch((err) => console.error("failed to unarchive chat", err));
+  }, []);
+
   const handleExpand = useCallback((chatId: string) => {
     setActiveChatId(chatId);
     setViewMode("chat");
@@ -221,6 +258,9 @@ function AppShell({ session }: { session: Session }) {
           claude_session_id: null,
           claude_session_owner: null,
           created_at: new Date().toISOString(),
+          sort_order: Date.now() / 1000,
+          group_name: null,
+          archived_at: null,
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
@@ -257,12 +297,25 @@ function AppShell({ session }: { session: Session }) {
         <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
-            <button className="btn btn-primary" onClick={handleCreateChat}>
-              <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New chat
-            </button>
+            <>
+              <button
+                type="button"
+                className="icon-button"
+                title="Reset zoom to 100%"
+                onClick={() => flowApiRef.current?.zoomTo(1, { duration: 200 })}
+              >
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M11 8v6M8 11h6M21 21l-4.3-4.3" />
+                </svg>
+              </button>
+              <button className="btn btn-primary" onClick={handleCreateChat}>
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                New chat
+              </button>
+            </>
           )}
           {viewMode === "chat" &&
             (() => {
@@ -302,6 +355,7 @@ function AppShell({ session }: { session: Session }) {
             onSend={handleSend}
             onLeave={handleLeave}
             onDelete={handleDelete}
+            onArchive={handleArchive}
             onExpand={handleExpand}
             onRename={handleRename}
             flowApiRef={flowApiRef}
@@ -319,6 +373,10 @@ function AppShell({ session }: { session: Session }) {
               onCreateChat={handleCreateChat}
               onRename={handleRename}
               onDelete={handleDelete}
+              onReorder={handleReorder}
+              onGroupChange={handleGroupChange}
+              onArchive={handleArchive}
+              onUnarchive={handleUnarchive}
               userEmail={session.user.email ?? "you"}
               onSignOut={() => signOut()}
             />
@@ -362,6 +420,9 @@ function AppShell({ session }: { session: Session }) {
           </div>
         </div>
       )}
+      <span className="fixed bottom-[0.5em] left-[0.6em] z-40 pointer-events-none text-[10px] text-text-tertiary font-mono select-none">
+        {__APP_COMMIT__}
+      </span>
     </div>
   );
 }
@@ -383,7 +444,9 @@ function App() {
       initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null, cursorView: null }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
-      <AppShell session={session} />
+      <PrefsProvider>
+        <AppShell session={session} />
+      </PrefsProvider>
     </RoomProvider>
   );
 }

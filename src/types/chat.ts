@@ -7,4 +7,7 @@ export interface ChatRow {
   claude_session_id: string | null;
   claude_session_owner: string | null;
   created_at: string;
+  sort_order: number;
+  group_name: string | null;
+  archived_at: string | null;
 }

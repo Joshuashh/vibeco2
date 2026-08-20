@@ -42,7 +42,7 @@ describe("fetchAllChats", () => {
 
     expect(supabase.from).toHaveBeenCalledWith("chats");
     expect(select).toHaveBeenCalledWith("*");
-    expect(order).toHaveBeenCalledWith("created_at", { ascending: true });
+    expect(order).toHaveBeenCalledWith("sort_order", { ascending: true });
     expect(result).toEqual([{ id: "c1" }]);
   });
 });
