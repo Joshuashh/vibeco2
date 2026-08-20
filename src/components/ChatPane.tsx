@@ -1,6 +1,7 @@
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
 import type { Occupant } from "../lib/claim";
+import { colorForUser } from "../lib/presenceColor";
 import { ChatView } from "./ChatView";
 import { InputBar } from "./InputBar";
 import { ChatPicker } from "./ChatPicker";
@@ -39,7 +40,7 @@ export function ChatPane({
   onDelete: () => void;
 }) {
   return (
-    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-[#14151a] border border-border rounded-2xl overflow-hidden">
+    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-chat-pane-bg border border-border rounded-2xl overflow-hidden">
       <ChatView
         chat={chat}
         chats={chats}
@@ -54,7 +55,13 @@ export function ChatPane({
         onRename={onRename}
         onDelete={onDelete}
       />
-      <InputBar onSend={onSend} onStop={onStop} disabled={disabled} streaming={streaming} />
+      <InputBar
+        onSend={onSend}
+        onStop={onStop}
+        disabled={disabled}
+        streaming={streaming}
+        accentColor={self?.email ? colorForUser(self.email) : undefined}
+      />
     </div>
   );
 }
@@ -77,7 +84,7 @@ export function ChatPaneEmpty({
   excludeChatId?: string | null;
 }) {
   return (
-    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col gap-[0.8em] bg-[#14151a] border border-border rounded-2xl overflow-hidden items-center justify-center text-text-tertiary text-[0.9em]">
+    <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col gap-[0.8em] bg-chat-pane-bg border border-border rounded-2xl overflow-hidden items-center justify-center text-text-tertiary text-[0.9em]">
       <span>{text}</span>
       {chats && chats.length > 0 && onSelectChat && (
         <ChatPicker

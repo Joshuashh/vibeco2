@@ -40,6 +40,8 @@ export const PERMISSIONS: PermissionOption[] = [
   { label: "Auto", cliValue: "auto" },
 ];
 
+export type Theme = "dark" | "light";
+
 interface Prefs {
   model: ModelOption;
   setModel: (m: ModelOption) => void;
@@ -52,6 +54,8 @@ interface Prefs {
   // What actually goes on the CLI invocation: bypass overrides whatever
   // mode is selected, without losing/forgetting that selection.
   effectivePermissionMode: string;
+  theme: Theme;
+  setTheme: (t: Theme) => void;
 }
 
 const PrefsContext = createContext<Prefs | null>(null);
@@ -78,6 +82,14 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("vibeco:bypassPermissions", String(bypassPermissions));
   }, [bypassPermissions]);
 
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("vibeco:theme") as Theme | null) ?? "dark"
+  );
+  useEffect(() => {
+    localStorage.setItem("vibeco:theme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
   const value: Prefs = {
     model,
     setModel,
@@ -88,6 +100,8 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     bypassPermissions,
     setBypassPermissions,
     effectivePermissionMode: bypassPermissions ? "bypassPermissions" : permission.cliValue,
+    theme,
+    setTheme,
   };
 
   return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;

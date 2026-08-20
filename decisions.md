@@ -1,5 +1,26 @@
 # Vibeco2 — Decisions Log
 
+## Hand-off (2026-08-20 session, UI polish + two real bugs + merge-safety)
+
+**What happened this session:** A string of small UI requests (12px spacing pass on chat/split panes and input bar, sidebar collapse toggle, light/dark theme with a Settings toggle, preview page put in the same rounded box as chat panes, presence-colored input focus border instead of fixed orange) plus two real bugs surfaced along the way:
+- Send/stop button icons were collapsing to 1×1 inside the Tauri/WKWebView — root cause was sizing an `<svg>` only via HTML `width`/`height` attributes with no CSS backing, which WKWebView doesn't honor reliably in a flex container. Fixed by rebuilding both icons on the same `.icon-button` class pattern the already-working attach/mic icons use (`src/components/InputBar.tsx`).
+- Duplicate assistant responses (same message appearing twice) traced to the `claude-event` Tauri listener in `src/App.tsx`: `listen()` is async, and React StrictMode's dev-mode double-invoke of effects can race the cleanup against the registration, leaving two listeners live so every backend event gets applied/saved/broadcast twice. Fixed with a `cancelled` flag so a late-resolving registration self-unregisters instead of staying attached.
+- Also hid two third-party attribution badges (Liveblocks' free-plan "powered by" watermark it self-injects via `#liveblocks-badge`, and ReactFlow's default attribution via `proOptions={{hideAttribution: true}}`) — cosmetic, not app bugs.
+
+**Merge-orchestration follow-up:** talked through whether chat→team merges should be automated. Decision: no — Render Preview already **is** the manual chat→team merge point, and the existing design doc deliberately rejected auto-merge (silent merges of concurrent chats' overlapping files would produce unreviewed conflicts). The actual gap was narrower: `prune_orphaned_chat_worktrees` / `remove_chat_worktree` would silently discard a chat's unmerged work (`git worktree remove --force` + `git branch -D`) on chat **deletion** with no warning. Added `chat_has_unmerged_work` (`src-tauri/src/git_ops.rs`) — checks for uncommitted changes or committed-but-never-rendered commits (chat branch vs. `team`, falling back to `main` if `team` doesn't exist yet) — wired into `handleDelete` (`src/App.tsx`) as a confirm-before-delete warning.
+
+**New `CLAUDE.md`** at repo root: instructs Claude running inside any chat's worktree to proactively suggest rendering + starting a fresh chat once a feature (or a batch of smaller ones) is done, rather than letting one chat balloon indefinitely. Picked up automatically by chat worktrees checked out from `main`/`team` once this file is merged in — it is not yet committed, so it won't take effect until pushed through the normal render/promote flow.
+
+**Current state:** `main`, clean history, nothing committed this session — `git status` shows 10 modified files (`src-tauri/src/git_ops.rs`, `src-tauri/src/lib.rs`, `src/App.css`, `src/App.tsx`, `src/components/CanvasView.tsx`, `src/components/ChatPane.tsx`, `src/components/InputBar.tsx`, `src/components/PreviewPage.tsx`, `src/components/Sidebar.tsx`, `src/lib/prefs.tsx`) plus one untracked file (`CLAUDE.md`), all uncommitted. `cargo check` passes clean. UI changes were verified by the user directly in the running `tauri dev` session, not by Claude.
+
+**Open items:**
+- Nothing left half-finished from requests made this session.
+- `CLAUDE.md`'s nudge behavior is unverified in a live chat session (can't confirm Claude actually follows it until observed in practice).
+- Everything above is uncommitted — review the diff and commit when ready.
+
+**Next steps:** Review and commit the working-tree changes (or ask for a commit). Safe to start a fresh session either way — nothing is blocking, just uncommitted.
+
+
 ## Hand-off (2026-08-20 session, end)
 
 **What happened this session:** Brainstormed, planned, and fully executed the Tailwind v4 + Radix/shadcn migration via subagent-driven-development (14-task plan, `docs/superpowers/plans/2026-08-19-tailwind-radix-migration.md`) — see the many entries below this one for the detailed task-by-task record, including several real bugs caught along the way (a CSS Cascade Layers gotcha where unlayered `App.css` rules were silently beating every Tailwind utility app-wide, and repeated Tailwind same-specificity/compiled-source-order conflicts). Merged `tailwind-radix-migration` → `main` (fast-forward), pushed to `origin/main`. Did one follow-up pass fixing three components (`ChatPane`, `InputBar`, `MainAgentInstrument`) that still had pre-refresh hardcoded hex colors the migration missed.

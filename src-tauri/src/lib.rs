@@ -100,6 +100,12 @@ fn remove_chat_worktree(chat_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn chat_has_unmerged_work(chat_id: String) -> Result<bool, String> {
+    let root = git_ops::repo_root()?;
+    git_ops::chat_has_unmerged_work(&root, &chat_id)
+}
+
+#[tauri::command]
 fn prune_orphaned_chat_worktrees(known_chat_ids: Vec<String>) -> Result<(), String> {
     let root = git_ops::repo_root()?;
     git_ops::prune_orphaned_chat_worktrees(&root, &known_chat_ids)
@@ -154,6 +160,7 @@ pub fn run() {
             stop_session,
             ensure_chat_worktree,
             remove_chat_worktree,
+            chat_has_unmerged_work,
             prune_orphaned_chat_worktrees,
             render_preview,
             promote_to_main,

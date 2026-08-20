@@ -25,6 +25,12 @@ body,
   margin: 0;
 }
 
+/* Free-plan badge Liveblocks injects itself (id="liveblocks-badge") when the
+   server reports meta.showBrand — no client option to opt out, so hide it. */
+#liveblocks-badge {
+  display: none !important;
+}
+
 /* Palette grounded in the sibling Claude Code GUI project's own AC color
    system (Sources/Claudeville/Models.swift) — reused rather than invented,
    so this app's chat surface matches the product it's evolving from. */
@@ -47,6 +53,8 @@ body,
   --canvas-bg: #0d0e10;
   --canvas-dot: #24262b;
   --danger: #e2584f;
+  --chat-pane-bg: #14151a;
+  --input-pill-bg: #1e1f24;
 
   font-family: -apple-system, "SF Pro Text", Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
@@ -59,6 +67,42 @@ body,
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* Light theme: overrides both the plain vars (:root) and the Tailwind
+   @theme --color-* tokens below, since Tailwind utilities read the latter
+   and don't reference the former. Toggled via [data-theme] on <html> — see
+   ThemeToggle in Sidebar.tsx and prefs.tsx. */
+:root[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-sidebar: #f7f7f8;
+  --bg-secondary: #f0f1f3;
+  --bg-tertiary: #e6e7eb;
+  --text-primary: #1a1b1e;
+  --text-secondary: #5b5f6a;
+  --text-tertiary: #8c909c;
+  --accent-dim: rgba(237, 107, 38, 0.12);
+  --border: #dcdde2;
+  --user-bubble: #eef0f4;
+  --send-active: #24262b;
+  --canvas-bg: #f4f5f7;
+  --canvas-dot: #e2e4e9;
+  --chat-pane-bg: #f5f6f8;
+  --input-pill-bg: #ebedf0;
+
+  --color-bg-primary: #ffffff;
+  --color-bg-sidebar: #f7f7f8;
+  --color-bg-secondary: #f0f1f3;
+  --color-bg-tertiary: #e6e7eb;
+  --color-text-primary: #1a1b1e;
+  --color-text-secondary: #5b5f6a;
+  --color-text-tertiary: #8c909c;
+  --color-border: #dcdde2;
+  --color-user-bubble: #eef0f4;
+  --color-send-active: #24262b;
+  --color-canvas-bg: #f4f5f7;
+  --color-canvas-dot: #e2e4e9;
+  --color-chat-pane-bg: #f5f6f8;
 }
 
 @theme {
@@ -79,6 +123,7 @@ body,
   --color-canvas-bg: #0d0e10;
   --color-canvas-dot: #24262b;
   --color-danger: #e2584f;
+  --color-chat-pane-bg: #14151a;
 
   /* shadcn's default template (dropdown-menu.tsx, alert-dialog.tsx, button.tsx,
      everything the CLI generates via `npx shadcn add`) references a standard
@@ -268,8 +313,8 @@ h1 {
   min-width: 0;
   min-height: 0;
   display: flex;
-  gap: 16px;
-  padding: 16px;
+  gap: 12px;
+  padding: 12px;
 }
 
 /* .chat-pane's own box model (flex/bg/border/radius/overflow) now lives on

@@ -382,6 +382,7 @@ export function CanvasView({
           zoomOnScroll={false}
           zoomOnPinch
           fitView
+          proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--canvas-dot)" gap={28} size={1.5} />
           <FocusOnNewChats chatIds={chats.map((c) => c.id)} />

@@ -115,8 +115,11 @@ export function PreviewPage({ session }: { session: Session }) {
   }
 
   return (
-    <div className="flex flex-1 min-w-0 min-h-0">
-      <div className="relative flex-1 min-w-0" ref={containerRef}>
+    <div className="flex flex-1 min-w-0 min-h-0 gap-3 p-3">
+      <div
+        className="relative flex-1 min-w-0 bg-chat-pane-bg border border-border rounded-2xl overflow-hidden"
+        ref={containerRef}
+      >
         {previewStatus === "ready" ? (
           <>
             <iframe

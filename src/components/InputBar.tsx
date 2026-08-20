@@ -14,11 +14,13 @@ export function InputBar({
   onStop,
   disabled,
   streaming = false,
+  accentColor,
 }: {
   onSend: (prompt: string) => void;
   onStop?: () => void;
   disabled: boolean;
   streaming?: boolean;
+  accentColor?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -53,7 +55,7 @@ export function InputBar({
   }
 
   return (
-    <div className="input-bar flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[1.2em] pl-[1.3em] border-t border-border">
+    <div className="input-bar flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[12px] pl-[1.3em] border-t border-border">
       <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <RepoPill />
       </div>
@@ -63,7 +65,10 @@ export function InputBar({
         onRemove={(name) => setAttachments((a) => a.filter((f) => f !== name))}
       />
 
-      <div className="relative min-h-[40px] flex items-center bg-[#1e1f24] border border-border rounded-2xl py-[0.45em] pr-[3em] pl-[0.9em] focus-within:border-accent">
+      <div
+        className="relative min-h-[40px] flex items-center bg-[var(--input-pill-bg)] border border-border rounded-xl py-[0.45em] pr-[3em] pl-[0.9em] focus-within:border-[var(--user-color)]"
+        style={{ ["--user-color" as string]: accentColor ?? "var(--accent)" }}
+      >
         <textarea
           ref={textareaRef}
           rows={1}
@@ -78,17 +83,27 @@ export function InputBar({
           disabled={disabled}
         />
         {(() => {
+          const sendButtonStyle = {
+            position: "absolute" as const,
+            right: "0.6em",
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 32,
+            height: 32,
+            borderRadius: 10,
+          };
           if (streaming) {
             return (
               <button
                 type="button"
-                className="appearance-none border-0 outline-none absolute right-[0.6em] top-1/2 -translate-y-1/2 w-8 h-8 rounded-[10px] flex items-center justify-center bg-send-active"
+                className="icon-button"
+                style={{ ...sendButtonStyle, background: "var(--send-active)", color: "var(--bg-primary)" }}
                 onClick={onStop}
                 aria-label="Stop"
                 title="Stop"
               >
-                <svg viewBox="0 0 24 24" width={12} height={12}>
-                  <rect x="2" y="2" width="20" height="20" rx="3" fill="var(--bg-primary)" />
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="2" y="2" width="20" height="20" rx="3" />
                 </svg>
               </button>
             );
@@ -97,23 +112,17 @@ export function InputBar({
           return (
             <button
               type="button"
-              className={`appearance-none border-0 outline-none absolute right-[0.6em] top-1/2 -translate-y-1/2 w-8 h-8 rounded-[10px] flex items-center justify-center ${
-                canSend ? "bg-send-active" : "bg-bg-tertiary"
-              }`}
+              className="icon-button"
+              style={{
+                ...sendButtonStyle,
+                background: canSend ? "var(--send-active)" : "var(--bg-tertiary)",
+                color: canSend ? "var(--bg-primary)" : "var(--text-tertiary)",
+              }}
               onClick={submit}
               disabled={!canSend}
               aria-label="Send"
             >
-              <svg
-                viewBox="0 0 24 24"
-                width={15}
-                height={15}
-                stroke={canSend ? "var(--bg-primary)" : "var(--text-tertiary)"}
-                strokeWidth="3"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
             </button>

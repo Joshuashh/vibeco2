@@ -116,6 +116,45 @@ pub fn ensure_team_worktree(root: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// True if deleting this chat's worktree right now would discard work that
+/// never made it into `team` — either uncommitted changes, or committed work
+/// on the chat branch that was never rendered. Used to gate chat deletion
+/// with a warning instead of silently `git worktree remove --force`-ing
+/// something like a scope doc that only ever existed on disk in this chat.
+pub fn chat_has_unmerged_work(root: &Path, chat_id: &str) -> Result<bool, String> {
+    let chat_path = merge_paths::chat_worktree_path(root, chat_id);
+    if !chat_path.exists() {
+        return Ok(false);
+    }
+
+    let status = run_git(&chat_path, &["status", "--porcelain"])?;
+    if !String::from_utf8_lossy(&status.stdout).trim().is_empty() {
+        return Ok(true);
+    }
+
+    let branch = merge_paths::chat_branch_name(chat_id);
+    if !branch_exists(root, &branch) {
+        return Ok(false);
+    }
+    // Compare against whatever `team` we know about — local first, then the
+    // remote copy, falling back to `main` if `team` doesn't exist yet at all
+    // (nothing has ever been rendered, so any commit here is unmerged).
+    let team_ref = if branch_exists(root, TEAM_BRANCH) {
+        TEAM_BRANCH.to_string()
+    } else if branch_exists(root, &format!("origin/{TEAM_BRANCH}")) {
+        format!("origin/{TEAM_BRANCH}")
+    } else {
+        "main".to_string()
+    };
+
+    let count = run_git(root, &["rev-list", "--count", &format!("{team_ref}..{branch}")])?;
+    if !count.status.success() {
+        return Ok(false);
+    }
+    let unmerged: u32 = String::from_utf8_lossy(&count.stdout).trim().parse().unwrap_or(0);
+    Ok(unmerged > 0)
+}
+
 pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
     let chat_path = merge_paths::chat_worktree_path(root, chat_id);
     if !chat_path.exists() {

@@ -47,6 +47,7 @@ function AppShell({ session }: { session: Session }) {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
   const others = useOthers();
@@ -79,7 +80,17 @@ function AppShell({ session }: { session: Session }) {
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<ChatEnvelope>("claude-event", (event) => {
+    // listen() is async (a Tauri IPC round-trip), so under React StrictMode's
+    // mount→cleanup→mount dev double-invoke, the first mount's cleanup can
+    // fire before its listen() call resolves, racing the second mount's
+    // listen() and occasionally leaving both listeners live — every backend
+    // event then gets applied (and saved, and broadcast) twice. Guarding
+    // with `cancelled` closes that window: a listener that resolves after
+    // its own effect was already cleaned up unregisters itself immediately
+    // instead of staying attached.
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
+    listen<ChatEnvelope>("claude-event", (event) => {
       setChatStates((prev) => {
         const next = applyChatEvent(prev, event.payload);
         if (event.payload.event.type === "turn_complete") {
@@ -105,9 +116,16 @@ function AppShell({ session }: { session: Session }) {
       // Liveblocks room events are the ephemeral pub/sub already wired up for
       // presence, so no new transport needed.
       broadcastEvent(event.payload as unknown as Json);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenFn = fn;
+      }
     });
     return () => {
-      unlisten.then((fn) => fn());
+      cancelled = true;
+      unlistenFn?.();
     };
   }, [broadcastEvent, session.user.id]);
 
@@ -217,11 +235,26 @@ function AppShell({ session }: { session: Session }) {
   );
 
   const handleDelete = useCallback((chatId: string) => {
-    deleteChat(chatId).catch((err) => console.error("failed to delete chat", err));
-    invoke("remove_chat_worktree", { chatId }).catch((err) =>
-      console.error("failed to remove chat worktree", err)
-    );
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    invoke<boolean>("chat_has_unmerged_work", { chatId })
+      .catch((err) => {
+        console.error("failed to check for unmerged work, deleting anyway", err);
+        return false;
+      })
+      .then((hasUnmergedWork) => {
+        if (
+          hasUnmergedWork &&
+          !window.confirm(
+            "This chat has work that was never rendered to team — deleting it will discard those changes permanently. Delete anyway?"
+          )
+        ) {
+          return;
+        }
+        deleteChat(chatId).catch((err) => console.error("failed to delete chat", err));
+        invoke("remove_chat_worktree", { chatId }).catch((err) =>
+          console.error("failed to remove chat worktree", err)
+        );
+        setChats((prev) => prev.filter((c) => c.id !== chatId));
+      });
   }, []);
 
   const handleRename = useCallback((chatId: string, title: string) => {
@@ -306,7 +339,21 @@ function AppShell({ session }: { session: Session }) {
     <div className="app" ref={appRef}>
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar">
-        <div className="toolbar-side" />
+        <div className="toolbar-side">
+          {viewMode === "chat" && (
+            <button
+              type="button"
+              className="icon-button"
+              title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+              onClick={() => setSidebarCollapsed((c) => !c)}
+            >
+              <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <line x1="9" y1="4" x2="9" y2="20" />
+              </svg>
+            </button>
+          )}
+        </div>
         <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
@@ -379,23 +426,27 @@ function AppShell({ session }: { session: Session }) {
         <PreviewPage session={session} />
       ) : (
         <div className="chat-workspace">
-          <div className="sidebar-panel" style={{ width: sidebarWidth }}>
-            <Sidebar
-              chats={chats}
-              activeChatId={activeChatId}
-              onSelect={setActiveChatId}
-              onCreateChat={handleCreateChat}
-              onRename={handleRename}
-              onDelete={handleDelete}
-              onReorder={handleReorder}
-              onGroupChange={handleGroupChange}
-              onArchive={handleArchive}
-              onUnarchive={handleUnarchive}
-              userEmail={session.user.email ?? "you"}
-              onSignOut={() => signOut()}
-            />
-          </div>
-          <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
+          {!sidebarCollapsed && (
+            <>
+              <div className="sidebar-panel" style={{ width: sidebarWidth }}>
+                <Sidebar
+                  chats={chats}
+                  activeChatId={activeChatId}
+                  onSelect={setActiveChatId}
+                  onCreateChat={handleCreateChat}
+                  onRename={handleRename}
+                  onDelete={handleDelete}
+                  onReorder={handleReorder}
+                  onGroupChange={handleGroupChange}
+                  onArchive={handleArchive}
+                  onUnarchive={handleUnarchive}
+                  userEmail={session.user.email ?? "you"}
+                  onSignOut={() => signOut()}
+                />
+              </div>
+              <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
+            </>
+          )}
           <div className="chat-panes">
             {activeChatId && activeChat ? (
               <ChatPane

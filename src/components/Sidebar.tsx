@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChatRow } from "../types/chat";
 import { Popover, PopoverRow, PopoverDivider } from "./Popover";
+import { usePrefs } from "../lib/prefs";
 import { computeSortOrder } from "../lib/reorder";
 import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats } from "../lib/chatGroups";
 import {
@@ -259,6 +260,7 @@ export function Sidebar({
   userEmail: string;
   onSignOut: () => void;
 }) {
+  const { theme, setTheme } = usePrefs();
   const [searchText, setSearchText] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<"chats" | "archive">("chats");
@@ -415,6 +417,9 @@ export function Sidebar({
           <GearIcon />
         </button>
         <Popover open={settingsOpen} onClose={() => setSettingsOpen(false)} anchorRef={settingsAnchorRef} width={180}>
+          <PopoverRow title="Dark" checked={theme === "dark"} onClick={() => setTheme("dark")} />
+          <PopoverRow title="Light" checked={theme === "light"} onClick={() => setTheme("light")} />
+          <PopoverDivider />
           <PopoverRow
             title="Reload app"
             onClick={() => {
