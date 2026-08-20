@@ -10,12 +10,17 @@ export function Popover({
   onClose,
   anchorRef,
   width,
+  keepFocus = false,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   anchorRef: RefObject<HTMLElement | null>;
   width: number;
+  // Leaves focus wherever it was instead of Radix's default autofocus into
+  // the popover — for menus like slash-commands that live alongside a text
+  // input the user is still actively typing/navigating with arrow keys in.
+  keepFocus?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -30,6 +35,8 @@ export function Popover({
           sideOffset={4}
           collisionPadding={8}
           avoidCollisions
+          onOpenAutoFocus={keepFocus ? (e) => e.preventDefault() : undefined}
+          onCloseAutoFocus={keepFocus ? (e) => e.preventDefault() : undefined}
         >
           {children}
         </RadixPopover.Content>

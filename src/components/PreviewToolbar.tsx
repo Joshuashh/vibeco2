@@ -12,7 +12,7 @@ export function PreviewToolbar({
   canUndo: boolean;
 }) {
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-bg-tertiary border border-border rounded-[10px] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto">
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-bg-tertiary border border-border rounded-[10px] p-1 shadow-[0_3px_10px_rgba(0,0,0,0.2)] pointer-events-auto">
       <button
         type="button"
         className={tool === "cursor" ? "icon-button icon-button-active" : "icon-button"}

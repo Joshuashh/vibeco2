@@ -12,6 +12,7 @@ import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
+import { TooltipHost } from "./components/TooltipHost";
 import type { ChatRow } from "./types/chat";
 import { applyChatEvent, addUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
@@ -337,6 +338,7 @@ function AppShell({ session }: { session: Session }) {
 
   return (
     <div className="app" ref={appRef}>
+      <TooltipHost />
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar">
         <div className="toolbar-side">

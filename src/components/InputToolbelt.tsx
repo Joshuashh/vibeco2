@@ -34,6 +34,7 @@ export function PermissionPill() {
       <button
         type="button"
         ref={anchorRef}
+        title="Permission mode"
         className={`${pillBase} text-held bg-[rgba(232,184,74,0.12)]`}
         onClick={() => setOpen((o) => !o)}
       >
@@ -74,7 +75,7 @@ export function ModelPicker() {
 
   return (
     <>
-      <button type="button" ref={anchorRef} className={pillGhost} onClick={() => setOpen((o) => !o)}>
+      <button type="button" ref={anchorRef} title="Model" className={pillGhost} onClick={() => setOpen((o) => !o)}>
         {model.label}
       </button>
       <Popover open={open} onClose={close} anchorRef={anchorRef} width={220}>
@@ -106,7 +107,7 @@ export function EffortPicker() {
   const anchorRef = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <button type="button" ref={anchorRef} className={pillGhost} onClick={() => setOpen((o) => !o)}>
+      <button type="button" ref={anchorRef} title="Effort" className={pillGhost} onClick={() => setOpen((o) => !o)}>
         {effort.label}
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={220}>
@@ -153,30 +154,3 @@ export function MicButton() {
   );
 }
 
-export function AttachmentStrip({ files, onRemove }: { files: string[]; onRemove: (name: string) => void }) {
-  if (files.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-[0.5em]">
-      {files.map((name) => (
-        <span
-          key={name}
-          className="inline-flex items-center gap-[0.4em] text-[0.78em] text-text-secondary bg-bg-secondary px-[0.6em] py-[0.3em] rounded-lg [&>svg]:w-3 [&>svg]:h-3 [&>svg]:stroke-current [&>svg]:fill-none [&>svg]:stroke-2"
-        >
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <path d="M14 2v6h6" />
-          </svg>
-          {name}
-          <button
-            type="button"
-            className="appearance-none border-0 outline-none bg-transparent p-0 text-text-tertiary text-[1.1em] leading-none hover:text-text-primary"
-            onClick={() => onRemove(name)}
-            aria-label={`Remove ${name}`}
-          >
-            ×
-          </button>
-        </span>
-      ))}
-    </div>
-  );
-}
