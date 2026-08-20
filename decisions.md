@@ -20,6 +20,34 @@
 
 **Next steps:** Review and commit the working-tree changes (or ask for a commit). Safe to start a fresh session either way — nothing is blocking, just uncommitted.
 
+## Known gap: no UI for the `claude` CLI's permission-approval prompts (2026-08-20)
+
+**What happened:** discovered live, inside a Vibeco chat — asking Claude to edit `decisions.md` hung with "you haven't granted it yet" and never resolved. Root cause: Vibeco spawns the real `claude` CLI per message (`claude_process.rs`, `--print` mode) and the model/effort/permission-mode picker (wired per the 2026-08-20 hand-off below) is a real CLI flag. When a chat's permission mode isn't `acceptEdits`/`bypassPermissions`, the CLI tries to prompt for tool approval same as an interactive terminal session — but Vibeco has no dialog/UI that surfaces that prompt or lets the user answer it. The request just stalls with no visible error in the chat.
+
+**Workaround, no code change:** set the chat's permission-mode picker to `acceptEdits` (or `bypassPermissions`) before asking for file edits. This sidesteps the prompt entirely rather than answering it.
+
+**Not fixed today — scope for later, separate from the repo-selection work above:** decide whether Vibeco needs a real approve/deny dialog (rendering the CLI's permission-request payload and piping the answer back over stdin/whatever channel `claude_process.rs` uses) or whether "always use acceptEdits in Vibeco chats" is an accepted permanent workaround given this is a small trusted team, not a multi-tenant product.
+
+## Scope: making `RepoPill` real (repo selection) — not started, for a fresh session (2026-08-20)
+
+**Confirms and supersedes the "Next requested feature" note in the 2026-08-19 hand-off below** — same task, this is the concrete scope.
+
+**Current state, verified by reading code this session:**
+- `InputToolbelt.tsx:17-23`'s `RepoPill` is a `<button>` with no `onClick` — pure UI stub, marked `// ponytail: repo picker and voice input are still local-only/no-op`.
+- `git_ops::repo_root()` always resolves via `git rev-parse --show-toplevel` from the Tauri process's own cwd — i.e. wherever Vibeco2's own checkout is. No project/repo concept exists anywhere (not in Supabase schema, not in Rust state, not per-chat).
+- Auth is Supabase email/password only (`lib/auth.ts`) — no GitHub OAuth today.
+- `preview_server.rs` just runs `npm run dev --port 5180 --strictPort` in whatever directory it's given — this part is already repo-agnostic; it only assumes "a Vite/React project with `npm run dev`," which won't hold for an arbitrary target repo (e.g. plain HTML, or a different framework/port).
+
+**Two build tiers, in order of cost:**
+1. **Cheap (no GitHub OAuth):** picker takes a pasted git URL (+ PAT if private) or a local path; `git clone`/`git worktree` on the Rust side doesn't care how the URL was authed. Gets repo selection working end-to-end without touching Supabase auth.
+2. **Real ("browse my GitHub repos in a dropdown"):** needs GitHub OAuth (Supabase supports it as a provider — `signInWithOAuth({ provider: 'github' })`, which also yields a provider token usable for git operations), a repo-list API call, and a decision on token storage/refresh and access scope (repo-admin-level access to every repo the user owns is a real security question to decide explicitly, not default into).
+
+**What has to change regardless of tier:**
+- A persisted "project" concept (Supabase table, or a column on `chats`?) — not decided.
+- Every `git_ops.rs` call site that currently derives `root` from `repo_root()` (`ensure_chat_worktree`, `render_preview`, `promote_to_main`, `ensure_team_preview_running`) needs to take the chosen repo's path instead — the functions already take `root: &Path`, so this is plumbing, not a rewrite.
+- Preview strategy for non-Vite targets: static-file serving (no dev server) as a fallback, or per-project preview commands — undecided, needed for the user's stated trigger case ("ask a chat to build a basic HTML page, expect it to show up in Preview").
+
+**Recommendation:** brainstorm the repo-selection UX and the non-Vite preview strategy before writing a task plan — this is a design question, not a quick wire-up. Start a fresh session for it per the session-boundary rule; paste this entry in.
 
 ## Hand-off (2026-08-20 session, end)
 
