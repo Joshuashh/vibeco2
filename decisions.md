@@ -291,3 +291,13 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 **`ThinkingIndicator.tsx`** (`thinking-row`/`flower-spinner`) and **`ResizeDivider.tsx`** (`resize-divider`/`resize-divider-hover`) had no other consumers (confirmed via full-`src/` grep before deletion) — both CSS blocks fully deleted from `App.css`.
 
 **Verified:** `npx tsc --noEmit` clean, `npm test` (58/58 — 12 files), `npx vite build` succeeds.
+
+## Task 13: LoginScreen migrated (2026-08-20)
+
+**Scope:** `src/components/LoginScreen.tsx`. `.login-screen`, `.login-screen form`, `.login-error` were exclusive to this file (confirmed via full-`src/` grep) — all three rules deleted from `App.css`, along with their now-empty `/* ---- Login screen ---- */` section header.
+
+No multi-state/cascade-tie hazard here: each element only ever carries one static className (`h1`, `input`, `button` are unstyled by class — their appearance comes from bare-element selectors elsewhere in `App.css`, untouched by this task), so lesson 1 didn't apply.
+
+`100vh` → `h-screen` (Tailwind's `h-screen` is `100vh`, exact match). `0.75em` gap and `280px` width ported as `gap-3` (0.75em ≈ 12px at the 16px base font size in effect here) and `w-[280px]` (arbitrary, exact). `0.9em` font-size on the error text ported as arbitrary `text-[0.9em]` to stay unit-exact rather than rounding to a Tailwind text-size step.
+
+**Verified:** `npx tsc --noEmit` clean, `npm test` (58/58 — 12 files), `npx vite build` succeeds; grepped compiled `dist/assets/*.css` for `.bg-bg-primary{background-color:var(--color-bg-primary)}`, `.text-danger{color:var(--color-danger)}`, `.h-screen{height:100vh}` — all present. Grepped full `src/` tree before deleting `App.css` rules; zero other consumers of `login-screen`/`login-error`.

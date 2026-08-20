@@ -22,8 +22,8 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   }
 
   return (
-    <div className="login-screen">
-      <form onSubmit={handleSubmit}>
+    <div className="flex items-center justify-center h-screen bg-bg-primary">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 w-[280px]">
         <h1>Sign in</h1>
         <input
           type="email"
@@ -44,7 +44,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <button type="submit" disabled={submitting}>
           {submitting ? "Signing in..." : "Sign in"}
         </button>
-        {error && <p className="login-error">{error}</p>}
+        {error && <p className="text-danger text-[0.9em] m-0">{error}</p>}
       </form>
     </div>
   );
