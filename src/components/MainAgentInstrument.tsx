@@ -64,7 +64,7 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
   return (
     <div className="w-full h-full flex flex-col font-[SF_Mono,JetBrains_Mono,monospace]">
       <NodeResizer minWidth={360} minHeight={280} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
-      <div className="bg-[#101010] border border-border border-b-0 rounded-t-[14px] overflow-hidden flex-1 min-h-0 flex flex-col">
+      <div className="bg-canvas-bg border border-border border-b-0 rounded-t-[14px] overflow-hidden flex-1 min-h-0 flex flex-col">
         <div className="flex items-center justify-between gap-[0.75em] text-[11px] tracking-[0.08em] text-text-tertiary py-[0.7em] px-[1em] border-b border-border uppercase">
           <span>BUILD · PREVIEW</span>
           <div className="flex items-center gap-[0.5em] nodrag">
