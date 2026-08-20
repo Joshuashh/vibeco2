@@ -2,125 +2,92 @@
 
 ## What happened this session
 
-Implemented the Canvas view + multi-chat model per
-`docs/superpowers/specs/2026-08-05-canvas-view-design.md` and
-`docs/superpowers/plans/2026-08-05-canvas-view.md`, all 13 plan tasks, committed
-individually to `main` (continuing this project's existing no-feature-branch
-convention, confirmed with the user before starting).
+A long multi-topic session (Josh + Ben cross-machine testing). All work is
+committed and pushed to `main` (commits `431bf24`, `23ba30d`, `56d04f9`).
+Start a fresh session for the next round — this one has drifted well past
+"one session ≈ one task."
 
-**The shift:** chats moved from single, owner-only, one-per-app-launch to a shared,
-multi-chat model — any chat is a canvas card anyone can create, claim (by sending a
-message), work in, and release. Only the current claimant can type into a card;
-everyone else sees it live but read-only.
+### 1. Multiplayer sync fixes (the original ask: "we can't see each other's
+   cursors/messages properly")
 
-**What was built:**
-- `supabase/migrations/0003_shared_chats.sql` — `chats` gains `position_x`,
-  `position_y`, `claude_session_id`; RLS moved from owner-only to
-  read/insert/update-open-to-all-authenticated (delete guardrails are app-side
-  only, no roles table exists); Realtime publication enabled on `chats`/`messages`.
-  Applied directly via the Supabase MCP tool (`supabase db push` fails — the
-  remote migration-history table only knows about migrations applied that way,
-  not local file names; every prior migration in this project was applied the
-  same way, so this isn't new).
-- Rust (`src-tauri/src/lib.rs`): `start_session` now takes `chat_id` and
-  `resume_session_id`; every emitted event wraps as `{chatId, event}` so the
-  frontend can route it to the right chat. This also **fixes a real pre-existing
-  bug**: `resume_session_id` existed in `SpawnConfig` since the auth round but was
-  never wired — every single turn in every chat was starting a brand-new,
-  memory-less Claude session. It's wired now (frontend persists
-  `claude_session_id` back to Supabase after each turn).
-- Pure, tested logic: `src/lib/chatStore.ts` (per-chat state reducers extending
-  the existing `reduceEvent` pattern), `src/lib/claim.ts` (presence-based claim
-  computation). `src/lib/persistChat.ts` gained `fetchAllChats`,
-  `updateChatPosition`, `updateChatSessionId`, `deleteChat`.
-- UI: `ChatCard` (compact card — reuses `MessageBlock`/`InputBar`, claim
-  indicator, expand/leave/delete), `CanvasView` (React Flow / `@xyflow/react`,
-  Liveblocks `LiveMap` position sync + Supabase snapshot on drag-end),
-  `ChatSwitcher` + `ViewToggle` (Chat view now has a dropdown; a titlebar toggle
-  switches Chat ↔ Canvas). `App.tsx` was split into `App` (owns auth +
-  `RoomProvider`) and `AppShell` (owns all chat/canvas state) because Liveblocks
-  hooks (`useUpdateMyPresence`, `useSelf`, etc.) only work inside the
-  `RoomProvider` subtree.
-- `src/lib/liveblocks.ts`: `Presence` gained `claimedChatId`; `Storage` gained a
-  `positions: LiveMap<string, {x,y}>`.
+- **Live cursors** (`LiveCursors.tsx`, `CanvasView.tsx`): were positioned in
+  raw screen pixels, so they were wrong across different zoom levels/window
+  sizes and bled across tabs. Now canvas cursors use React Flow's
+  screen↔flow coordinate conversion (content-relative, zoom-independent);
+  chat/preview cursors are stored as fractions of the container; a cursor
+  only renders when the viewer is on the same tab as the sender.
+- **Chat messages never synced at all** — root cause: `saveChatMessages` in
+  `persistChat.ts` was defined but never called anywhere. Nothing was ever
+  written to the `messages` table, so the realtime subscription had nothing
+  to broadcast. Fixed by calling it on send and on `turn_complete`.
+- **Root blocker during testing:** the `josh@josh.com` test account had
+  never successfully signed in (checked directly via the Supabase MCP
+  against project `febfuemspzwslaujdtwc` — `messages` table had 0 rows
+  ever). If this happens again, check `auth.users.last_sign_in_at` before
+  assuming a code bug.
+- **Live streaming**: assistant turns now broadcast over a Liveblocks room-
+  event channel (`useBroadcastEvent`/`useEventListener` in `lib/liveblocks.ts`)
+  as they generate, not just once saved. This introduced a duplicate-message
+  bug (two channels — Liveblocks broadcast + Postgres realtime echo — could
+  race and both append the same message) — fixed by removing the redundant
+  Postgres `messages` INSERT subscription entirely; the broadcast is now the
+  only live-sync channel, reload still backfills from Postgres.
+- **Split view** had no way to pick the right pane's chat (auto-followed
+  whichever teammate had a chat claimed). Both panes now have a dropdown in
+  their header (`ChatView.tsx`/`ChatPane.tsx`) to pick any chat directly.
+- **Commit-hash footer** (bottom-left, `App.tsx` + `vite.config.ts`) so both
+  people can eyeball whether they're on the same build — `package.json`'s
+  version never changes per-commit so wasn't useful for this.
 
-**Snags hit and fixed along the way:**
-- `supabase db push` failed with `LegacyDbPushMissingLocalError` — worked around
-  by applying via the Supabase MCP `apply_migration` tool instead (see above).
-- xyflow v12's `NodeProps<T>` takes the full `Node` type, not just the data
-  shape — needed `type ChatCardNode = Node<ChatCardData, "chatCard">` and
-  `NodeProps<ChatCardNode>`, not `NodeProps<ChatCardData>`.
-- Liveblocks' `useStorage` selector returns the **JSON view** of storage — a
-  `LiveMap` becomes a plain readonly `Record<key, value>`, not a `Map`. No
-  `.get()` — index with `positions?.[chatId]` instead. (The real `LiveMap` with
-  `.set()` is still what you get inside `useMutation`'s `storage.get(...)`.)
-- Self-review during plan-writing caught that the Chat-view `InputBar` wasn't
-  claim-gated at all (only gated by `streaming`) — fixed before implementation
-  started, not after.
+### 2. Feature requests (all in commit `56d04f9`)
+
+- Input box: starts at 50px, grows to 10 lines, then scrolls (`InputBar.tsx`).
+- Model/effort/permission-mode pickers are wired to the real `claude` CLI now
+  (`lib/prefs.tsx` — localStorage-backed shared preference; Rust side:
+  `start_session` in `lib.rs` / `build_args` in `claude_process.rs` take
+  `model`/`permission_mode`/`effort` instead of hardcoded `sonnet`/
+  `acceptEdits`). The "more models" legacy list (Opus 4.7 etc.) has **no
+  verified CLI model ID** — it sends a best-effort slug and will surface as a
+  normal "couldn't start session" error if wrong. Worth checking with Josh
+  before relying on those.
+- New chats auto-title from the first message (`lib/chatTitle.ts`).
+- Fixed a Tailwind v4 gotcha: bare `border` utility has no default color (v3
+  behavior changed), so it was inheriting the light popover-foreground text
+  color → white stroke around the chat dropdown/delete dialog. Fixed in
+  `components/ui/dropdown-menu.tsx` and `alert-dialog.tsx` by adding explicit
+  `border-border`. **Grep for other bare `border` in `ui/*.tsx` before adding
+  new shadcn components** — same bug will recur.
+- Sidebar: drag-and-drop reorder, named groups, and a real Archive section
+  replacing the disabled "Skills" placeholder (`0008_chat_organization.sql`
+  — `sort_order`/`group_name`/`archived_at` columns, applied directly via
+  Supabase MCP to `febfuemspzwslaujdtwc`). Canvas chat cards can archive too.
+  Drag-and-drop reordering uses fractional `sort_order` (`lib/reorder.ts`),
+  not full renumbering.
+- Canvas: two-finger scroll pans, pinch zooms, both work even with the
+  pointer over a chat card (`nowheel` removed from the message-list/log
+  panels — **trade-off**: can no longer scroll those with a plain mouse
+  wheel while hovering them on the canvas; open the chat to scroll history).
+  Reset-zoom-to-100% button added next to the canvas toolbar.
 
 ## Current state
 
-- All 13 plan tasks complete and committed to `main`.
-- **Automated verification: green.** `npm test` — 27 tests across 6 suites, all
-  pass. `npx tsc --noEmit` — clean. `cargo test` — 12 tests, all pass.
-- **Post-plan bug hunt (this continuation):** after Task 13, the user reported
-  the built app showed almost no UI ("+ New chat" did nothing, then "plain
-  white screen, nothing but 4 buttons"). Root-caused via the Vite dev server in
-  the browser (not computer-use — access to the native app was denied both
-  times it was requested this session) rather than guessing blind:
-  1. `src/App.css` — the entire stylesheet — **was never imported by any file,
-     including in the original Tauri scaffold commit**. Every rule in it,
-     including the login screen and presence-bar styles from prior sessions,
-     has been dead since day one. Fixed by adding `import "./App.css";` to
-     `src/App.tsx`.
-  2. `.app`/`html`/`body`/`#root` had no explicit height, which combined with
-     (1) meant React Flow's container was genuinely 0×0 — its own console
-     warning (`error#004`) confirmed this once the CSS import fix let any
-     styles apply at all.
-  3. New canvas cards spawned outside the current viewport with no way to
-     bring them into view — added a `FocusOnNewChats` component (inside
-     `<ReactFlowProvider>`) that calls `fitView` on any newly-appeared chat id.
-  All three fixes were verified live in the Browser pane (console clean, real
-  computed dimensions, screenshot showing a working dotted canvas with
-  properly styled cards) before rebuilding the native `.app`. Added
-  `.claude/launch.json` (`vite-dev` config, port 1420) so the dev server is
-  available as a `preview_start` target in future sessions — use this for UI
-  debugging instead of computer-use on the native app, which needs a
-  permission grant that failed twice this session.
-- **Manual interactive verification of the underlying plan (Task 13's
-  checklist) is still not done** — the bug hunt above confirmed the canvas
-  *renders* and *reacts* correctly, but the deeper behavioral checks (claim
-  gating across two sessions, drag position surviving reload, multi-turn
-  continuity via `resume_session_id`) were not exercised this continuation.
-  The rebuilt native `.app` was relaunched at the end of this session, awaiting
-  the user's look.
-- Claim gating across two independent sessions still needs a second signed-in
-  instance (second machine or OS user profile) — not attempted.
+- `main` is pushed and clean; `npx tsc --noEmit`, `npx vitest run` (65/65),
+  and `cargo test`/`cargo build` all pass as of this commit.
+- Dev app was last verified running via `npm run tauri dev` — no console
+  errors on load. Feature testing (drag-drop, groups, archive, gestures,
+  model picker actually reaching Claude) has **not** been manually verified
+  in a live signed-in session this round — worth a pass next session.
 
-## Known gaps / open items (unchanged from the design spec, §10)
+## Next steps / open threads
 
-- **No real role-based permissions** — delete guardrails are UI-only (confirm
-  dialog + must-be-unclaimed), not enforced in RLS. No roles table exists.
-- **Claim conflicts are last-write-wins at the presence layer** — two people
-  sending to a just-unclaimed card in the same instant isn't specifically
-  arbitrated.
-- **No abandoned-claim timeout beyond Liveblocks' own presence-disconnect
-  behavior** — not verified against this specific claim model.
-- Frames, the Main Agent flowchart node, live-streamed in-progress AI content to
-  onlookers, the human-to-human chat column, and the tools/logs column are all
-  still out of scope (per the design spec and `spec.md`).
-
-## Next steps
-
-1. **Confirm the rebuilt native app looks right** (canvas visible, cards
-   styled, "+ New chat" auto-focuses) — this is where the session ended,
-   waiting on a look.
-2. **Finish Task 13's deeper checks manually**: claim gating with a second
-   session, drag position surviving reload, and especially multi-turn
-   continuity (send a second message in a chat, confirm Claude remembers the
-   first — the one check that proves `resume_session_id` works end-to-end).
-3. Once verified, pick the next round from the original hand-off's list:
-   frames, Main Agent orchestration, or real role-based delete permissions.
-
-To resume: paste this file plus `docs/superpowers/specs/2026-08-05-canvas-view-design.md`
-and `docs/superpowers/plans/2026-08-05-canvas-view.md` into a fresh session.
+1. Verify the new sidebar features (reorder/groups/archive) and canvas
+   gestures with a real signed-in session.
+2. Verify model/effort/permission selection actually changes Claude's
+   behavior end-to-end (the CLI flags are real and tested at the
+   `build_args` level, but not exercised through a live `claude` process
+   this session).
+3. Decide whether the "more models" legacy list needs real CLI model IDs
+   or should be trimmed to just the four current models.
+4. `Button`'s `variant="outline"` (`ui/button.tsx`) has the same
+   bare-`border` bug but is currently unused anywhere — leave as-is unless
+   someone adds a caller, then fix it the same way.
