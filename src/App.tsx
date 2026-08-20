@@ -3,13 +3,13 @@ import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Session } from "@supabase/supabase-js";
-import { LiveMap } from "@liveblocks/client";
+import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { LoginScreen } from "./components/LoginScreen";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
 import { ViewToggle } from "./components/ViewToggle";
-import { CanvasView } from "./components/CanvasView";
+import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
@@ -22,12 +22,14 @@ import {
   updateChatTitle,
   deleteChat,
   rowsToMessages,
+  saveChatMessages,
   type StoredMessageRow,
 } from "./lib/persistChat";
+import { userMessage } from "./types/message";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
-import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers } from "./lib/liveblocks";
+import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
 import { isClaimedByOther, computeClaimant } from "./lib/claim";
@@ -43,6 +45,7 @@ function AppShell({ session }: { session: Session }) {
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
   const others = useOthers();
+  const broadcastEvent = useBroadcastEvent();
 
   useEffect(() => {
     fetchAllChats().then(async (rows) => {
@@ -71,17 +74,41 @@ function AppShell({ session }: { session: Session }) {
 
   useEffect(() => {
     const unlisten = listen<ChatEnvelope>("claude-event", (event) => {
-      setChatStates((prev) => applyChatEvent(prev, event.payload));
+      setChatStates((prev) => {
+        const next = applyChatEvent(prev, event.payload);
+        if (event.payload.event.type === "turn_complete") {
+          const messages = next[event.payload.chatId]?.messages ?? [];
+          const last = messages[messages.length - 1];
+          if (last?.complete) {
+            saveChatMessages(event.payload.chatId, [last]).catch((err) =>
+              console.error("failed to save assistant message", err)
+            );
+          }
+        }
+        return next;
+      });
       if (event.payload.event.type === "session_started") {
         updateChatSession(event.payload.chatId, event.payload.event.session_id, session.user.id).catch((err) =>
           console.error("failed to persist claude session id", err)
         );
       }
+      // Stream this turn to teammates live, ahead of it landing in Postgres —
+      // Liveblocks room events are the ephemeral pub/sub already wired up for
+      // presence, so no new transport needed.
+      broadcastEvent(event.payload as unknown as Json);
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [broadcastEvent, session.user.id]);
+
+  // Applies a teammate's in-progress turn locally as it streams in. Doesn't
+  // save to Supabase or touch claude_session_id — that's the sending
+  // machine's job (above); this just mirrors the same reducer against the
+  // events it broadcasts.
+  useEventListener(({ event }) => {
+    setChatStates((prev) => applyChatEvent(prev, event as unknown as ChatEnvelope));
+  });
 
   useEffect(() => {
     const channel = supabase
@@ -119,6 +146,9 @@ function AppShell({ session }: { session: Session }) {
           [chatId]: { ...withUserMessage[chatId], streaming: true },
         };
       });
+      saveChatMessages(chatId, [userMessage(prompt)]).catch((err) =>
+        console.error("failed to save user message", err)
+      );
       const chat = chats.find((c) => c.id === chatId);
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
@@ -216,10 +246,11 @@ function AppShell({ session }: { session: Session }) {
   const teammateClaimedByOther = teammateChatId ? isClaimedByOther(teammateChatId, selfOccupant, otherOccupants) : false;
 
   const appRef = useRef<HTMLDivElement>(null);
+  const flowApiRef = useRef<FlowScreenApi | null>(null);
 
   return (
     <div className="app" ref={appRef}>
-      <LiveCursors containerRef={appRef} />
+      <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar">
         <div className="toolbar-side" />
         <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -272,6 +303,7 @@ function AppShell({ session }: { session: Session }) {
             onDelete={handleDelete}
             onExpand={handleExpand}
             onRename={handleRename}
+            flowApiRef={flowApiRef}
           />
         </>
       ) : viewMode === "preview" ? (
@@ -343,7 +375,7 @@ function App() {
   return (
     <RoomProvider
       id={ROOM_ID}
-      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null }}
+      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null, cursorView: null }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <AppShell session={session} />

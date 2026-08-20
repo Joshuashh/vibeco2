@@ -7,7 +7,7 @@ describe("applyChatEvent", () => {
     expect(result.c1.messages).toEqual([
       { role: "assistant", complete: false, blocks: [{ kind: "text", text: "hi" }] },
     ]);
-    expect(result.c1.streaming).toBe(false);
+    expect(result.c1.streaming).toBe(true);
   });
 
   it("clears streaming on turn_complete for that chat only", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -35,6 +35,26 @@ const edgeTypes = { pulse: PulseEdge };
 // current viewport (React Flow's `fitView` only runs once, on mount) —
 // without this, creating a chat looks like nothing happened. Must render as
 // a child of <ReactFlow> so useReactFlow resolves to its provider.
+// Exposes the live ReactFlow<->screen coordinate conversion to LiveCursors,
+// which lives outside ReactFlowProvider and so can't call useReactFlow
+// itself. A ref (not state) because this updates on every pan/zoom and
+// LiveCursors only needs the latest value when a pointer event fires.
+export type FlowScreenApi = {
+  screenToFlowPosition: (pos: { x: number; y: number }) => { x: number; y: number };
+  flowToScreenPosition: (pos: { x: number; y: number }) => { x: number; y: number };
+};
+
+function ReportFlowApi({ apiRef }: { apiRef: RefObject<FlowScreenApi | null> }) {
+  const { screenToFlowPosition, flowToScreenPosition } = useReactFlow();
+  useEffect(() => {
+    apiRef.current = { screenToFlowPosition, flowToScreenPosition };
+    return () => {
+      apiRef.current = null;
+    };
+  });
+  return null;
+}
+
 function FocusOnNewChats({ chatIds }: { chatIds: string[] }) {
   const { fitView } = useReactFlow();
   const seenIds = useRef<Set<string>>(new Set(chatIds));
@@ -93,6 +113,7 @@ interface CanvasViewProps {
   onDelete: (chatId: string) => void;
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
+  flowApiRef: RefObject<FlowScreenApi | null>;
 }
 
 export function CanvasView({
@@ -104,6 +125,7 @@ export function CanvasView({
   onDelete,
   onExpand,
   onRename,
+  flowApiRef,
 }: CanvasViewProps) {
   const positions = useStorage((root) => root.positions);
   const chatGroups = useStorage((root) => root.chatGroups);
@@ -348,6 +370,7 @@ export function CanvasView({
         >
           <Background color="var(--canvas-dot)" gap={28} size={1.5} />
           <FocusOnNewChats chatIds={chats.map((c) => c.id)} />
+          <ReportFlowApi apiRef={flowApiRef} />
         </ReactFlow>
       </ReactFlowProvider>
     </div>

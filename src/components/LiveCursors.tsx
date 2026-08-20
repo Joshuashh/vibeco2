@@ -1,15 +1,32 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useOthers, useUpdateMyPresence } from "../lib/liveblocks";
 import { colorForUser } from "../lib/presenceColor";
+import type { FlowScreenApi } from "./CanvasView";
+
+type ViewMode = "chat" | "canvas" | "preview";
 
 /**
  * Renders teammates' live cursor positions as an overlay, and reports the
- * local pointer position into Presence so others see this one. Coordinates
- * are relative to `containerRef` (the whole app) — a fine simplification for
- * a small team on similarly-sized windows, not pixel-perfect across very
- * different window sizes.
+ * local pointer position into Presence so others see this one.
+ *
+ * A cursor is only meaningful relative to what the sender was looking at, so
+ * we store it differently per tab and only render it when the viewer is on
+ * the same tab:
+ *  - canvas: flow-space coordinates (via React Flow's screen<->flow
+ *    conversion), so position tracks content regardless of either side's
+ *    zoom/pan.
+ *  - chat/preview: fraction of the container (0-1), so it scales to the
+ *    viewer's own window size instead of the sender's raw screen pixels.
  */
-export function LiveCursors({ containerRef }: { containerRef: RefObject<HTMLElement | null> }) {
+export function LiveCursors({
+  containerRef,
+  viewMode,
+  flowApiRef,
+}: {
+  containerRef: RefObject<HTMLElement | null>;
+  viewMode: ViewMode;
+  flowApiRef: RefObject<FlowScreenApi | null>;
+}) {
   const others = useOthers();
   const updateMyPresence = useUpdateMyPresence();
   const frameRef = useRef<number | null>(null);
@@ -22,12 +39,20 @@ export function LiveCursors({ containerRef }: { containerRef: RefObject<HTMLElem
       if (frameRef.current != null) return;
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null;
+        if (viewMode === "canvas" && flowApiRef.current) {
+          const flow = flowApiRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          updateMyPresence({ cursor: flow, cursorView: "canvas" });
+          return;
+        }
         const rect = container!.getBoundingClientRect();
-        updateMyPresence({ cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top } });
+        updateMyPresence({
+          cursor: { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height },
+          cursorView: viewMode,
+        });
       });
     }
     function onPointerLeave() {
-      updateMyPresence({ cursor: null });
+      updateMyPresence({ cursor: null, cursorView: null });
     }
 
     container.addEventListener("pointermove", onPointerMove);
@@ -37,16 +62,29 @@ export function LiveCursors({ containerRef }: { containerRef: RefObject<HTMLElem
       container.removeEventListener("pointerleave", onPointerLeave);
       if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
     };
-  }, [containerRef, updateMyPresence]);
+  }, [containerRef, updateMyPresence, viewMode, flowApiRef]);
+
+  const rect = containerRef.current?.getBoundingClientRect();
 
   return (
     <div className="absolute inset-0 z-50 pointer-events-none overflow-hidden">
-      {others.map((other) =>
-        other.presence.cursor ? (
+      {others.map((other) => {
+        if (!other.presence.cursor || other.presence.cursorView !== viewMode || !rect) return null;
+
+        let screen: { x: number; y: number };
+        if (viewMode === "canvas") {
+          if (!flowApiRef.current) return null;
+          const p = flowApiRef.current.flowToScreenPosition(other.presence.cursor);
+          screen = { x: p.x - rect.left, y: p.y - rect.top };
+        } else {
+          screen = { x: other.presence.cursor.x * rect.width, y: other.presence.cursor.y * rect.height };
+        }
+
+        return (
           <div
             key={other.connectionId}
             className="absolute top-0 left-0 pointer-events-none"
-            style={{ transform: `translate(${other.presence.cursor.x}px, ${other.presence.cursor.y}px)` }}
+            style={{ transform: `translate(${screen.x}px, ${screen.y}px)` }}
           >
             <svg
               className="w-[18px] h-[18px] block"
@@ -64,8 +102,8 @@ export function LiveCursors({ containerRef }: { containerRef: RefObject<HTMLElem
               {other.presence.email}
             </span>
           </div>
-        ) : null
-      )}
+        );
+      })}
     </div>
   );
 }

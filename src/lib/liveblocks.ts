@@ -1,4 +1,4 @@
-import { createClient, LiveMap } from "@liveblocks/client";
+import { createClient, LiveMap, type BaseUserMeta, type Json } from "@liveblocks/client";
 import { createRoomContext } from "@liveblocks/react";
 import { supabase } from "./supabase";
 
@@ -33,6 +33,11 @@ type Presence = {
   email: string;
   claimedChatId: string | null;
   cursor: { x: number; y: number } | null;
+  // Which tab the cursor's (x, y) is relative to — canvas coords are in flow
+  // space (content-relative, zoom-independent); chat/preview coords are
+  // fractions of the container (0-1), so they scale to the viewer's own
+  // window size instead of the sender's raw screen pixels.
+  cursorView: "chat" | "canvas" | "preview" | null;
 };
 
 type Storage = {
@@ -41,6 +46,10 @@ type Storage = {
   groupLabels: LiveMap<string, string>;
 };
 
+// Room event channel used to stream a teammate's in-progress Claude turn
+// (text deltas, tool calls) live, instead of waiting for it to complete and
+// land in Postgres. Typed as plain Json (not ChatEnvelope) since Liveblocks
+// events must satisfy Json — callers cast at the boundary.
 export const {
   RoomProvider,
   useOthers,
@@ -48,4 +57,6 @@ export const {
   useUpdateMyPresence,
   useStorage,
   useMutation,
-} = createRoomContext<Presence, Storage>(client);
+  useBroadcastEvent,
+  useEventListener,
+} = createRoomContext<Presence, Storage, BaseUserMeta, Json>(client);
