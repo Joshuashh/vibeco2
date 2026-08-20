@@ -311,14 +311,12 @@ h1 {
   margin: 0 auto;
 }
 
-/* ---- Canvas ---- */
-
-.canvas-view {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  background-color: var(--canvas-bg);
-}
+/* ---- Canvas ----
+   .canvas-view's own box model (flex/min-height/position/background) now
+   lives on the component as Tailwind utilities (Task 12). The className
+   itself stays on the element because the two rules below target React
+   Flow's own classes by descendant combinator and need `.canvas-view` as
+   their specificity anchor. */
 
 .canvas-view .react-flow__pane {
   cursor: default;

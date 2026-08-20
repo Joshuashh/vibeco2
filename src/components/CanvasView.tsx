@@ -333,7 +333,7 @@ export function CanvasView({
   const spaceHeld = useSpaceHeld();
 
   return (
-    <div className="canvas-view">
+    <div className="canvas-view relative min-h-0 flex-1 bg-canvas-bg">
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
