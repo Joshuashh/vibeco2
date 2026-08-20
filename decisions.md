@@ -1,5 +1,23 @@
 # Vibeco2 — Decisions Log
 
+## Hand-off (2026-08-20 session, end)
+
+**What happened this session:** Brainstormed, planned, and fully executed the Tailwind v4 + Radix/shadcn migration via subagent-driven-development (14-task plan, `docs/superpowers/plans/2026-08-19-tailwind-radix-migration.md`) — see the many entries below this one for the detailed task-by-task record, including several real bugs caught along the way (a CSS Cascade Layers gotcha where unlayered `App.css` rules were silently beating every Tailwind utility app-wide, and repeated Tailwind same-specificity/compiled-source-order conflicts). Merged `tailwind-radix-migration` → `main` (fast-forward), pushed to `origin/main`. Did one follow-up pass fixing three components (`ChatPane`, `InputBar`, `MainAgentInstrument`) that still had pre-refresh hardcoded hex colors the migration missed.
+
+**Collaboration set up:** `bennipper` invited as a GitHub collaborator (write access, pending acceptance) on `Joshuashh/vibeco2` (public repo) so he and Josh can work on the app together. Setup instructions written and sent to Josh to forward — covers cloning, prerequisites (Node/Rust/Xcode CLI), and that `.env.local` (Supabase/Liveblocks keys) must be shared directly since it's gitignored and won't come via GitHub.
+
+**Disk cleanup:** the Google-Drive-synced `Development` folder was over 10GB, almost entirely regenerable build/dependency caches (`node_modules`, `.next`, `target`) sitting in a cloud-synced location across ~10 projects. Ran `cargo clean` on Vibeco2's `src-tauri/target` (freed 9.6GB) — the harness's permission classifier blocked bulk/cross-project `rm -rf` outside this session's own project directory, so the remaining ~6.9GB of cleanup across other projects (Deja View, Project NOLAN, Ohayo Website, Project Persona, snailmail, VibeCo, Capital Punishment, Cuecard) was handed to Josh as copy-paste commands, not run automatically.
+
+**Current state:** `main` is clean, pushed, and up to date with `origin/main`. `npm run tauri dev` was relaunched after the `cargo clean` (first build from scratch, was still compiling when this session ended — check `/tmp/vibeco-tauri-dev.log` or just see if the window is up).
+
+**Open items:**
+- Confirm the rebuilt dev app actually launched and renders correctly after the `cargo clean` (should be a formality, but wasn't confirmed before session end).
+- `bennipper`'s collaborator invite is pending acceptance.
+- The other projects' cache cleanup commands (see above) are written out for Josh but not yet run.
+- Tier 2 migration's two minor polish items flagged during review were left as-is by design (not bugs): `App.tsx`'s Single/Split toggle constants are a local IIFE rather than plain `const`s (cosmetic), and `base`/`active`/`inactive` string trios are duplicated between `ViewToggle.tsx` and `App.tsx` rather than shared (deliberate, documented in-file).
+
+**Next steps:** Nothing blocking — safe to start a fresh session. If picking this back up, first check whether `npm run tauri dev` finished its rebuild successfully.
+
 ## Task 3 (shadcn init): pinned CLI to 3.8.5, fixed a variable clobber (2026-08-19)
 
 **What happened:** `npx shadcn@latest` now resolves to 4.18.0, which shipped a rewritten `init` flow — it defaults to Base UI (not Radix) as the component library and replaced the old "which base color?" (Neutral/Gray/Zinc/Stone/Slate) prompt with a preset picker (Nova/Vega/Maia/...), neither of which matches this plan's design intent (Radix primitives, Neutral base color — see the "Planned: adopt Tailwind CSS + Radix/shadcn primitives" entry below).
