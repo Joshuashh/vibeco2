@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyChatEvent, applyRealtimeMessage, addUserMessage, initChatState } from "./chatStore";
+import { applyChatEvent, addUserMessage, initChatState } from "./chatStore";
 
 describe("applyChatEvent", () => {
   it("creates state for an unseen chat id and reduces the event into it", () => {
@@ -39,14 +39,5 @@ describe("addUserMessage", () => {
     const states = { c1: { messages: [], streaming: true } };
     const result = addUserMessage(states, "c1", "hi");
     expect(result.c1.streaming).toBe(true);
-  });
-});
-
-describe("applyRealtimeMessage", () => {
-  it("appends a completed message onto the given chat's state", () => {
-    const message = { role: "assistant" as const, complete: true, blocks: [] };
-    const result = applyRealtimeMessage({}, "c1", message);
-    expect(result.c1.messages).toEqual([message]);
-    expect(result.c1.streaming).toBe(false);
   });
 });

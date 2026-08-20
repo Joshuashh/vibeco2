@@ -13,7 +13,7 @@ import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
-import { applyChatEvent, applyRealtimeMessage, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
+import { applyChatEvent, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
@@ -21,9 +21,7 @@ import {
   updateChatSession,
   updateChatTitle,
   deleteChat,
-  rowsToMessages,
   saveChatMessages,
-  type StoredMessageRow,
 } from "./lib/persistChat";
 import { userMessage } from "./types/message";
 import { buildTranscriptPreamble } from "./lib/transcript";
@@ -41,6 +39,7 @@ function AppShell({ session }: { session: Session }) {
   const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("canvas");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
@@ -111,13 +110,14 @@ function AppShell({ session }: { session: Session }) {
   });
 
   useEffect(() => {
+    // Deliberately not subscribed to `messages` INSERTs here: the Liveblocks
+    // broadcast above is already the live-sync channel for a turn as it
+    // streams, and racing it against this DB echo caused teammates to see
+    // the response applied twice (whichever arrived second reopened the
+    // "current" message since the first one was already marked complete).
+    // A reload still picks up saved messages via loadChatMessages.
     const channel = supabase
       .channel("messages-live")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-        const row = payload.new as StoredMessageRow;
-        const [message] = rowsToMessages([row]);
-        setChatStates((prev) => applyRealtimeMessage(prev, row.chat_id, message));
-      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chats" }, (payload) => {
         const row = payload.new as ChatRow;
         setChats((prev) => (prev.some((c) => c.id === row.id) ? prev : [...prev, row]));
@@ -236,14 +236,15 @@ function AppShell({ session }: { session: Session }) {
   const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
   const activeClaimedByOther = activeChatId ? isClaimedByOther(activeChatId, selfOccupant, otherOccupants) : false;
 
-  // Split-view right pane: whichever teammate currently has a chat claimed —
-  // simple "auto-follow" pick, no picker UI, since this is a two-person team.
+  // Split-view right pane: defaults to whichever teammate currently has a
+  // chat claimed (nice when you haven't picked yet), but rightChatId lets
+  // either side be chosen explicitly via the dropdown in its header.
   const teammate = others.find((o) => o.presence.claimedChatId);
-  const teammateChatId = teammate?.presence.claimedChatId ?? null;
-  const teammateChat = teammateChatId ? chats.find((c) => c.id === teammateChatId) : undefined;
-  const teammateState = teammateChatId ? chatStates[teammateChatId] : undefined;
-  const teammateClaimant = teammateChatId ? computeClaimant(teammateChatId, selfOccupant, otherOccupants) : null;
-  const teammateClaimedByOther = teammateChatId ? isClaimedByOther(teammateChatId, selfOccupant, otherOccupants) : false;
+  const effectiveRightChatId = rightChatId ?? teammate?.presence.claimedChatId ?? null;
+  const rightChat = effectiveRightChatId ? chats.find((c) => c.id === effectiveRightChatId) : undefined;
+  const rightState = effectiveRightChatId ? chatStates[effectiveRightChatId] : undefined;
+  const rightClaimant = effectiveRightChatId ? computeClaimant(effectiveRightChatId, selfOccupant, otherOccupants) : null;
+  const rightClaimedByOther = effectiveRightChatId ? isClaimedByOther(effectiveRightChatId, selfOccupant, otherOccupants) : false;
 
   const appRef = useRef<HTMLDivElement>(null);
   const flowApiRef = useRef<FlowScreenApi | null>(null);
@@ -327,6 +328,8 @@ function AppShell({ session }: { session: Session }) {
             {activeChatId && activeChat ? (
               <ChatPane
                 chat={activeChat}
+                chats={chats}
+                onSelectChat={setActiveChatId}
                 state={activeState}
                 claimant={activeClaimant}
                 isSelf={activeClaimant === session.user.email}
@@ -336,23 +339,25 @@ function AppShell({ session }: { session: Session }) {
                 onDelete={() => handleDelete(activeChatId)}
               />
             ) : (
-              <ChatPaneEmpty text="Select a chat, or start a new one." />
+              <ChatPaneEmpty text="Select a chat, or start a new one." chats={chats} onSelectChat={setActiveChatId} />
             )}
 
             {chatLayout === "split" &&
-              (teammateChatId && teammateChat ? (
+              (effectiveRightChatId && rightChat ? (
                 <ChatPane
-                  chat={teammateChat}
-                  state={teammateState}
-                  claimant={teammateClaimant}
-                  isSelf={teammateClaimant === session.user.email}
-                  disabled={teammateState?.streaming === true || teammateClaimedByOther}
-                  onSend={(prompt) => handleSend(teammateChatId, prompt)}
-                  onRename={(title) => handleRename(teammateChatId, title)}
-                  onDelete={() => handleDelete(teammateChatId)}
+                  chat={rightChat}
+                  chats={chats}
+                  onSelectChat={setRightChatId}
+                  state={rightState}
+                  claimant={rightClaimant}
+                  isSelf={rightClaimant === session.user.email}
+                  disabled={rightState?.streaming === true || rightClaimedByOther}
+                  onSend={(prompt) => handleSend(effectiveRightChatId, prompt)}
+                  onRename={(title) => handleRename(effectiveRightChatId, title)}
+                  onDelete={() => handleDelete(effectiveRightChatId)}
                 />
               ) : (
-                <ChatPaneEmpty text="No teammate is in a chat right now." />
+                <ChatPaneEmpty text="Choose a chat for this pane." chats={chats} onSelectChat={setRightChatId} />
               ))}
           </div>
         </div>

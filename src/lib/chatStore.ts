@@ -41,17 +41,3 @@ export function setSessionError(states: Record<string, ChatState>, chatId: strin
   const current = states[chatId] ?? initChatState();
   return { ...states, [chatId]: { messages: [...current.messages, errorMessage(text)], streaming: false } };
 }
-
-export function applyRealtimeMessage(
-  states: Record<string, ChatState>,
-  chatId: string,
-  message: Message
-): Record<string, ChatState> {
-  const current = states[chatId] ?? initChatState();
-  // The sender's own save also echoes back through this same realtime
-  // subscription — skip it if it's already the last message in this chat's
-  // state (added locally when sent/streamed) instead of appending a dupe.
-  const last = current.messages[current.messages.length - 1];
-  if (last && JSON.stringify(last) === JSON.stringify(message)) return states;
-  return { ...states, [chatId]: { ...current, messages: [...current.messages, message] } };
-}
