@@ -9,7 +9,17 @@ import {
   AttachmentStrip,
 } from "./InputToolbelt";
 
-export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => void; disabled: boolean }) {
+export function InputBar({
+  onSend,
+  onStop,
+  disabled,
+  streaming = false,
+}: {
+  onSend: (prompt: string) => void;
+  onStop?: () => void;
+  disabled: boolean;
+  streaming?: boolean;
+}) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,7 +63,7 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
         onRemove={(name) => setAttachments((a) => a.filter((f) => f !== name))}
       />
 
-      <div className="relative min-h-[50px] flex items-center bg-[#1e1f24] border border-border rounded-2xl py-[0.6em] pr-[3em] pl-[1em] focus-within:border-accent">
+      <div className="relative min-h-[40px] flex items-center bg-[#1e1f24] border border-border rounded-2xl py-[0.45em] pr-[3em] pl-[0.9em] focus-within:border-accent">
         <textarea
           ref={textareaRef}
           rows={1}
@@ -67,17 +77,48 @@ export function InputBar({ onSend, disabled }: { onSend: (prompt: string) => voi
           placeholder="Describe a task or ask a question"
           disabled={disabled}
         />
-        <button
-          type="button"
-          className="appearance-none border-0 outline-none absolute right-[0.6em] top-[0.6em] w-8 h-8 rounded-[10px] flex items-center justify-center bg-bg-tertiary [&_svg]:w-[15px] [&_svg]:h-[15px] [&_svg]:stroke-text-tertiary enabled:bg-send-active enabled:[&_svg]:stroke-bg-primary disabled:opacity-100"
-          onClick={submit}
-          disabled={disabled || (!value.trim() && attachments.length === 0)}
-          aria-label="Send"
-        >
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 19V5M5 12l7-7 7 7" />
-          </svg>
-        </button>
+        {(() => {
+          if (streaming) {
+            return (
+              <button
+                type="button"
+                className="appearance-none border-0 outline-none absolute right-[0.6em] top-1/2 -translate-y-1/2 w-8 h-8 rounded-[10px] flex items-center justify-center bg-send-active"
+                onClick={onStop}
+                aria-label="Stop"
+                title="Stop"
+              >
+                <svg viewBox="0 0 24 24" width={12} height={12}>
+                  <rect x="2" y="2" width="20" height="20" rx="3" fill="var(--bg-primary)" />
+                </svg>
+              </button>
+            );
+          }
+          const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0);
+          return (
+            <button
+              type="button"
+              className={`appearance-none border-0 outline-none absolute right-[0.6em] top-1/2 -translate-y-1/2 w-8 h-8 rounded-[10px] flex items-center justify-center ${
+                canSend ? "bg-send-active" : "bg-bg-tertiary"
+              }`}
+              onClick={submit}
+              disabled={!canSend}
+              aria-label="Send"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width={15}
+                height={15}
+                stroke={canSend ? "var(--bg-primary)" : "var(--text-tertiary)"}
+                strokeWidth="3"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
+          );
+        })()}
       </div>
 
       <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">

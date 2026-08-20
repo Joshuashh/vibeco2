@@ -13,7 +13,7 @@ import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
 import type { ChatRow } from "./types/chat";
-import { applyChatEvent, addUserMessage, setSessionError, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
+import { applyChatEvent, addUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
@@ -25,6 +25,7 @@ import {
   setChatArchived,
   deleteChat,
   saveChatMessages,
+  touchChatLastMessageAt,
 } from "./lib/persistChat";
 import { userMessage } from "./types/message";
 import { deriveChatTitle } from "./lib/chatTitle";
@@ -41,7 +42,7 @@ function AppShell({ session }: { session: Session }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("canvas");
+  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("chat");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
@@ -87,6 +88,9 @@ function AppShell({ session }: { session: Session }) {
           if (last?.complete) {
             saveChatMessages(event.payload.chatId, [last]).catch((err) =>
               console.error("failed to save assistant message", err)
+            );
+            touchChatLastMessageAt(event.payload.chatId).catch((err) =>
+              console.error("failed to update chat last_message_at", err)
             );
           }
         }
@@ -161,6 +165,9 @@ function AppShell({ session }: { session: Session }) {
       saveChatMessages(chatId, [userMessage(prompt)]).catch((err) =>
         console.error("failed to save user message", err)
       );
+      touchChatLastMessageAt(chatId).catch((err) =>
+        console.error("failed to update chat last_message_at", err)
+      );
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
       // primed with the stored transcript instead, so Claude isn't blind to
@@ -196,6 +203,11 @@ function AppShell({ session }: { session: Session }) {
     },
     [chats, chatStates, updateMyPresence, session.user.id, prefs]
   );
+
+  const handleStop = useCallback((chatId: string) => {
+    invoke("stop_session", { chatId }).catch((err) => console.error("stop_session failed", err));
+    setChatStates((prev) => cancelStreaming(prev, chatId));
+  }, []);
 
   const handleLeave = useCallback(
     (_chatId: string) => {
@@ -261,6 +273,7 @@ function AppShell({ session }: { session: Session }) {
           sort_order: Date.now() / 1000,
           group_name: null,
           archived_at: null,
+          last_message_at: null,
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
@@ -353,6 +366,7 @@ function AppShell({ session }: { session: Session }) {
             chatStates={chatStates}
             mergeEvents={mergeEvents}
             onSend={handleSend}
+            onStop={handleStop}
             onLeave={handleLeave}
             onDelete={handleDelete}
             onArchive={handleArchive}
@@ -388,16 +402,29 @@ function AppShell({ session }: { session: Session }) {
                 chat={activeChat}
                 chats={chats}
                 onSelectChat={setActiveChatId}
+                self={selfOccupant}
+                others={otherOccupants}
+                excludeChatId={effectiveRightChatId}
                 state={activeState}
                 claimant={activeClaimant}
                 isSelf={activeClaimant === session.user.email}
                 disabled={activeState?.streaming === true || activeClaimedByOther}
+                streaming={activeState?.streaming === true}
                 onSend={(prompt) => handleSend(activeChatId, prompt)}
+                onStop={() => handleStop(activeChatId)}
                 onRename={(title) => handleRename(activeChatId, title)}
                 onDelete={() => handleDelete(activeChatId)}
               />
             ) : (
-              <ChatPaneEmpty text="Select a chat, or start a new one." chats={chats} onSelectChat={setActiveChatId} />
+              <ChatPaneEmpty
+                text="Select a chat, or start a new one."
+                chats={chats}
+                onSelectChat={setActiveChatId}
+                onCreateChat={handleCreateChat}
+                self={selfOccupant}
+                others={otherOccupants}
+                excludeChatId={effectiveRightChatId}
+              />
             )}
 
             {chatLayout === "split" &&
@@ -406,23 +433,32 @@ function AppShell({ session }: { session: Session }) {
                   chat={rightChat}
                   chats={chats}
                   onSelectChat={setRightChatId}
+                  self={selfOccupant}
+                  others={otherOccupants}
+                  excludeChatId={activeChatId}
                   state={rightState}
                   claimant={rightClaimant}
                   isSelf={rightClaimant === session.user.email}
                   disabled={rightState?.streaming === true || rightClaimedByOther}
+                  streaming={rightState?.streaming === true}
                   onSend={(prompt) => handleSend(effectiveRightChatId, prompt)}
+                  onStop={() => handleStop(effectiveRightChatId)}
                   onRename={(title) => handleRename(effectiveRightChatId, title)}
                   onDelete={() => handleDelete(effectiveRightChatId)}
                 />
               ) : (
-                <ChatPaneEmpty text="Choose a chat for this pane." chats={chats} onSelectChat={setRightChatId} />
+                <ChatPaneEmpty
+                  text={chats.length === 0 ? "No chats available" : "Choose a chat for this pane."}
+                  chats={chats}
+                  onSelectChat={setRightChatId}
+                  self={selfOccupant}
+                  others={otherOccupants}
+                  excludeChatId={activeChatId}
+                />
               ))}
           </div>
         </div>
       )}
-      <span className="fixed bottom-[0.5em] left-[0.6em] z-40 pointer-events-none text-[10px] text-text-tertiary font-mono select-none">
-        {__APP_COMMIT__}
-      </span>
     </div>
   );
 }

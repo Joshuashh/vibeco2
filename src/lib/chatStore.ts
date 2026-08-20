@@ -41,3 +41,8 @@ export function setSessionError(states: Record<string, ChatState>, chatId: strin
   const current = states[chatId] ?? initChatState();
   return { ...states, [chatId]: { messages: [...current.messages, errorMessage(text)], streaming: false } };
 }
+
+export function cancelStreaming(states: Record<string, ChatState>, chatId: string): Record<string, ChatState> {
+  const current = states[chatId] ?? initChatState();
+  return { ...states, [chatId]: { ...current, streaming: false } };
+}

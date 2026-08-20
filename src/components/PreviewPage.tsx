@@ -102,6 +102,11 @@ export function PreviewPage({ session }: { session: Session }) {
     setActiveStroke(null);
   }
 
+  function handleToolChange(newTool: PreviewTool) {
+    setTool(newTool);
+    setPanelOpen(newTool === "pin");
+  }
+
   function handleUndo() {
     const target = lastOwnStroke(strokes, session.user.id);
     if (target) {
@@ -136,9 +141,7 @@ export function PreviewPage({ session }: { session: Session }) {
             />
             <PreviewToolbar
               tool={tool}
-              onToolChange={setTool}
-              commentsOpen={panelOpen}
-              onToggleComments={() => setPanelOpen((open) => !open)}
+              onToolChange={handleToolChange}
               onUndo={handleUndo}
               canUndo={lastOwnStroke(strokes, session.user.id) !== null}
             />
@@ -158,7 +161,6 @@ export function PreviewPage({ session }: { session: Session }) {
           onToggleShowResolved={() => setShowResolved((s) => !s)}
           onResolve={(pinId, resolved) => setPinResolved(pinId, resolved).catch((err) => console.error("failed to update pin", err))}
           onReply={(pinId, text) => insertPreviewPinReply(pinId, text).catch((err) => console.error("failed to add reply", err))}
-          onClose={() => setPanelOpen(false)}
         />
       )}
     </div>

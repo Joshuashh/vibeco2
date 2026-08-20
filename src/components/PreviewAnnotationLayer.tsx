@@ -99,6 +99,7 @@ export function PreviewAnnotationLayer({
           className={pin.resolved ? `${pinMarkerBase} text-text-tertiary opacity-60` : `${pinMarkerBase} text-accent`}
           style={{ left: `${pin.x_pct}%`, top: `${pin.y_pct}%` }}
           title={pin.text}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onPinClick(pin.id);
@@ -113,6 +114,7 @@ export function PreviewAnnotationLayer({
         <div
           className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[220px] bg-bg-tertiary border border-border rounded-[10px] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto"
           style={{ left: `${draftPin.x_pct}%`, top: `${draftPin.y_pct}%` }}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           <textarea
             className="resize-none min-h-[60px] bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] px-2 py-1.5"

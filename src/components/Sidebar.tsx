@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChatRow } from "../types/chat";
-import { Popover, PopoverRow } from "./Popover";
+import { Popover, PopoverRow, PopoverDivider } from "./Popover";
 import { computeSortOrder } from "../lib/reorder";
+import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats } from "../lib/chatGroups";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -265,36 +266,18 @@ export function Sidebar({
   const [dragOverChatId, setDragOverChatId] = useState<string | null>(null);
   const settingsAnchorRef = useRef<HTMLButtonElement>(null);
 
-  const activeChats = useMemo(() => chats.filter((c) => !c.archived_at), [chats]);
+  const activeChats = useMemo(() => filterActiveChats(chats), [chats]);
   const archivedChats = useMemo(
     () => chats.filter((c) => c.archived_at).sort((a, b) => (b.archived_at ?? "").localeCompare(a.archived_at ?? "")),
     [chats]
   );
 
   const visible = mode === "chats" ? activeChats : archivedChats;
-  const filtered = useMemo(() => {
-    if (!searchText.trim()) return visible;
-    const q = searchText.toLowerCase();
-    return visible.filter((c) => (c.title ?? "").toLowerCase().includes(q));
-  }, [visible, searchText]);
+  const filtered = useMemo(() => filterChatsByTitle(visible, searchText), [visible, searchText]);
 
-  // Recents (ungrouped) first, then named groups alphabetically — each
-  // internally ordered by sort_order, the field drag-and-drop rewrites.
   const sections = useMemo(() => {
     if (mode === "archive") return [{ title: "ARCHIVED", chats: filtered }];
-    const byGroup = new Map<string | null, ChatRow[]>();
-    for (const chat of filtered) {
-      const key = chat.group_name;
-      const list = byGroup.get(key) ?? [];
-      list.push(chat);
-      byGroup.set(key, list);
-    }
-    const groupNames = [...byGroup.keys()].filter((k): k is string => k != null).sort((a, b) => a.localeCompare(b));
-    const result = [{ title: "RECENTS", chats: (byGroup.get(null) ?? []).sort((a, b) => a.sort_order - b.sort_order) }];
-    for (const name of groupNames) {
-      result.push({ title: name.toUpperCase(), chats: (byGroup.get(name) ?? []).sort((a, b) => a.sort_order - b.sort_order) });
-    }
-    return result;
+    return groupActiveChats(filtered);
   }, [filtered, mode]);
 
   function dropOnto(targetChat: ChatRow, sectionChats: ChatRow[], targetGroupName: string | null) {
@@ -433,12 +416,21 @@ export function Sidebar({
         </button>
         <Popover open={settingsOpen} onClose={() => setSettingsOpen(false)} anchorRef={settingsAnchorRef} width={180}>
           <PopoverRow
+            title="Reload app"
+            onClick={() => {
+              setSettingsOpen(false);
+              window.location.reload();
+            }}
+          />
+          <PopoverRow
             title="Sign out"
             onClick={() => {
               setSettingsOpen(false);
               onSignOut();
             }}
           />
+          <PopoverDivider />
+          <PopoverRow title="Version" shortcut={__APP_COMMIT__} onClick={() => {}} />
         </Popover>
       </div>
     </div>

@@ -14,6 +14,7 @@ export interface ChatCardData {
   isSelf: boolean;
   mergeStatus: "merged" | "held" | "conflict" | null;
   onSend: (chatId: string, prompt: string) => void;
+  onStop: (chatId: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onArchive: (chatId: string) => void;
@@ -56,7 +57,7 @@ function LeaveIcon() {
 }
 
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
-  const { chat, state, claimant, isSelf, mergeStatus, onSend, onLeave, onDelete, onArchive, onExpand, onRename } = data;
+  const { chat, state, claimant, isSelf, mergeStatus, onSend, onStop, onLeave, onDelete, onArchive, onExpand, onRename } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
@@ -115,7 +116,12 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
         <MessageList messages={state.messages} streaming={state.streaming} />
       </div>
       <div className="nodrag nowheel">
-        <InputBar onSend={(prompt) => onSend(chat.id, prompt)} disabled={claimedByOther || state.streaming} />
+        <InputBar
+          onSend={(prompt) => onSend(chat.id, prompt)}
+          onStop={() => onStop(chat.id)}
+          streaming={state.streaming}
+          disabled={claimedByOther || state.streaming}
+        />
       </div>
     </div>
   );

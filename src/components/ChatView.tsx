@@ -1,13 +1,26 @@
 import type { Message } from "../types/message";
 import type { ChatRow } from "../types/chat";
+import type { Occupant } from "../lib/claim";
 import { MessageList } from "./MessageList";
 import { ChatCardMenu } from "./ChatCardMenu";
+import { ChatPicker } from "./ChatPicker";
 import { colorForUser } from "../lib/presenceColor";
+
+function ChevronDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
 
 export function ChatView({
   chat,
   chats,
   onSelectChat,
+  self,
+  others,
+  excludeChatId,
   messages,
   streaming = false,
   claimant = null,
@@ -18,6 +31,9 @@ export function ChatView({
   chat: ChatRow;
   chats?: ChatRow[];
   onSelectChat?: (chatId: string) => void;
+  self?: Occupant | null;
+  others?: Occupant[];
+  excludeChatId?: string | null;
   messages: Message[];
   streaming?: boolean;
   claimant?: string | null;
@@ -29,17 +45,25 @@ export function ChatView({
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center justify-center relative py-[0.9em] px-[1em] shrink-0">
         {chats && onSelectChat ? (
-          <select
-            className="text-[13px] font-medium text-text-secondary bg-transparent border-none outline-none cursor-pointer max-w-[60%]"
-            value={chat.id}
-            onChange={(e) => onSelectChat(e.target.value)}
-          >
-            {chats.map((c) => (
-              <option key={c.id} value={c.id} className="bg-bg-secondary text-text-primary">
-                {c.title ?? "Untitled chat"}
-              </option>
-            ))}
-          </select>
+          <ChatPicker
+            chats={chats}
+            currentChatId={chat.id}
+            excludeChatId={excludeChatId}
+            self={self ?? null}
+            others={others ?? []}
+            onSelect={onSelectChat}
+            trigger={({ onClick, ref }) => (
+              <button
+                ref={ref}
+                type="button"
+                onClick={onClick}
+                className="appearance-none border-0 outline-none bg-transparent flex items-center gap-1 max-w-[60%] text-[13px] font-medium text-text-secondary cursor-pointer [&_svg]:w-3 [&_svg]:h-3 [&_svg]:shrink-0"
+              >
+                <span className="truncate">{chat.title ?? "Untitled chat"}</span>
+                <ChevronDownIcon />
+              </button>
+            )}
+          />
         ) : (
           <span className="text-[13px] font-medium text-text-secondary">{chat.title ?? "Untitled chat"}</span>
         )}

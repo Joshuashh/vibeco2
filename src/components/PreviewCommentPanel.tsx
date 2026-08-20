@@ -17,7 +17,6 @@ export function PreviewCommentPanel({
   onToggleShowResolved,
   onResolve,
   onReply,
-  onClose,
 }: {
   pins: PreviewPin[];
   repliesByPin: Record<string, PreviewPinReply[]>;
@@ -26,7 +25,6 @@ export function PreviewCommentPanel({
   onToggleShowResolved: () => void;
   onResolve: (pinId: string, resolved: boolean) => void;
   onReply: (pinId: string, text: string) => void;
-  onClose: () => void;
 }) {
   const sorted = [...pins].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
@@ -34,14 +32,9 @@ export function PreviewCommentPanel({
     <div className="w-[320px] shrink-0 border-l border-border bg-bg-sidebar flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-[1em] py-[0.75em] border-b border-border text-[13px] text-text-primary">
         <span>Comments</span>
-        <div className="flex items-center gap-1.5">
-          <button type="button" className={pillGhost} onClick={onToggleShowResolved}>
-            {showResolved ? "Hide resolved" : "Show resolved"}
-          </button>
-          <button type="button" className="icon-button icon-button-sm" title="Close" onClick={onClose}>
-            ×
-          </button>
-        </div>
+        <button type="button" className={pillGhost} onClick={onToggleShowResolved}>
+          {showResolved ? "Hide resolved" : "Show resolved"}
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {sorted.length === 0 && (

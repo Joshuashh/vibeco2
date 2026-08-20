@@ -110,6 +110,7 @@ interface CanvasViewProps {
   chatStates: Record<string, ChatState>;
   mergeEvents: MergeEvent[];
   onSend: (chatId: string, prompt: string) => void;
+  onStop: (chatId: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onArchive: (chatId: string) => void;
@@ -123,6 +124,7 @@ export function CanvasView({
   chatStates,
   mergeEvents,
   onSend,
+  onStop,
   onLeave,
   onDelete,
   onArchive,
@@ -233,6 +235,7 @@ export function CanvasView({
             isSelf: claimant === self?.presence.email,
             mergeStatus: statusByChat[chat.id] ?? null,
             onSend,
+            onStop,
             onLeave,
             onDelete,
             onArchive,
@@ -295,6 +298,7 @@ export function CanvasView({
     statusByChat,
     mergeEvents,
     onSend,
+    onStop,
     onLeave,
     onDelete,
     onArchive,

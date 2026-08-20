@@ -25,6 +25,7 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn start_session(
     app: AppHandle,
+    active_sessions: tauri::State<claude_process::ActiveSessions>,
     chat_id: String,
     prompt: String,
     working_directory: String,
@@ -45,8 +46,10 @@ fn start_session(
         resume_session_id,
     };
 
-    let session = claude_process::spawn_session(&claude_path, &config)?;
-    let mut reader = claude_process::reader_for(&session)?;
+    let claude_process::ClaudeSession { master, child } = claude_process::spawn_session(&claude_path, &config)?;
+    let mut reader = claude_process::reader_for_master(&master)?;
+
+    active_sessions.0.lock().unwrap().insert(chat_id.clone(), child);
 
     std::thread::spawn(move || {
         let mut line = String::new();
@@ -64,11 +67,22 @@ fn start_session(
                 Err(_) => break,
             }
         }
-        // Keep the child alive in this closure until the reader loop ends,
-        // otherwise it drops (and the process is killed) as soon as spawn_session returns.
-        drop(session);
+        // Session ended (naturally or via stop_session) — stop tracking it.
+        app.state::<claude_process::ActiveSessions>().0.lock().unwrap().remove(&chat_id);
+        // Keep the master alive in this closure until the reader loop ends,
+        // otherwise it drops as soon as spawn_session returns.
+        drop(master);
     });
 
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_session(active_sessions: tauri::State<claude_process::ActiveSessions>, chat_id: String) -> Result<(), String> {
+    let mut sessions = active_sessions.0.lock().unwrap();
+    if let Some(mut child) = sessions.remove(&chat_id) {
+        child.kill().map_err(|e| format!("failed to stop session: {e}"))?;
+    }
     Ok(())
 }
 
@@ -133,9 +147,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(preview_server::TeamPreviewServer::new())
+        .manage(claude_process::ActiveSessions::new())
         .invoke_handler(tauri::generate_handler![
             greet,
             start_session,
+            stop_session,
             ensure_chat_worktree,
             remove_chat_worktree,
             prune_orphaned_chat_worktrees,

@@ -66,6 +66,8 @@ export function PopoverRow({
   chevron = false,
   indent = false,
   tint,
+  dotColor,
+  trailingLabel,
   onClick,
 }: {
   title: string;
@@ -75,6 +77,8 @@ export function PopoverRow({
   chevron?: boolean;
   indent?: boolean;
   tint?: "purple";
+  dotColor?: string;
+  trailingLabel?: string;
   onClick: () => void;
 }) {
   return (
@@ -85,6 +89,7 @@ export function PopoverRow({
       }`}
       onClick={onClick}
     >
+      {dotColor && <span className="w-2 h-2 rounded-full shrink-0 mr-2" style={{ background: dotColor }} />}
       <span className={tint ? "text-[#a855f7]" : "text-text-primary"}>{title}</span>
       {badge && (
         <span
@@ -95,6 +100,7 @@ export function PopoverRow({
         </span>
       )}
       <span className="flex-1" />
+      {trailingLabel && <span className="text-[11px] text-text-tertiary mr-1.5">{trailingLabel}</span>}
       {checked ? (
         <span className="flex w-[11px] h-[11px] text-text-primary [&>svg]:w-full [&>svg]:h-full">
           <CheckIcon />

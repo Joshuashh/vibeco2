@@ -10,4 +10,5 @@ export interface ChatRow {
   sort_order: number;
   group_name: string | null;
   archived_at: string | null;
+  last_message_at: string | null;
 }

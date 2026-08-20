@@ -28,6 +28,11 @@ export async function saveChatMessages(chatId: string, messages: Message[]): Pro
   if (error) throw new Error(`failed to save messages: ${error.message}`);
 }
 
+export async function touchChatLastMessageAt(chatId: string, at: string = new Date().toISOString()): Promise<void> {
+  const { error } = await supabase.from("chats").update({ last_message_at: at }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat last_message_at: ${error.message}`);
+}
+
 export async function loadChatMessages(chatId: string): Promise<Message[]> {
   const { data, error } = await supabase
     .from("messages")

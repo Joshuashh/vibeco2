@@ -136,11 +136,24 @@ mod spawn_config_tests {
 }
 
 use portable_pty::CommandBuilder;
+use std::collections::HashMap;
 use std::io::BufReader;
+use std::sync::Mutex;
 
 pub struct ClaudeSession {
     pub master: Box<dyn MasterPty + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
+}
+
+/// Tracks the in-flight child process per chat, so a "Stop" action can kill
+/// the right one. Entries are removed once the reader thread hits EOF (see
+/// lib.rs::start_session) or when explicitly stopped.
+pub struct ActiveSessions(pub Mutex<HashMap<String, Box<dyn portable_pty::Child + Send + Sync>>>);
+
+impl ActiveSessions {
+    pub fn new() -> Self {
+        Self(Mutex::new(HashMap::new()))
+    }
 }
 
 /// Spawns one `claude` process for one session. Not a singleton — each
@@ -167,9 +180,10 @@ pub fn spawn_session(claude_path: &std::path::Path, config: &SpawnConfig) -> Res
     Ok(ClaudeSession { master: pair.master, child })
 }
 
-pub fn reader_for(session: &ClaudeSession) -> Result<BufReader<Box<dyn std::io::Read + Send>>, String> {
-    let reader = session
-        .master
+pub fn reader_for_master(
+    master: &Box<dyn MasterPty + Send>,
+) -> Result<BufReader<Box<dyn std::io::Read + Send>>, String> {
+    let reader = master
         .try_clone_reader()
         .map_err(|e| format!("failed to clone pty reader: {e}"))?;
     Ok(BufReader::new(reader))
