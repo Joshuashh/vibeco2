@@ -15,7 +15,7 @@ export function FlowerSpinner() {
     const id = setInterval(() => setFrame((f) => (f + 1) % FRAMES.length), 180);
     return () => clearInterval(id);
   }, []);
-  return <span className="flower-spinner">{FRAMES[frame]}</span>;
+  return <span className="text-accent text-[13px] font-light">{FRAMES[frame]}</span>;
 }
 
 export function ThinkingIndicator({ startedAt }: { startedAt: number }) {
@@ -25,7 +25,7 @@ export function ThinkingIndicator({ startedAt }: { startedAt: number }) {
     return () => clearInterval(id);
   }, []);
   return (
-    <div className="thinking-row">
+    <div className="flex items-center gap-[0.5em] text-[12px] text-text-tertiary">
       <FlowerSpinner />
       <span>Thinking · {elapsedText((now - startedAt) / 1000)}</span>
     </div>

@@ -15,9 +15,9 @@ export function PulseEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={path} className={active ? "pulse-edge pulse-edge-active" : "pulse-edge"} />
+      <BaseEdge id={id} path={path} className={active ? "stroke-accent stroke-1" : "stroke-border stroke-1"} />
       {active && (
-        <circle r="3" className="pulse-dot">
+        <circle r="3" className="fill-accent">
           <animateMotion dur="1.2s" repeatCount="indefinite" path={path} />
         </circle>
       )}

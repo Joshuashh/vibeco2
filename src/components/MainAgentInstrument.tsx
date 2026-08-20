@@ -21,6 +21,14 @@ export type MainAgentInstrumentNode = Node<MainAgentInstrumentData, "mainAgentIn
 // lifetime, always on this fixed port (see src-tauri/src/preview_server.rs).
 const TEAM_PREVIEW_URL = "http://localhost:5180";
 
+// Matches InputToolbelt.tsx's own pillBase/pillPlain pattern (kept local
+// per Task 7's precedent rather than shared across files for a short
+// string). .pill/.pill-warn/.pill-ghost stay in App.css only because
+// PreviewCommentPanel.tsx (out of this task's scope) still uses them.
+const pillBase =
+  "appearance-none border-0 outline-none box-border inline-flex items-center gap-[0.35em] text-[0.78em] px-[0.7em] py-[0.4em] rounded-lg cursor-default hover:bg-bg-tertiary";
+const pillPlain = `${pillBase} text-text-secondary bg-bg-secondary`;
+
 export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>) {
   const [logOpen, setLogOpen] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -54,27 +62,27 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
   }
 
   return (
-    <div className="main-agent-instrument">
+    <div className="w-full h-full flex flex-col font-[SF_Mono,JetBrains_Mono,monospace]">
       <NodeResizer minWidth={360} minHeight={280} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
-      <div className="build-preview-panel">
-        <div className="build-preview-header">
+      <div className="bg-[#101010] border border-border border-b-0 rounded-t-[14px] overflow-hidden flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between gap-[0.75em] text-[11px] tracking-[0.08em] text-text-tertiary py-[0.7em] px-[1em] border-b border-border uppercase">
           <span>BUILD · PREVIEW</span>
-          <div className="build-preview-actions nodrag">
+          <div className="flex items-center gap-[0.5em] nodrag">
             {data.activeChatId ? (
               <RenderPreviewButton chatId={data.activeChatId} />
             ) : (
-              <span className="build-preview-hint">Claim a chat to render its preview</span>
+              <span className="normal-case tracking-normal text-text-tertiary">Claim a chat to render its preview</span>
             )}
-            <button type="button" className="pill" onClick={promote} disabled={promoting}>
+            <button type="button" className={pillPlain} onClick={promote} disabled={promoting}>
               {promoting ? "Promoting…" : "Promote to main"}
             </button>
           </div>
         </div>
-        <div className="nodrag nowheel build-preview-content">
+        <div className="nodrag nowheel flex-1 min-h-0 flex flex-col">
           {previewStatus === "ready" ? (
             <iframe
               key={data.refreshKey}
-              className="build-preview-frame"
+              className="flex-1 border-none w-full"
               src={TEAM_PREVIEW_URL}
               title="Live team preview"
             />
@@ -85,21 +93,33 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
           )}
         </div>
       </div>
-      <div className="main-agent-bar" onClick={() => setLogOpen((open) => !open)}>
-        <span className="main-agent-label">⬡ MAIN AGENT</span>
-        <span className="main-agent-count main-agent-count-merged">{counts.merged} merged</span>
-        <span className="main-agent-count main-agent-count-held">{counts.held} held</span>
-        <span className="main-agent-count main-agent-count-conflict">{counts.conflict} conflict</span>
+      <div
+        className="bg-bg-sidebar border border-accent rounded-b-[14px] py-[0.7em] px-[1em] flex gap-[1em] items-center cursor-default text-[13px]"
+        onClick={() => setLogOpen((open) => !open)}
+      >
+        <span className="text-accent font-semibold tracking-[0.04em]">⬡ MAIN AGENT</span>
+        <span className="text-merged">{counts.merged} merged</span>
+        <span className="text-held">{counts.held} held</span>
+        <span className="text-conflict">{counts.conflict} conflict</span>
       </div>
       {logOpen && (
-        <div className="nodrag nowheel main-agent-log">
-          {data.mergeEvents.length === 0 && <div className="main-agent-log-empty">No merge activity yet.</div>}
-          {data.mergeEvents.map((event) => (
-            <div key={event.id} className={`main-agent-log-row main-agent-log-row-${event.status}`}>
-              <span>{event.status}</span>
-              <span>{event.detail ?? event.chat_id ?? "—"}</span>
-            </div>
-          ))}
+        <div className="nodrag nowheel bg-bg-sidebar border border-border border-t-0 max-h-[200px] overflow-y-auto text-[12px]">
+          {data.mergeEvents.length === 0 && (
+            <div className="py-[0.6em] px-[1em] text-text-tertiary">No merge activity yet.</div>
+          )}
+          {data.mergeEvents.map((event) => {
+            const statusColor =
+              event.status === "merged" ? "text-merged" : event.status === "held" ? "text-held" : "text-conflict";
+            return (
+              <div
+                key={event.id}
+                className="flex justify-between py-[0.4em] px-[1em] border-b border-border text-text-secondary"
+              >
+                <span className={statusColor}>{event.status}</span>
+                <span>{event.detail ?? event.chat_id ?? "—"}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

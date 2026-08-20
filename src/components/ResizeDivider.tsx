@@ -37,7 +37,9 @@ export function ResizeDivider({
 
   return (
     <div
-      className={hovered ? "resize-divider resize-divider-hover" : "resize-divider"}
+      className={`w-[5px] shrink-0 cursor-col-resize relative before:content-[''] before:absolute before:left-[2px] before:top-0 before:bottom-0 before:w-px ${
+        hovered ? "before:bg-accent" : "before:bg-border"
+      }`}
       onPointerDown={onPointerDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
