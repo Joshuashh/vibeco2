@@ -16,7 +16,7 @@ export function PreviewToolbar({
   canUndo: boolean;
 }) {
   return (
-    <div className="preview-toolbar">
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-bg-tertiary border border-border rounded-[10px] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto">
       <button
         type="button"
         className={tool === "cursor" ? "icon-button icon-button-active" : "icon-button"}
@@ -55,7 +55,7 @@ export function PreviewToolbar({
           </svg>
         </button>
       )}
-      <div className="preview-toolbar-divider" />
+      <div className="w-px h-5 bg-border mx-0.5" />
       <button
         type="button"
         className={commentsOpen ? "icon-button icon-button-active" : "icon-button"}

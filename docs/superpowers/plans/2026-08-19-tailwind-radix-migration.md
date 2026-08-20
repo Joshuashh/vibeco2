@@ -706,7 +706,7 @@ Apply the recipe to these components, in this order (most-visible-first, per the
 - [ ] **Task 11:** `src/components/MainAgentInstrument.tsx` + `src/components/RenderPreviewButton.tsx` + `src/components/ThinkingIndicator.tsx` + `src/components/PulseEdge.tsx` + `src/components/ResizeDivider.tsx`
 - [ ] **Task 12:** `src/components/CanvasView.tsx` — verify carefully against the React-Flow-stylesheet specificity bug already hit once (`decisions.md`, 2026-08-17 entry); test node drag/resize after restyling, not just static appearance.
 - [ ] **Task 13:** `src/components/LoginScreen.tsx`
-- [ ] **Task 14:** `src/components/PreviewPage.tsx` + `src/components/PreviewToolbar.tsx` + `src/components/PreviewAnnotationLayer.tsx` + `src/components/PreviewCommentPanel.tsx`
+- [x] **Task 14:** `src/components/PreviewPage.tsx` + `src/components/PreviewToolbar.tsx` + `src/components/PreviewAnnotationLayer.tsx` + `src/components/PreviewCommentPanel.tsx`
 
 If Tasks 12-14 aren't reached in this session, the next session picks up at the next unstarted task in this list — no re-planning needed, this document remains the plan.
 

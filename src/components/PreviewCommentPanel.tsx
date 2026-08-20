@@ -1,6 +1,14 @@
 import { useState } from "react";
 import type { PreviewPin, PreviewPinReply } from "../lib/previewComments";
 
+// Matches RenderPreviewButton.tsx's own pillBase pattern (kept local per
+// Task 7's precedent). This is the last consumer of .pill/.pill-ghost — see
+// decisions.md for the App.css cleanup this enabled.
+const pillBase =
+  "appearance-none border-0 outline-none box-border inline-flex items-center gap-[0.35em] text-[0.78em] px-[0.7em] py-[0.4em] rounded-lg cursor-default hover:bg-bg-tertiary";
+const pillPlain = `${pillBase} text-text-secondary bg-bg-secondary`;
+const pillGhost = `${pillBase} text-text-secondary bg-transparent`;
+
 export function PreviewCommentPanel({
   pins,
   repliesByPin,
@@ -23,11 +31,11 @@ export function PreviewCommentPanel({
   const sorted = [...pins].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
   return (
-    <div className="preview-comment-panel">
-      <div className="preview-comment-panel-header">
+    <div className="w-[320px] shrink-0 border-l border-border bg-bg-sidebar flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-[1em] py-[0.75em] border-b border-border text-[13px] text-text-primary">
         <span>Comments</span>
-        <div className="preview-comment-panel-actions">
-          <button type="button" className="pill pill-ghost" onClick={onToggleShowResolved}>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={pillGhost} onClick={onToggleShowResolved}>
             {showResolved ? "Hide resolved" : "Show resolved"}
           </button>
           <button type="button" className="icon-button icon-button-sm" title="Close" onClick={onClose}>
@@ -35,9 +43,11 @@ export function PreviewCommentPanel({
           </button>
         </div>
       </div>
-      <div className="preview-comment-list">
+      <div className="flex-1 overflow-y-auto p-2">
         {sorted.length === 0 && (
-          <div className="preview-comment-empty">No comments yet — select Pin on the toolbar to leave one.</div>
+          <div className="text-text-tertiary text-[12px] p-[1em]">
+            No comments yet — select Pin on the toolbar to leave one.
+          </div>
         )}
         {sorted.map((pin) => (
           <PreviewCommentItem
@@ -75,18 +85,23 @@ function PreviewCommentItem({
     setReplyText("");
   }
 
+  const itemClass = pin.resolved
+    ? "border border-border rounded-lg p-2.5 mb-2 text-[13px] opacity-[0.55]"
+    : "border border-border rounded-lg p-2.5 mb-2 text-[13px]";
+
   return (
-    <div className={pin.resolved ? "preview-comment-item resolved" : "preview-comment-item"}>
-      <div className="preview-comment-author">{pin.created_by === currentUserId ? "You" : "Teammate"}</div>
-      <div className="preview-comment-text">{pin.text}</div>
+    <div className={itemClass}>
+      <div className="text-[11px] text-text-tertiary mb-1">{pin.created_by === currentUserId ? "You" : "Teammate"}</div>
+      <div className="text-text-primary">{pin.text}</div>
       {replies.map((reply) => (
-        <div key={reply.id} className="preview-comment-reply">
+        <div key={reply.id} className="text-xs text-text-secondary mt-1.5">
           <strong>{reply.created_by === currentUserId ? "You" : "Teammate"}:</strong> {reply.text}
         </div>
       ))}
-      <div className="preview-comment-item-actions">
+      <div className="flex gap-1.5 mt-2">
         <input
           type="text"
+          className="flex-1 min-w-0 bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] px-2 py-1"
           placeholder="Reply…"
           value={replyText}
           onChange={(e) => setReplyText(e.target.value)}
@@ -94,7 +109,7 @@ function PreviewCommentItem({
             if (e.key === "Enter") submitReply();
           }}
         />
-        <button type="button" className="pill" onClick={() => onResolve(pin.id, !pin.resolved)}>
+        <button type="button" className={pillPlain} onClick={() => onResolve(pin.id, !pin.resolved)}>
           {pin.resolved ? "Unresolve" : "Resolve"}
         </button>
       </div>

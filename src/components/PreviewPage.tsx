@@ -110,11 +110,15 @@ export function PreviewPage({ session }: { session: Session }) {
   }
 
   return (
-    <div className="preview-page">
-      <div className="preview-frame-container" ref={containerRef}>
+    <div className="flex flex-1 min-w-0 min-h-0">
+      <div className="relative flex-1 min-w-0" ref={containerRef}>
         {previewStatus === "ready" ? (
           <>
-            <iframe className="preview-page-frame" src={TEAM_PREVIEW_URL} title="Live team preview" />
+            <iframe
+              className="w-full h-full border-none block"
+              src={TEAM_PREVIEW_URL}
+              title="Live team preview"
+            />
             <PreviewAnnotationLayer
               containerRef={containerRef}
               tool={tool}
@@ -140,7 +144,7 @@ export function PreviewPage({ session }: { session: Session }) {
             />
           </>
         ) : (
-          <div className="build-preview-empty">
+          <div className="flex-1 flex items-center justify-center text-[12px] tracking-[0.05em] text-text-tertiary">
             {previewStatus === "starting" ? "Starting preview…" : "Couldn't start the preview server."}
           </div>
         )}
