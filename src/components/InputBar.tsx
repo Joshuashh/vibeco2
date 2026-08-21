@@ -1,30 +1,116 @@
-import { useRef, useState } from "react";
-import {
-  RepoPill,
-  PermissionPill,
-  ModelPicker,
-  EffortPicker,
-  AttachButton,
-  MicButton,
-  AttachmentStrip,
-} from "./InputToolbelt";
+import { useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { RepoPill, PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
+import { AttachmentStrip, type PendingAttachment } from "./AttachmentStrip";
+import { SlashCommandMenu } from "./SlashCommandMenu";
+import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
+import { uploadAttachment, deleteAttachment } from "../lib/attachments";
+import type { SentAttachment } from "../types/message";
+
+// Only while the whole box is still just "/word" (no space yet) — a slash
+// mentioned mid-message shouldn't pop the menu.
+const SLASH_TOKEN = /^\/([a-zA-Z0-9_-]*)$/;
 
 export function InputBar({
+  chatId,
   onSend,
   onStop,
   disabled,
   streaming = false,
   accentColor,
 }: {
-  onSend: (prompt: string) => void;
+  chatId: string;
+  onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop?: () => void;
   disabled: boolean;
   streaming?: boolean;
   accentColor?: string;
 }) {
   const [value, setValue] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  // Dragging over a child element fires dragleave on the parent before
+  // dragenter fires again on re-entry — a plain enter/leave toggle flickers.
+  // A depth counter only clears the highlight once the pointer has actually
+  // left every nested element.
+  const dragDepthRef = useRef(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+
+  // Uploads start the moment a file is attached, not when Send is pressed —
+  // so the composer's spinner is real, visible feedback of an in-flight
+  // upload rather than something the user only sees for an instant.
+  async function uploadOne(id: string, file: File) {
+    try {
+      const [localPath, uploaded] = await Promise.all([
+        (async () => {
+          const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+          return invoke<string>("save_attachment", { chatId, fileName: file.name, data: bytes });
+        })(),
+        uploadAttachment(chatId, file),
+      ]);
+      const { path: storagePath, ...attachment } = uploaded;
+      const sent: SentAttachment = { ...attachment, localPath };
+      setAttachments((a) =>
+        a.map((item) => (item.id === id ? { ...item, status: "done", sent, storagePath } : item))
+      );
+    } catch (err) {
+      console.error("attachment upload failed", err);
+      setAttachments((a) => a.map((item) => (item.id === id ? { ...item, status: "error" } : item)));
+    }
+  }
+
+  function addFiles(fileList: FileList | File[]) {
+    const items: PendingAttachment[] = Array.from(fileList).map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      status: "uploading",
+      sent: null,
+      storagePath: null,
+    }));
+    setAttachments((a) => [...a, ...items]);
+    items.forEach((item) => uploadOne(item.id, item.file));
+  }
+
+  // Undoes an in-flight or completed upload when the user removes an
+  // attachment before sending, so it doesn't linger in Storage/on disk for
+  // up to a week waiting on the cleanup cron.
+  function removeAttachment(id: string) {
+    setAttachments((a) => {
+      const item = a.find((it) => it.id === id);
+      if (item?.status === "done" && item.storagePath) {
+        deleteAttachment(item.storagePath).catch((err) => console.error("failed to delete attachment", err));
+        invoke("delete_attachment", { chatId, fileName: item.file.name }).catch((err) =>
+          console.error("failed to delete local attachment", err)
+        );
+      }
+      return a.filter((it) => it.id !== id);
+    });
+  }
+
+  const customCommands = useCustomSlashCommands();
+  const allCommands = useMemo(() => [...BUILTIN_COMMANDS, ...customCommands], [customCommands]);
+
+  const slashMatch = SLASH_TOKEN.exec(value);
+  const slashQuery = slashMatch?.[1] ?? null;
+  const slashItems =
+    slashQuery !== null && !slashDismissed
+      ? allCommands.filter((c) => c.name.toLowerCase().startsWith(slashQuery.toLowerCase())).slice(0, 8)
+      : [];
+
+  function selectCommand(cmd: SlashCommand) {
+    setValue(`/${cmd.name} `);
+    setSlashDismissed(false);
+    setSlashIndex(0);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+    }
+  }
 
   // Grows with content up to 10 lines, then scrolls internally rather than
   // pushing the rest of the pane around indefinitely.
@@ -36,37 +122,91 @@ export function InputBar({
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
+  const stillUploading = attachments.some((a) => a.status === "uploading");
+
   function submit() {
-    if ((!value.trim() && attachments.length === 0) || disabled) return;
-    onSend(value);
+    if ((!value.trim() && attachments.length === 0) || disabled || stillUploading) return;
+    const text = value;
+    const sent = attachments.filter((a) => a.sent != null).map((a) => a.sent as SentAttachment);
     setValue("");
     setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.overflowY = "hidden";
     }
+    onSend(text, sent.length > 0 ? sent : undefined);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        selectCommand(slashItems[Math.min(slashIndex, slashItems.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
     }
   }
 
+  function handleDragEnter(e: DragEvent) {
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  }
+
   return (
-    <div className="input-bar flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[12px] pl-[1.3em] border-t border-border">
+    <div
+      className={`input-bar relative flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[12px] pl-[1.3em] border-t ${
+        dragActive ? "border-accent" : "border-border"
+      }`}
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={handleDragLeave}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepthRef.current = 0;
+        setDragActive(false);
+        if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragActive && (
+        <div className="absolute inset-0 z-[50] flex items-center justify-center bg-accent/10 border-2 border-dashed border-accent rounded-b-2xl pointer-events-none">
+          <span className="text-[13px] font-medium text-accent">Drop to attach</span>
+        </div>
+      )}
       <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <RepoPill />
       </div>
 
-      <AttachmentStrip
-        files={attachments}
-        onRemove={(name) => setAttachments((a) => a.filter((f) => f !== name))}
-      />
+      <AttachmentStrip items={attachments} onRemove={removeAttachment} />
 
       <div
-        className="relative min-h-[40px] flex items-center bg-[var(--input-pill-bg)] border border-border rounded-xl py-[0.45em] pr-[3em] pl-[0.9em] focus-within:border-[var(--user-color)]"
+        ref={inputWrapRef}
+        className="relative min-h-[40px] flex items-center bg-[var(--input-pill-bg)] border border-border rounded-xl py-[0.45em] pr-[3em] pl-[0.3em] focus-within:border-[var(--user-color)]"
         style={{ ["--user-color" as string]: accentColor ?? "var(--accent)" }}
       >
         <textarea
@@ -76,11 +216,20 @@ export function InputBar({
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
+            setSlashDismissed(false);
+            setSlashIndex(0);
             resize(e.target);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Describe a task or ask a question"
+          placeholder="Describe a task or ask a question, or type / for commands"
           disabled={disabled}
+        />
+        <SlashCommandMenu
+          anchorRef={inputWrapRef}
+          items={slashItems}
+          selectedIndex={slashIndex}
+          onSelect={selectCommand}
+          onClose={() => setSlashDismissed(true)}
         />
         {(() => {
           const sendButtonStyle = {
@@ -108,7 +257,7 @@ export function InputBar({
               </button>
             );
           }
-          const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0);
+          const canSend = !disabled && !stillUploading && (value.trim().length > 0 || attachments.length > 0);
           return (
             <button
               type="button"
@@ -121,6 +270,7 @@ export function InputBar({
               onClick={submit}
               disabled={!canSend}
               aria-label="Send"
+              title="Send"
             >
               <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 19V5M5 12l7-7 7 7" />
@@ -132,7 +282,7 @@ export function InputBar({
 
       <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <PermissionPill />
-        <AttachButton onAttach={(files) => setAttachments((a) => [...a, ...Array.from(files).map((f) => f.name)])} />
+        <AttachButton onAttach={addFiles} />
         <MicButton />
         <span className="flex-1 min-w-0" />
         <ModelPicker />

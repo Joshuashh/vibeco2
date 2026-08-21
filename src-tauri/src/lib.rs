@@ -148,11 +148,112 @@ fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewSe
     state.ensure_running(&team_path)
 }
 
+#[tauri::command]
+fn ensure_chat_preview_running(
+    state: tauri::State<preview_server::ChatPreviewServers>,
+    chat_id: String,
+) -> Result<u16, String> {
+    let root = git_ops::repo_root()?;
+    let chat_path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    state.ensure_running(&chat_id, &chat_path)
+}
+
+#[tauri::command]
+fn stop_chat_preview(state: tauri::State<preview_server::ChatPreviewServers>, chat_id: String) -> Result<(), String> {
+    state.stop(&chat_id);
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SlashCommandInfo {
+    name: String,
+    description: String,
+}
+
+/// Reads the `description:` frontmatter field, if any, out of a custom
+/// slash-command markdown file (`---\ndescription: ...\n---`).
+fn frontmatter_description(content: &str) -> String {
+    if !content.starts_with("---") {
+        return String::new();
+    }
+    let mut lines = content.lines();
+    lines.next();
+    for line in lines {
+        if line.trim() == "---" {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix("description:") {
+            return rest.trim().trim_matches('"').to_string();
+        }
+    }
+    String::new()
+}
+
+fn scan_commands_dir(dir: &std::path::Path, out: &mut Vec<SlashCommandInfo>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        let description = std::fs::read_to_string(&path).map(|c| frontmatter_description(&c)).unwrap_or_default();
+        out.push(SlashCommandInfo { name: stem.to_string(), description });
+    }
+}
+
+/// Custom slash commands the user (or this project) has defined as `.md`
+/// files under `~/.claude/commands` and `<repo>/.claude/commands` — the
+/// built-in Claude Code commands (`/clear`, `/model`, ...) are a fixed list
+/// maintained on the frontend instead, since they don't live on disk.
+#[tauri::command]
+fn list_custom_slash_commands() -> Result<Vec<SlashCommandInfo>, String> {
+    let mut out = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        scan_commands_dir(&std::path::PathBuf::from(home).join(".claude/commands"), &mut out);
+    }
+    if let Ok(root) = git_ops::repo_root() {
+        scan_commands_dir(&root.join(".claude/commands"), &mut out);
+    }
+    Ok(out)
+}
+
+/// Writes an attached file's bytes into the chat's own worktree so Claude's
+/// `Read` tool can see it that turn — Claude only reads local disk, not the
+/// shareable Supabase Storage copy the frontend also uploads separately
+/// (see src/lib/attachments.ts). Returns the absolute path written.
+#[tauri::command]
+fn save_attachment(chat_id: String, file_name: String, data: Vec<u8>) -> Result<String, String> {
+    let root = git_ops::repo_root()?;
+    let chat_path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    let dir = chat_path.join(".vibeco-attachments");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create attachments dir: {e}"))?;
+    let path = dir.join(&file_name);
+    std::fs::write(&path, &data).map_err(|e| format!("failed to write attachment: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Undoes `save_attachment` — called when an attachment is removed from the
+/// composer before the message is sent, so it doesn't linger on disk until
+/// the chat is deleted.
+#[tauri::command]
+fn delete_attachment(chat_id: String, file_name: String) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    let chat_path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    let path = chat_path.join(".vibeco-attachments").join(&file_name);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("failed to delete attachment: {e}"))?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(preview_server::TeamPreviewServer::new())
+        .manage(preview_server::ChatPreviewServers::new())
         .manage(claude_process::ActiveSessions::new())
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -164,13 +265,19 @@ pub fn run() {
             prune_orphaned_chat_worktrees,
             render_preview,
             promote_to_main,
-            ensure_team_preview_running
+            ensure_team_preview_running,
+            ensure_chat_preview_running,
+            stop_chat_preview,
+            list_custom_slash_commands,
+            save_attachment,
+            delete_attachment
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 app_handle.state::<preview_server::TeamPreviewServer>().shutdown();
+                app_handle.state::<preview_server::ChatPreviewServers>().shutdown_all();
             }
         });
 }

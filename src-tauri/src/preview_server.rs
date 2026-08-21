@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Mutex;
 
 pub const TEAM_PREVIEW_PORT: u16 = 5180;
+const CHAT_PREVIEW_PORT_BASE: u16 = 5181;
 
 /// Resolves the path to the `npm` binary.
 /// GUI apps on macOS launch with a minimal PATH, so we check common
@@ -33,6 +36,15 @@ fn resolve_npm_binary() -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(trimmed))
 }
 
+fn spawn_dev_server(worktree: &Path, port: u16) -> Result<Child, String> {
+    let npm_path = resolve_npm_binary().ok_or_else(|| "npm binary not found".to_string())?;
+    Command::new(npm_path)
+        .args(["run", "dev", "--", "--port", &port.to_string(), "--strictPort"])
+        .current_dir(worktree)
+        .spawn()
+        .map_err(|e| format!("failed to start preview server: {e}"))
+}
+
 /// One long-lived `npm run dev` process against the team worktree, kept
 /// alive for the app's lifetime rather than restarted per Render Preview
 /// press — Vite's own file watcher picks up merge results and hot-reloads.
@@ -54,13 +66,7 @@ impl TeamPreviewServer {
                 return Ok(());
             }
         }
-        let npm_path = resolve_npm_binary().ok_or_else(|| "npm binary not found".to_string())?;
-        let child = Command::new(npm_path)
-            .args(["run", "dev", "--", "--port", &TEAM_PREVIEW_PORT.to_string(), "--strictPort"])
-            .current_dir(team_worktree)
-            .spawn()
-            .map_err(|e| format!("failed to start team preview server: {e}"))?;
-        *guard = Some(child);
+        *guard = Some(spawn_dev_server(team_worktree, TEAM_PREVIEW_PORT)?);
         Ok(())
     }
 
@@ -76,6 +82,61 @@ impl TeamPreviewServer {
 }
 
 impl Default for TeamPreviewServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One `npm run dev` process per chat, so a chat can be previewed on its own
+/// worktree without merging into `team` first. Each chat gets its own port,
+/// assigned once and reused for the life of the app (never reclaimed across
+/// chats — a handful of concurrent chats is the expected scale here).
+pub struct ChatPreviewServers {
+    children: Mutex<HashMap<String, (Child, u16)>>,
+    next_port: AtomicU16,
+}
+
+impl ChatPreviewServers {
+    pub fn new() -> Self {
+        Self { children: Mutex::new(HashMap::new()), next_port: AtomicU16::new(CHAT_PREVIEW_PORT_BASE) }
+    }
+
+    /// Starts (or reuses) this chat's dev server, returning the port it's
+    /// listening on.
+    pub fn ensure_running(&self, chat_id: &str, chat_worktree: &Path) -> Result<u16, String> {
+        let mut guard = self.children.lock().map_err(|_| "chat preview servers lock poisoned".to_string())?;
+        if let Some((child, port)) = guard.get_mut(chat_id) {
+            if matches!(child.try_wait(), Ok(None)) {
+                return Ok(*port);
+            }
+        }
+        let port = self.next_port.fetch_add(1, Ordering::SeqCst);
+        let child = spawn_dev_server(chat_worktree, port)?;
+        guard.insert(chat_id.to_string(), (child, port));
+        Ok(port)
+    }
+
+    /// Kills and forgets this chat's dev server, if one is running. Called
+    /// when the chat's preview panel is closed, so idle chats don't keep an
+    /// `npm run dev` process alive indefinitely in the background.
+    pub fn stop(&self, chat_id: &str) {
+        let Ok(mut guard) = self.children.lock() else { return };
+        if let Some((mut child, _)) = guard.remove(chat_id) {
+            let _ = child.kill();
+        }
+    }
+
+    /// Kills every tracked child. Called on app exit, mirroring
+    /// `TeamPreviewServer::shutdown`.
+    pub fn shutdown_all(&self) {
+        let Ok(mut guard) = self.children.lock() else { return };
+        for (_, (mut child, _)) in guard.drain() {
+            let _ = child.kill();
+        }
+    }
+}
+
+impl Default for ChatPreviewServers {
     fn default() -> Self {
         Self::new()
     }

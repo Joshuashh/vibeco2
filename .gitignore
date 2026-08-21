@@ -30,3 +30,8 @@ supabase/.temp/
 # Claude Code agent worktrees
 .claude/worktrees/
 .superpowers/
+
+# Local copies of chat attachments, saved per chat worktree so Claude's Read
+# tool can see them for that turn — the shareable copy lives in Supabase
+# Storage instead (see src/lib/attachments.ts)
+.vibeco-attachments/

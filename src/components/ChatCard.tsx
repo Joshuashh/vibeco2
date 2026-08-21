@@ -5,6 +5,7 @@ import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
 import { ChatCardMenu } from "./ChatCardMenu";
 import type { ChatRow } from "../types/chat";
+import type { SentAttachment } from "../types/message";
 import type { ChatState } from "../lib/chatStore";
 
 export interface ChatCardData {
@@ -13,7 +14,7 @@ export interface ChatCardData {
   claimant: string | null;
   isSelf: boolean;
   mergeStatus: "merged" | "held" | "conflict" | null;
-  onSend: (chatId: string, prompt: string) => void;
+  onSend: (chatId: string, prompt: string, attachments?: SentAttachment[]) => void;
   onStop: (chatId: string) => void;
   onLeave: (chatId: string) => void;
   onDelete: (chatId: string) => void;
@@ -117,7 +118,8 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
       </div>
       <div className="nodrag nowheel">
         <InputBar
-          onSend={(prompt) => onSend(chat.id, prompt)}
+          chatId={chat.id}
+          onSend={(prompt, attachments) => onSend(chat.id, prompt, attachments)}
           onStop={() => onStop(chat.id)}
           streaming={state.streaming}
           disabled={claimedByOther || state.streaming}
