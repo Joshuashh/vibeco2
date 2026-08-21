@@ -28,7 +28,7 @@ import {
   saveChatMessages,
   touchChatLastMessageAt,
 } from "./lib/persistChat";
-import { userMessage } from "./types/message";
+import { userMessage, type SentAttachment } from "./types/message";
 import { deriveChatTitle } from "./lib/chatTitle";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
@@ -166,7 +166,7 @@ function AppShell({ session }: { session: Session }) {
   }, []);
 
   const handleSend = useCallback(
-    (chatId: string, prompt: string) => {
+    (chatId: string, prompt: string, attachments: SentAttachment[] = []) => {
       updateMyPresence({ claimedChatId: chatId });
       const chat = chats.find((c) => c.id === chatId);
       const isFirstMessage = (chatStates[chatId]?.messages.length ?? 0) === 0;
@@ -175,13 +175,13 @@ function AppShell({ session }: { session: Session }) {
         if (title) handleRename(chatId, title);
       }
       setChatStates((prev) => {
-        const withUserMessage = addUserMessage(prev, chatId, prompt);
+        const withUserMessage = addUserMessage(prev, chatId, prompt, attachments);
         return {
           ...withUserMessage,
           [chatId]: { ...withUserMessage[chatId], streaming: true },
         };
       });
-      saveChatMessages(chatId, [userMessage(prompt)]).catch((err) =>
+      saveChatMessages(chatId, [userMessage(prompt, attachments)]).catch((err) =>
         console.error("failed to save user message", err)
       );
       touchChatLastMessageAt(chatId).catch((err) =>
@@ -193,7 +193,14 @@ function AppShell({ session }: { session: Session }) {
       // what already happened.
       const isOwner = !chat?.claude_session_id || chat.claude_session_owner === session.user.id;
       const priorMessages = chatStates[chatId]?.messages ?? [];
-      const effectivePrompt = isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`;
+      // Local disk paths, not the shareable Supabase URLs — Claude's Read
+      // tool only sees local files, see decisions.md.
+      const attachmentNote =
+        attachments.length > 0
+          ? `\n\nAttached files (use Read to view them):\n${attachments.map((a) => `- ${a.localPath}`).join("\n")}`
+          : "";
+      const effectivePrompt =
+        (isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`) + attachmentNote;
       // Every chat gets its own git worktree so concurrent chats never edit
       // the same working directory (see docs/superpowers/specs/2026-08-18-
       // main-agent-merge-orchestration-design.md §2). Falls back to the repo
@@ -463,7 +470,7 @@ function AppShell({ session }: { session: Session }) {
                 isSelf={activeClaimant === session.user.email}
                 disabled={activeState?.streaming === true || activeClaimedByOther}
                 streaming={activeState?.streaming === true}
-                onSend={(prompt) => handleSend(activeChatId, prompt)}
+                onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
                 onStop={() => handleStop(activeChatId)}
                 onRename={(title) => handleRename(activeChatId, title)}
                 onDelete={() => handleDelete(activeChatId)}
@@ -494,7 +501,7 @@ function AppShell({ session }: { session: Session }) {
                   isSelf={rightClaimant === session.user.email}
                   disabled={rightState?.streaming === true || rightClaimedByOther}
                   streaming={rightState?.streaming === true}
-                  onSend={(prompt) => handleSend(effectiveRightChatId, prompt)}
+                  onSend={(prompt, attachments) => handleSend(effectiveRightChatId, prompt, attachments)}
                   onStop={() => handleStop(effectiveRightChatId)}
                   onRename={(title) => handleRename(effectiveRightChatId, title)}
                   onDelete={() => handleDelete(effectiveRightChatId)}

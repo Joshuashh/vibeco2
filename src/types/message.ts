@@ -5,8 +5,22 @@ export type ClaudeEvent =
   | { type: "tool_result"; tool_use_id: string; is_error: boolean; content: string }
   | { type: "turn_complete" };
 
+export interface Attachment {
+  name: string;
+  url: string;
+  mimeType: string;
+}
+
+// An Attachment plus the local disk path it was also saved to (in the
+// chat's own worktree), so Claude's Read tool can see it for that turn —
+// the local path never gets persisted, only used to compose the prompt.
+export interface SentAttachment extends Attachment {
+  localPath: string;
+}
+
 export type ContentBlock =
   | { kind: "text"; text: string }
+  | ({ kind: "attachment" } & Attachment)
   | {
       kind: "tool_use";
       id: string;
@@ -21,8 +35,11 @@ export interface Message {
   complete: boolean;
 }
 
-export function userMessage(text: string): Message {
-  return { role: "user", blocks: [{ kind: "text", text }], complete: true };
+export function userMessage(text: string, attachments: Attachment[] = []): Message {
+  const blocks: ContentBlock[] = [];
+  if (text) blocks.push({ kind: "text", text });
+  for (const attachment of attachments) blocks.push({ kind: "attachment", ...attachment });
+  return { role: "user", blocks, complete: true };
 }
 
 export function errorMessage(text: string): Message {

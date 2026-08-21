@@ -1,6 +1,39 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ContentBlock } from "../types/message";
+import type { Attachment, ContentBlock } from "../types/message";
+import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
+
+function MessageAttachment({ attachment }: { attachment: Attachment }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const isImage = attachment.mimeType.startsWith("image/");
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setPreviewOpen(true)}
+        title="Preview"
+        className="appearance-none border-0 outline-none bg-transparent p-0 cursor-pointer inline-flex items-center gap-[0.5em] text-[0.85em] text-text-secondary bg-bg-secondary pr-[0.7em] py-[0.3em] pl-[0.3em] rounded-lg mb-[0.4em]"
+      >
+        {isImage ? (
+          <img src={attachment.url} alt={attachment.name} className="w-8 h-8 rounded object-cover shrink-0" />
+        ) : (
+          <span className="flex w-8 h-8 items-center justify-center shrink-0 text-text-tertiary [&>svg]:w-4 [&>svg]:h-4">
+            <AttachmentFileIcon />
+          </span>
+        )}
+        {attachment.name}
+      </button>
+      {previewOpen && (
+        <AttachmentLightbox
+          item={{ name: attachment.name, mimeType: attachment.mimeType }}
+          url={attachment.url}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+    </>
+  );
+}
 
 function CodeBlock({ language, source }: { language: string; source: string }) {
   const [copied, setCopied] = useState(false);
@@ -181,6 +214,10 @@ export function MessageBlock({ block, markdown = false }: { block: ContentBlock;
     ) : (
       <p className="text-[14px] leading-[1.6] m-0">{block.text}</p>
     );
+  }
+
+  if (block.kind === "attachment") {
+    return <MessageAttachment attachment={block} />;
   }
 
   return (

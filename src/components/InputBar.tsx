@@ -1,36 +1,94 @@
 import { useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { RepoPill, PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
-import { AttachmentStrip } from "./AttachmentStrip";
+import { AttachmentStrip, type PendingAttachment } from "./AttachmentStrip";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
+import { uploadAttachment, deleteAttachment } from "../lib/attachments";
+import type { SentAttachment } from "../types/message";
 
 // Only while the whole box is still just "/word" (no space yet) — a slash
 // mentioned mid-message shouldn't pop the menu.
 const SLASH_TOKEN = /^\/([a-zA-Z0-9_-]*)$/;
 
 export function InputBar({
+  chatId,
   onSend,
   onStop,
   disabled,
   streaming = false,
   accentColor,
 }: {
-  onSend: (prompt: string) => void;
+  chatId: string;
+  onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop?: () => void;
   disabled: boolean;
   streaming?: boolean;
   accentColor?: string;
 }) {
   const [value, setValue] = useState("");
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  // Dragging over a child element fires dragleave on the parent before
+  // dragenter fires again on re-entry — a plain enter/leave toggle flickers.
+  // A depth counter only clears the highlight once the pointer has actually
+  // left every nested element.
+  const dragDepthRef = useRef(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputWrapRef = useRef<HTMLDivElement>(null);
 
+  // Uploads start the moment a file is attached, not when Send is pressed —
+  // so the composer's spinner is real, visible feedback of an in-flight
+  // upload rather than something the user only sees for an instant.
+  async function uploadOne(id: string, file: File) {
+    try {
+      const [localPath, uploaded] = await Promise.all([
+        (async () => {
+          const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+          return invoke<string>("save_attachment", { chatId, fileName: file.name, data: bytes });
+        })(),
+        uploadAttachment(chatId, file),
+      ]);
+      const { path: storagePath, ...attachment } = uploaded;
+      const sent: SentAttachment = { ...attachment, localPath };
+      setAttachments((a) =>
+        a.map((item) => (item.id === id ? { ...item, status: "done", sent, storagePath } : item))
+      );
+    } catch (err) {
+      console.error("attachment upload failed", err);
+      setAttachments((a) => a.map((item) => (item.id === id ? { ...item, status: "error" } : item)));
+    }
+  }
+
   function addFiles(fileList: FileList | File[]) {
-    setAttachments((a) => [...a, ...Array.from(fileList)]);
+    const items: PendingAttachment[] = Array.from(fileList).map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      status: "uploading",
+      sent: null,
+      storagePath: null,
+    }));
+    setAttachments((a) => [...a, ...items]);
+    items.forEach((item) => uploadOne(item.id, item.file));
+  }
+
+  // Undoes an in-flight or completed upload when the user removes an
+  // attachment before sending, so it doesn't linger in Storage/on disk for
+  // up to a week waiting on the cleanup cron.
+  function removeAttachment(id: string) {
+    setAttachments((a) => {
+      const item = a.find((it) => it.id === id);
+      if (item?.status === "done" && item.storagePath) {
+        deleteAttachment(item.storagePath).catch((err) => console.error("failed to delete attachment", err));
+        invoke("delete_attachment", { chatId, fileName: item.file.name }).catch((err) =>
+          console.error("failed to delete local attachment", err)
+        );
+      }
+      return a.filter((it) => it.id !== id);
+    });
   }
 
   const customCommands = useCustomSlashCommands();
@@ -64,15 +122,19 @@ export function InputBar({
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
+  const stillUploading = attachments.some((a) => a.status === "uploading");
+
   function submit() {
-    if ((!value.trim() && attachments.length === 0) || disabled) return;
-    onSend(value);
+    if ((!value.trim() && attachments.length === 0) || disabled || stillUploading) return;
+    const text = value;
+    const sent = attachments.filter((a) => a.sent != null).map((a) => a.sent as SentAttachment);
     setValue("");
     setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.overflowY = "hidden";
     }
+    onSend(text, sent.length > 0 ? sent : undefined);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -104,27 +166,43 @@ export function InputBar({
     }
   }
 
+  function handleDragEnter(e: DragEvent) {
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  }
+
   return (
     <div
-      className={`input-bar flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[12px] pl-[1.3em] border-t ${
+      className={`input-bar relative flex flex-col gap-[0.6em] pt-[1em] pr-[1.3em] pb-[12px] pl-[1.3em] border-t ${
         dragActive ? "border-accent" : "border-border"
       }`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragActive(true);
-      }}
-      onDragLeave={() => setDragActive(false)}
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={handleDragLeave}
       onDrop={(e) => {
         e.preventDefault();
+        dragDepthRef.current = 0;
         setDragActive(false);
         if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
       }}
     >
+      {dragActive && (
+        <div className="absolute inset-0 z-[50] flex items-center justify-center bg-accent/10 border-2 border-dashed border-accent rounded-b-2xl pointer-events-none">
+          <span className="text-[13px] font-medium text-accent">Drop to attach</span>
+        </div>
+      )}
       <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
         <RepoPill />
       </div>
 
-      <AttachmentStrip files={attachments} onRemove={(file) => setAttachments((a) => a.filter((f) => f !== file))} />
+      <AttachmentStrip items={attachments} onRemove={removeAttachment} />
 
       <div
         ref={inputWrapRef}
@@ -179,7 +257,7 @@ export function InputBar({
               </button>
             );
           }
-          const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0);
+          const canSend = !disabled && !stillUploading && (value.trim().length > 0 || attachments.length > 0);
           return (
             <button
               type="button"

@@ -219,6 +219,35 @@ fn list_custom_slash_commands() -> Result<Vec<SlashCommandInfo>, String> {
     Ok(out)
 }
 
+/// Writes an attached file's bytes into the chat's own worktree so Claude's
+/// `Read` tool can see it that turn — Claude only reads local disk, not the
+/// shareable Supabase Storage copy the frontend also uploads separately
+/// (see src/lib/attachments.ts). Returns the absolute path written.
+#[tauri::command]
+fn save_attachment(chat_id: String, file_name: String, data: Vec<u8>) -> Result<String, String> {
+    let root = git_ops::repo_root()?;
+    let chat_path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    let dir = chat_path.join(".vibeco-attachments");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create attachments dir: {e}"))?;
+    let path = dir.join(&file_name);
+    std::fs::write(&path, &data).map_err(|e| format!("failed to write attachment: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Undoes `save_attachment` — called when an attachment is removed from the
+/// composer before the message is sent, so it doesn't linger on disk until
+/// the chat is deleted.
+#[tauri::command]
+fn delete_attachment(chat_id: String, file_name: String) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    let chat_path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
+    let path = chat_path.join(".vibeco-attachments").join(&file_name);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("failed to delete attachment: {e}"))?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -239,7 +268,9 @@ pub fn run() {
             ensure_team_preview_running,
             ensure_chat_preview_running,
             stop_chat_preview,
-            list_custom_slash_commands
+            list_custom_slash_commands,
+            save_attachment,
+            delete_attachment
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

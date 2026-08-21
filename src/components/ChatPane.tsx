@@ -1,4 +1,5 @@
 import type { ChatRow } from "../types/chat";
+import type { SentAttachment } from "../types/message";
 import type { ChatState } from "../lib/chatStore";
 import type { Occupant } from "../lib/claim";
 import { colorForUser } from "../lib/presenceColor";
@@ -34,7 +35,7 @@ export function ChatPane({
   isSelf: boolean;
   disabled: boolean;
   streaming: boolean;
-  onSend: (prompt: string) => void;
+  onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
@@ -56,6 +57,7 @@ export function ChatPane({
         onDelete={onDelete}
       />
       <InputBar
+        chatId={chat.id}
         onSend={onSend}
         onStop={onStop}
         disabled={disabled}
