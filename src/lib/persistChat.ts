@@ -18,7 +18,14 @@ export function messagesToRows(chatId: string, messages: Message[]): MessageRow[
 }
 
 export function rowsToMessages(rows: StoredMessageRow[]): Message[] {
-  return rows.map((row) => ({ role: row.role, blocks: row.blocks, complete: true }));
+  // ponytail: a StrictMode listener race (see App.tsx's claude-event effect)
+  // can double-insert the same completed message; collapse adjacent
+  // duplicates here rather than adding a DB migration for a unique key.
+  const deduped = rows.filter((row, i) => {
+    const prev = rows[i - 1];
+    return !prev || prev.role !== row.role || JSON.stringify(prev.blocks) !== JSON.stringify(row.blocks);
+  });
+  return deduped.map((row) => ({ role: row.role, blocks: row.blocks, complete: true }));
 }
 
 export async function saveChatMessages(chatId: string, messages: Message[]): Promise<void> {
