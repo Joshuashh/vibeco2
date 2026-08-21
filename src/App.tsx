@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
@@ -31,12 +32,17 @@ import {
   deleteChat,
   saveChatMessages,
   touchChatLastMessageAt,
+  updateChatHandoff,
 } from "./lib/persistChat";
-import { userMessage, type SentAttachment } from "./types/message";
+import { userMessage, handoffBriefMessage, type SentAttachment } from "./types/message";
 import { deriveChatTitle } from "./lib/chatTitle";
 import { buildTranscriptPreamble } from "./lib/transcript";
+import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
+import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
+import { fetchProfiles, type Profile } from "./lib/profiles";
+import { LogbookPage } from "./components/LogbookPage";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
@@ -48,7 +54,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("chat");
+  const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview" | "logbook">("chat");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
@@ -79,6 +87,18 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const broadcastEvent = useBroadcastEvent();
   const prefs = usePrefs();
 
+  // Not persisted — resets on app restart, an acceptable simplification for
+  // an elapsed-time display. Tracks when each chat was first claimed, so a
+  // handoff/checkpoint brief can report how long the stretch of work was.
+  const claimedSinceRef = useRef<Record<string, number>>({});
+  // Kept fresh every render so the close-requested handler below (registered
+  // once, per Tauri's event API) always sees the latest claim/messages
+  // instead of a stale closure from whenever it was set up.
+  const selfRef = useRef(self);
+  selfRef.current = self;
+  const chatStatesRef = useRef(chatStates);
+  chatStatesRef.current = chatStates;
+
   useEffect(() => {
     fetchAllChats(project.id).then(async (rows) => {
       setChats(rows);
@@ -102,6 +122,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   useEffect(() => {
     fetchMergeEvents().then(setMergeEvents);
+  }, []);
+
+  useEffect(() => {
+    fetchLogbookEntries(project.id).then(setLogbookEntries);
+  }, [project.id]);
+
+  useEffect(() => {
+    fetchProfiles().then(setProfiles);
   }, []);
 
   useEffect(() => {
@@ -215,15 +243,69 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "merge_events" }, (payload) => {
         setMergeEvents((prev) => [payload.new as MergeEvent, ...prev]);
       })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "logbook_entries", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          setLogbookEntries((prev) => [payload.new as LogbookEntry, ...prev]);
+        }
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [project.id]);
+
+  // Fallback for "closed the app and forgot to hand off": if you're still
+  // holding a claim with unsummarized work, generate the same kind of brief
+  // as a manual handoff but leave the chat unclaimed (not assigned to
+  // anyone specific — see decisions.md/plan for why auto-assigning without
+  // consent is the wrong call) so whoever picks it up next has context.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        const chatId = selfRef.current?.presence.claimedChatId;
+        const messages = chatId ? chatStatesRef.current[chatId]?.messages ?? [] : [];
+        if (!chatId || messages.length === 0) return;
+
+        event.preventDefault();
+        try {
+          const transcript = buildSummaryTranscript(messages);
+          const brief = await invoke<string>("generate_session_brief", { transcript });
+          const startedAt = claimedSinceRef.current[chatId];
+          const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+          await insertLogbookEntry({
+            chatId,
+            projectId: project.id,
+            userId: session.user.id,
+            userEmail: session.user.email ?? "",
+            kind: "checkpoint",
+            handedOffTo: null,
+            summary: brief,
+            durationSeconds,
+          });
+          await saveChatMessages(chatId, [handoffBriefMessage(brief, { briefKind: "checkpoint" })]);
+        } catch (err) {
+          console.error("failed to generate checkpoint brief on close", err);
+        }
+        await getCurrentWindow().destroy();
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [project.id, session.user.id, session.user.email]);
 
   const handleSend = useCallback(
     (chatId: string, prompt: string, attachments: SentAttachment[] = []) => {
       updateMyPresence({ claimedChatId: chatId });
+      claimedSinceRef.current[chatId] ??= Date.now();
       const chat = chats.find((c) => c.id === chatId);
       const isFirstMessage = (chatStates[chatId]?.messages.length ?? 0) === 0;
       if (isFirstMessage && !chat?.title) {
@@ -298,6 +380,46 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       updateMyPresence({ claimedChatId: null });
     },
     [updateMyPresence]
+  );
+
+  const handleHandoff = useCallback(
+    (chatId: string, teammateEmail: string) => {
+      const messages = chatStates[chatId]?.messages ?? [];
+      const transcript = buildSummaryTranscript(messages);
+      return invoke<string>("generate_session_brief", { transcript })
+        .then((brief) => {
+          const startedAt = claimedSinceRef.current[chatId];
+          const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+          delete claimedSinceRef.current[chatId];
+
+          const briefMessage = handoffBriefMessage(brief, { briefKind: "handoff", handedOffTo: teammateEmail });
+          setChatStates((prev) => ({
+            ...prev,
+            [chatId]: { ...prev[chatId], messages: [...(prev[chatId]?.messages ?? []), briefMessage] },
+          }));
+          saveChatMessages(chatId, [briefMessage]).catch((err) => console.error("failed to save handoff brief", err));
+          insertLogbookEntry({
+            chatId,
+            projectId: project.id,
+            userId: session.user.id,
+            userEmail: session.user.email ?? "",
+            kind: "handoff",
+            handedOffTo: teammateEmail,
+            summary: brief,
+            durationSeconds,
+          }).catch((err) => console.error("failed to record handoff logbook entry", err));
+          updateChatHandoff(chatId, teammateEmail).catch((err) =>
+            console.error("failed to persist handoff assignment", err)
+          );
+          setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, handed_off_to: teammateEmail } : c)));
+          updateMyPresence({ claimedChatId: null });
+        })
+        .catch((err) => {
+          console.error("failed to generate handoff brief", err);
+          showToast("Couldn't generate a handoff brief — try again.");
+        });
+    },
+    [chatStates, project.id, session.user.id, session.user.email, updateMyPresence]
   );
 
   const handleDelete = useCallback((chatId: string) => {
@@ -390,6 +512,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           archived_at: null,
           last_message_at: null,
           project_id: project.id,
+          handed_off_to: null,
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
@@ -399,6 +522,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
   const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
+  const onlineEmails = new Set([...(self ? [self.presence.email] : []), ...others.map((o) => o.presence.email)]);
+  const assignableTeammates = profiles.map((p) => ({ email: p.email, online: onlineEmails.has(p.email) }));
 
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
@@ -490,6 +615,16 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                 </div>
               );
             })()}
+          {logbookEntries[0] && (
+            <button
+              type="button"
+              className="max-w-[260px] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer truncate"
+              title={logbookEntries[0].summary}
+              onClick={() => setViewMode("logbook")}
+            >
+              {logbookEntries[0].user_email ?? "Someone"}: {logbookEntries[0].summary.split("\n")[0]}
+            </button>
+          )}
           <PresenceBar />
         </div>
       </div>
@@ -506,11 +641,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             onArchive={handleArchive}
             onExpand={handleExpand}
             onRename={handleRename}
+            onHandoff={handleHandoff}
+            assignableTeammates={assignableTeammates}
             flowApiRef={flowApiRef}
           />
         </>
       ) : viewMode === "preview" ? (
         <PreviewPage session={session} />
+      ) : viewMode === "logbook" ? (
+        <LogbookPage chats={chats} entries={logbookEntries} />
       ) : (
         <div className="chat-workspace">
           {!sidebarCollapsed && (
@@ -554,6 +693,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                 onStop={() => handleStop(activeChatId)}
                 onRename={(title) => handleRename(activeChatId, title)}
                 onDelete={() => handleDelete(activeChatId)}
+                assignableTeammates={assignableTeammates}
+                onHandoff={(email) => handleHandoff(activeChatId, email)}
               />
             ) : (
               <ChatPaneEmpty
@@ -585,6 +726,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   onStop={() => handleStop(effectiveRightChatId)}
                   onRename={(title) => handleRename(effectiveRightChatId, title)}
                   onDelete={() => handleDelete(effectiveRightChatId)}
+                  assignableTeammates={assignableTeammates}
+                  onHandoff={(email) => handleHandoff(effectiveRightChatId, email)}
                 />
               ) : (
                 <ChatPaneEmpty

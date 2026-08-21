@@ -25,7 +25,7 @@ export function rowsToMessages(rows: StoredMessageRow[]): Message[] {
     const prev = rows[i - 1];
     return !prev || prev.role !== row.role || JSON.stringify(prev.blocks) !== JSON.stringify(row.blocks);
   });
-  return deduped.map((row) => ({ role: row.role, blocks: row.blocks, complete: true }));
+  return deduped.map((row) => ({ role: row.role, blocks: row.blocks, complete: true, createdAt: row.created_at }));
 }
 
 export async function saveChatMessages(chatId: string, messages: Message[]): Promise<void> {
@@ -100,6 +100,11 @@ export async function updateChatSession(chatId: string, sessionId: string, owner
     .update({ claude_session_id: sessionId, claude_session_owner: ownerId })
     .eq("id", chatId);
   if (error) throw new Error(`failed to update chat session id: ${error.message}`);
+}
+
+export async function updateChatHandoff(chatId: string, handedOffTo: string | null): Promise<void> {
+  const { error } = await supabase.from("chats").update({ handed_off_to: handedOffTo }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat handoff: ${error.message}`);
 }
 
 export async function deleteChat(chatId: string): Promise<void> {

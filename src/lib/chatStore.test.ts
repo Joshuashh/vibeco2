@@ -5,7 +5,7 @@ describe("applyChatEvent", () => {
   it("creates state for an unseen chat id and reduces the event into it", () => {
     const result = applyChatEvent({}, { chatId: "c1", event: { type: "text_delta", text: "hi" } });
     expect(result.c1.messages).toEqual([
-      { role: "assistant", complete: false, blocks: [{ kind: "text", text: "hi" }] },
+      { role: "assistant", complete: false, blocks: [{ kind: "text", text: "hi" }], createdAt: expect.any(String) },
     ]);
     expect(result.c1.streaming).toBe(true);
   });
@@ -31,7 +31,12 @@ describe("addUserMessage", () => {
   it("appends a completed user message with a text block", () => {
     const result = addUserMessage({}, "c1", "build the login form");
     expect(result.c1.messages).toEqual([
-      { role: "user", complete: true, blocks: [{ kind: "text", text: "build the login form" }] },
+      {
+        role: "user",
+        complete: true,
+        blocks: [{ kind: "text", text: "build the login form" }],
+        createdAt: expect.any(String),
+      },
     ]);
   });
 

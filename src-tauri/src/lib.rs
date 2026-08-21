@@ -1,5 +1,6 @@
 mod claude_binary;
 mod claude_process;
+mod claude_summary;
 mod git_ops;
 mod merge_paths;
 mod permission_bridge;
@@ -175,6 +176,18 @@ fn render_preview(
     })
 }
 
+// Runs the (multi-second, real LLM call) blocking subprocess work on a
+// dedicated blocking thread via spawn_blocking, rather than as a plain sync
+// #[tauri::command] — this is the pattern Tauri itself recommends for
+// long-running blocking work, so a slow `claude` invocation can never stall
+// the runtime that other commands/IPC share.
+#[tauri::command]
+async fn generate_session_brief(transcript: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || claude_summary::generate_session_brief(transcript))
+        .await
+        .map_err(|e| format!("brief generation task panicked: {e}"))?
+}
+
 #[tauri::command]
 fn promote_to_main() -> Result<(), String> {
     let root = git_ops::repo_root()?;
@@ -312,6 +325,7 @@ pub fn run() {
             prune_orphaned_chat_worktrees,
             render_preview,
             promote_to_main,
+            generate_session_brief,
             ensure_team_preview_running,
             ensure_chat_preview_running,
             stop_chat_preview,

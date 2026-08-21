@@ -59,11 +59,25 @@ export function TooltipHost() {
       setTooltip(null);
     }
 
+    // A click that opens a menu/dialog (Radix content portals in over the
+    // trigger, often without the cursor ever crossing the trigger's
+    // boundary) never fires a mouseout, so the tooltip from the hover
+    // before the click was left stuck open on top of the opened menu.
+    // Any click dismisses whatever tooltip is showing, same as it would
+    // for a native title tooltip.
+    function onClick() {
+      clearTimer();
+      restoreCurrent();
+      setTooltip(null);
+    }
+
     document.addEventListener("mouseover", onOver);
     document.addEventListener("mouseout", onOut);
+    document.addEventListener("click", onClick, true);
     return () => {
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
+      document.removeEventListener("click", onClick, true);
       clearTimer();
       restoreCurrent();
     };

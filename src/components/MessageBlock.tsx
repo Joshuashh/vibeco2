@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import type { Attachment, ContentBlock } from "../types/message";
 import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
 import { useSmoothedText } from "../lib/useSmoothedText";
+import { formatRelativeTimeLong } from "../lib/time";
 
 function MessageAttachment({ attachment }: { attachment: Attachment }) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -58,6 +59,27 @@ function CodeBlock({ language, source }: { language: string; source: string }) {
       <pre className="m-0 px-[1em] py-[0.8em] overflow-x-auto">
         <code className="bg-transparent p-0 text-[12px]">{source}</code>
       </pre>
+    </div>
+  );
+}
+
+function MarkdownText({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={className}>
+      <ReactMarkdown
+        components={{
+          code({ className, children }) {
+            const match = /language-(\w+)/.exec(className ?? "");
+            if (!match) return <code>{children}</code>;
+            return <CodeBlock language={match[1]} source={String(children).replace(/\n$/, "")} />;
+          },
+          pre({ children }) {
+            return <>{children}</>;
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -195,6 +217,7 @@ export function MessageBlock({
   block,
   markdown = false,
   live = false,
+  createdAt,
 }: {
   block: ContentBlock;
   markdown?: boolean;
@@ -202,6 +225,9 @@ export function MessageBlock({
   // streaming — trickles newly-arrived text in instead of snapping each
   // delta straight onto the page. See lib/useSmoothedText.ts.
   live?: boolean;
+  // Only used by the handoff_brief branch — other block kinds show a
+  // timestamp via the message-level hover tooltip instead.
+  createdAt?: string;
 }) {
   const smoothedText = useSmoothedText(block.kind === "text" ? block.text : "", live);
 
@@ -210,22 +236,7 @@ export function MessageBlock({
     // Matches the sibling Claude Code GUI: only assistant text is rendered as
     // markdown (MarkdownText.swift) — user bubbles show plain text there too.
     return markdown ? (
-      <div className="markdown text-[14px] leading-[1.6] mt-0 mb-[0.4em] last:mb-0">
-        <ReactMarkdown
-          components={{
-            code({ className, children }) {
-              const match = /language-(\w+)/.exec(className ?? "");
-              if (!match) return <code>{children}</code>;
-              return <CodeBlock language={match[1]} source={String(children).replace(/\n$/, "")} />;
-            },
-            pre({ children }) {
-              return <>{children}</>;
-            },
-          }}
-        >
-          {text}
-        </ReactMarkdown>
-      </div>
+      <MarkdownText text={text} className="markdown text-[14px] leading-[1.6] mt-0 mb-[0.4em] last:mb-0" />
     ) : (
       <p className="text-[14px] leading-[1.6] m-0">{text}</p>
     );
@@ -235,9 +246,26 @@ export function MessageBlock({
     return <MessageAttachment attachment={block} />;
   }
 
-  return (
-    <div className="mt-[0.6em] mb-[0.6em]">
-      <ToolCallRow block={block} />
-    </div>
-  );
+  if (block.kind === "handoff_brief") {
+    const label = block.briefKind === "handoff" ? `Handed off to ${block.handedOffTo ?? "teammate"}` : "Auto-checkpoint";
+    return (
+      <div className="border border-border rounded-lg px-[1em] py-[0.8em] mt-[0.4em] mb-[0.4em] bg-bg-secondary">
+        <div className="flex items-center justify-between gap-[1em] mb-[0.5em]">
+          <div className="text-[11px] uppercase tracking-wide text-text-tertiary">{label}</div>
+          {createdAt && <div className="text-[11px] text-text-tertiary shrink-0">{formatRelativeTimeLong(createdAt)}</div>}
+        </div>
+        <MarkdownText text={block.text} className="markdown text-[14px] leading-[1.6]" />
+      </div>
+    );
+  }
+
+  if (block.kind === "tool_use") {
+    return (
+      <div className="mt-[0.6em] mb-[0.6em]">
+        <ToolCallRow block={block} />
+      </div>
+    );
+  }
+
+  return null;
 }

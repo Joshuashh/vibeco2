@@ -4,6 +4,7 @@ import type { ChatRow } from "../types/chat";
 import type { Occupant } from "../lib/claim";
 import { MessageList } from "./MessageList";
 import { ChatCardMenu } from "./ChatCardMenu";
+import { AssignChatMenu, type AssignableTeammate } from "./AssignChatMenu";
 import { ChatPicker } from "./ChatPicker";
 import { ChatPreviewPanel } from "./ChatPreviewPanel";
 import { colorForUser } from "../lib/presenceColor";
@@ -38,6 +39,8 @@ export function ChatView({
   isSelf = false,
   onRename,
   onDelete,
+  assignableTeammates,
+  onHandoff,
 }: {
   chat: ChatRow;
   chats?: ChatRow[];
@@ -51,11 +54,18 @@ export function ChatView({
   isSelf?: boolean;
   onRename: (title: string) => void;
   onDelete: () => void;
+  assignableTeammates?: AssignableTeammate[];
+  onHandoff?: (teammateEmail: string) => Promise<void>;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center justify-center relative py-[0.9em] px-[1em] shrink-0">
+        {onHandoff && assignableTeammates && (
+          <div className="absolute left-[1em]">
+            <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
+          </div>
+        )}
         {chats && onSelectChat ? (
           <ChatPicker
             chats={chats}

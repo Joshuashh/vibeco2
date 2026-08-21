@@ -11,9 +11,12 @@ export function buildTranscriptPreamble(messages: Message[]): string {
 
   const lines = messages.map((message) => {
     const label = message.role === "user" ? "User" : "Assistant";
-    const parts = message.blocks.map((block) =>
-      block.kind === "text" ? block.text : `[used tool: ${block.name}]`
-    );
+    const parts = message.blocks.map((block) => {
+      if (block.kind === "text") return block.text;
+      if (block.kind === "tool_use") return `[used tool: ${block.name}]`;
+      if (block.kind === "handoff_brief") return block.text;
+      return "";
+    });
     return `${label}: ${parts.join(" ")}`;
   });
 

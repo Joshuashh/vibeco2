@@ -4,6 +4,7 @@ import { colorForUser } from "../lib/presenceColor";
 import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
 import { ChatCardMenu } from "./ChatCardMenu";
+import { AssignChatMenu, type AssignableTeammate } from "./AssignChatMenu";
 import type { ChatRow } from "../types/chat";
 import type { SentAttachment } from "../types/message";
 import type { ChatState } from "../lib/chatStore";
@@ -21,6 +22,8 @@ export interface ChatCardData {
   onArchive: (chatId: string) => void;
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
+  assignableTeammates: AssignableTeammate[];
+  onHandoff: (teammateEmail: string) => Promise<void>;
   [key: string]: unknown;
 }
 
@@ -58,7 +61,22 @@ function LeaveIcon() {
 }
 
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
-  const { chat, state, claimant, isSelf, mergeStatus, onSend, onStop, onLeave, onDelete, onArchive, onExpand, onRename } = data;
+  const {
+    chat,
+    state,
+    claimant,
+    isSelf,
+    mergeStatus,
+    onSend,
+    onStop,
+    onLeave,
+    onDelete,
+    onArchive,
+    onExpand,
+    onRename,
+    assignableTeammates,
+    onHandoff,
+  } = data;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
@@ -96,6 +114,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
               <TrashIcon />
             </button>
           )}
+          <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
           <ChatCardMenu
             title={chat.title ?? "Untitled chat"}
             onRename={(title) => onRename(chat.id, title)}
@@ -107,6 +126,12 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
         <div className="chat-card-claim" style={{ borderLeftColor: colorForUser(claimant) }}>
           <span className="claim-dot" style={{ background: colorForUser(claimant) }} />
           {claimant} is working here
+        </div>
+      )}
+      {!claimant && chat.handed_off_to && (
+        <div className="chat-card-claim" style={{ borderLeftColor: colorForUser(chat.handed_off_to) }}>
+          <span className="claim-dot" style={{ background: colorForUser(chat.handed_off_to) }} />
+          Assigned to {chat.handed_off_to}
         </div>
       )}
       {/* nowheel deliberately omitted: two-finger pan/pinch-zoom on the

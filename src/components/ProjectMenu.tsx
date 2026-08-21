@@ -21,7 +21,7 @@ export function ProjectMenu({
       <button
         type="button"
         ref={anchorRef}
-        className="text-text-secondary text-[0.85em] bg-transparent border-none"
+        className="text-text-secondary text-[0.85em] bg-transparent border-none rounded-md px-[0.5em] py-[0.3em] -mx-[0.5em] cursor-pointer transition-colors hover:bg-bg-tertiary hover:text-text-primary"
         onClick={() => {
           setOpen((o) => !o);
           fetchAllProjects().then(setProjects);

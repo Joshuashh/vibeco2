@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
 import type { ChatState } from "../lib/chatStore";
 import type { MergeEvent } from "../lib/mergeEvents";
+import type { AssignableTeammate } from "./AssignChatMenu";
 import { ChatCard, type ChatCardNode } from "./ChatCard";
 import { GroupLabel, type GroupLabelNode } from "./GroupLabel";
 import { MainAgentInstrument, type MainAgentInstrumentNode } from "./MainAgentInstrument";
@@ -116,6 +117,8 @@ interface CanvasViewProps {
   onArchive: (chatId: string) => void;
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
+  onHandoff: (chatId: string, teammateEmail: string) => Promise<void>;
+  assignableTeammates: AssignableTeammate[];
   flowApiRef: RefObject<FlowScreenApi | null>;
 }
 
@@ -130,6 +133,8 @@ export function CanvasView({
   onArchive,
   onExpand,
   onRename,
+  onHandoff,
+  assignableTeammates,
   flowApiRef,
 }: CanvasViewProps) {
   // Archived chats stay in Supabase/the sidebar's Archive list but shouldn't
@@ -241,6 +246,8 @@ export function CanvasView({
             onArchive,
             onExpand,
             onRename,
+            assignableTeammates,
+            onHandoff: (email: string) => onHandoff(chat.id, email),
           },
         };
       });
@@ -304,6 +311,8 @@ export function CanvasView({
     onArchive,
     onExpand,
     onRename,
+    onHandoff,
+    assignableTeammates,
     setNodes,
     renameGroup,
   ]);

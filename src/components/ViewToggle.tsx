@@ -2,8 +2,8 @@ export function ViewToggle({
   mode,
   onChange,
 }: {
-  mode: "chat" | "canvas" | "preview";
-  onChange: (mode: "chat" | "canvas" | "preview") => void;
+  mode: "chat" | "canvas" | "preview" | "logbook";
+  onChange: (mode: "chat" | "canvas" | "preview" | "logbook") => void;
 }) {
   // ponytail: base carries only non-color/background utilities. Tailwind
   // compiles utility classes in an internal order, not JSX order, so a
@@ -40,6 +40,12 @@ export function ViewToggle({
         onClick={() => onChange("preview")}
       >
         Preview
+      </button>
+      <button
+        className={mode === "logbook" ? `${base} ${active}` : `${base} ${inactive}`}
+        onClick={() => onChange("logbook")}
+      >
+        Logbook
       </button>
     </div>
   );

@@ -27,23 +27,44 @@ export type ContentBlock =
       name: string;
       input: unknown;
       result: { isError: boolean; content: string } | null;
-    };
+    }
+  | { kind: "handoff_brief"; text: string; briefKind: "handoff" | "checkpoint"; handedOffTo?: string };
 
 export interface Message {
   role: "user" | "assistant";
   blocks: ContentBlock[];
   complete: boolean;
+  // Absent only for messages built before this field existed and never
+  // reloaded from Supabase — every new/persisted message carries one.
+  createdAt?: string;
 }
 
 export function userMessage(text: string, attachments: Attachment[] = []): Message {
   const blocks: ContentBlock[] = [];
   if (text) blocks.push({ kind: "text", text });
   for (const attachment of attachments) blocks.push({ kind: "attachment", ...attachment });
-  return { role: "user", blocks, complete: true };
+  return { role: "user", blocks, complete: true, createdAt: new Date().toISOString() };
 }
 
 export function errorMessage(text: string): Message {
-  return { role: "assistant", blocks: [{ kind: "text", text: `⚠️ ${text}` }], complete: true };
+  return {
+    role: "assistant",
+    blocks: [{ kind: "text", text: `⚠️ ${text}` }],
+    complete: true,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function handoffBriefMessage(
+  text: string,
+  meta: { briefKind: "handoff" | "checkpoint"; handedOffTo?: string }
+): Message {
+  return {
+    role: "assistant",
+    blocks: [{ kind: "handoff_brief", text, ...meta }],
+    complete: true,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -67,7 +88,7 @@ export function reduceEvent(messages: Message[], event: ClaudeEvent): Message[] 
   const openMessage = messages[messages.length - 1];
   const needsNewMessage = !openMessage || openMessage.complete;
   const current: Message = needsNewMessage
-    ? { role: "assistant", blocks: [], complete: false }
+    ? { role: "assistant", blocks: [], complete: false, createdAt: new Date().toISOString() }
     : openMessage;
 
   let blocks: ContentBlock[];

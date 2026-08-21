@@ -2,6 +2,7 @@ import type { ChatRow } from "../types/chat";
 import type { SentAttachment } from "../types/message";
 import type { ChatState } from "../lib/chatStore";
 import type { Occupant } from "../lib/claim";
+import type { AssignableTeammate } from "./AssignChatMenu";
 import { colorForUser } from "../lib/presenceColor";
 import { ChatView } from "./ChatView";
 import { InputBar } from "./InputBar";
@@ -23,6 +24,8 @@ export function ChatPane({
   onStop,
   onRename,
   onDelete,
+  assignableTeammates,
+  onHandoff,
 }: {
   chat: ChatRow;
   chats?: ChatRow[];
@@ -39,6 +42,8 @@ export function ChatPane({
   onStop: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
+  assignableTeammates?: AssignableTeammate[];
+  onHandoff?: (teammateEmail: string) => Promise<void>;
 }) {
   return (
     <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-chat-pane-bg border border-border rounded-xl overflow-hidden">
@@ -55,6 +60,8 @@ export function ChatPane({
         isSelf={isSelf}
         onRename={onRename}
         onDelete={onDelete}
+        assignableTeammates={assignableTeammates}
+        onHandoff={onHandoff}
       />
       <InputBar
         chatId={chat.id}

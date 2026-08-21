@@ -40,7 +40,7 @@ type Presence = {
   // space (content-relative, zoom-independent); chat/preview coords are
   // fractions of the container (0-1), so they scale to the viewer's own
   // window size instead of the sender's raw screen pixels.
-  cursorView: "chat" | "canvas" | "preview" | null;
+  cursorView: "chat" | "canvas" | "preview" | "logbook" | null;
 };
 
 type Storage = {
