@@ -27,7 +27,10 @@ const client = createClient({
   },
 });
 
-export const ROOM_ID = "vibeco2-global";
+// Must match ROOM_ID_PATTERN in supabase/functions/liveblocks-auth/index.ts.
+export function roomIdForProject(projectId: string): string {
+  return `vibeco2-project-${projectId}`;
+}
 
 type Presence = {
   email: string;

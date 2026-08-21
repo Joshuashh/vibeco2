@@ -2,7 +2,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { Liveblocks } from "npm:@liveblocks/node@3";
 import { extractBearerToken } from "./verify.ts";
 
-const ROOM_ID = "vibeco2-global";
+// Rooms are named "vibeco2-project-<uuid>" (see src/lib/liveblocks.ts) or,
+// for pre-multi-project clients still in the wild, the legacy global room.
+// No per-project membership check yet — mirrors the open shared-workspace
+// model already used for the `projects`/`chats` tables (any authenticated
+// user can join any room), so this just validates the room name shape.
+const ROOM_ID_PATTERN = /^vibeco2-(project-[0-9a-f-]{36}|global)$/;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,10 +45,18 @@ Deno.serve(async (req) => {
     });
   }
 
+  const { room } = await req.json().catch(() => ({ room: undefined }));
+  if (typeof room !== "string" || !ROOM_ID_PATTERN.test(room)) {
+    return new Response(JSON.stringify({ error: "invalid room" }), {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
   const session = liveblocks.prepareSession(data.user.id, {
     userInfo: { email: data.user.email ?? "" },
   });
-  session.allow(ROOM_ID, session.FULL_ACCESS);
+  session.allow(room, session.FULL_ACCESS);
 
   const { status, body } = await session.authorize();
   return new Response(body, { status, headers: corsHeaders });

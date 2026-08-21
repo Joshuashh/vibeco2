@@ -33,15 +33,17 @@ describe("persistChat mapping", () => {
 describe("fetchAllChats", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns all chat rows ordered by created_at", async () => {
+  it("returns chat rows for the given project ordered by sort_order", async () => {
     const order = vi.fn().mockResolvedValue({ data: [{ id: "c1" }], error: null });
-    const select = vi.fn().mockReturnValue({ order });
+    const eq = vi.fn().mockReturnValue({ order });
+    const select = vi.fn().mockReturnValue({ eq });
     vi.mocked(supabase.from).mockReturnValue({ select } as never);
 
-    const result = await fetchAllChats();
+    const result = await fetchAllChats("project-1");
 
     expect(supabase.from).toHaveBeenCalledWith("chats");
     expect(select).toHaveBeenCalledWith("*");
+    expect(eq).toHaveBeenCalledWith("project_id", "project-1");
     expect(order).toHaveBeenCalledWith("sort_order", { ascending: true });
     expect(result).toEqual([{ id: "c1" }]);
   });

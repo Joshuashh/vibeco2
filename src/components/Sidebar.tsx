@@ -5,6 +5,8 @@ import { usePrefs } from "../lib/prefs";
 import { computeSortOrder } from "../lib/reorder";
 import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats } from "../lib/chatGroups";
 import { formatRelativeTime } from "../lib/time";
+import { colorForUser } from "../lib/presenceColor";
+import { computeClaimant, type Occupant } from "../lib/claim";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,7 +89,7 @@ function SidebarRow({
   chat,
   isActive,
   archived,
-  unread,
+  claimant,
   draggable,
   onSelect,
   onRename,
@@ -103,7 +105,7 @@ function SidebarRow({
   chat: ChatRow;
   isActive: boolean;
   archived: boolean;
-  unread: boolean;
+  claimant: string | null;
   draggable: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
@@ -138,7 +140,7 @@ function SidebarRow({
 
   return (
     <div
-      className={`flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.5em] rounded-md cursor-default hover:bg-bg-secondary ${
+      className={`flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.3em] rounded-md cursor-default hover:bg-bg-secondary ${
         isActive ? "bg-bg-tertiary" : ""
       } ${dragOver ? "outline outline-1 outline-accent -outline-offset-1" : ""}`}
       onClick={onSelect}
@@ -176,7 +178,13 @@ function SidebarRow({
         />
       ) : (
         <span className="flex-1 flex items-center gap-[0.4em] min-w-0">
-          {unread && <span className="w-[6px] h-[6px] rounded-full bg-accent shrink-0" title="New activity" />}
+          {claimant && (
+            <span
+              className="w-[6px] h-[6px] rounded-full shrink-0"
+              style={{ background: colorForUser(claimant) }}
+              title={`In progress: ${claimant}`}
+            />
+          )}
           <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
           {chat.last_message_at && (
             <span className="text-[0.7em] text-text-tertiary shrink-0 ml-auto pl-[0.5em]">
@@ -247,7 +255,6 @@ function SidebarSectionHeader({ text }: { text: string }) {
 export function Sidebar({
   chats,
   activeChatId,
-  unreadChatIds,
   onSelect,
   onCreateChat,
   onRename,
@@ -258,10 +265,11 @@ export function Sidebar({
   onUnarchive,
   userEmail,
   onSignOut,
+  self,
+  others,
 }: {
   chats: ChatRow[];
   activeChatId: string | null;
-  unreadChatIds?: Set<string>;
   onSelect: (chatId: string) => void;
   onCreateChat: () => void;
   onRename: (chatId: string, title: string) => void;
@@ -272,6 +280,8 @@ export function Sidebar({
   onUnarchive: (chatId: string) => void;
   userEmail: string;
   onSignOut: () => void;
+  self?: Occupant | null;
+  others?: Occupant[];
 }) {
   const { theme, setTheme } = usePrefs();
   const [searchText, setSearchText] = useState("");
@@ -319,7 +329,7 @@ export function Sidebar({
   }
 
   const navRowBase =
-    "flex items-center gap-[0.6em] text-[0.85em] font-normal mx-[0.6em] my-[0.15em] px-[0.7em] py-[0.55em] rounded-md text-text-primary cursor-default bg-transparent border-0 outline-none text-left [&:hover:not(:disabled)]:bg-bg-secondary disabled:text-text-tertiary [&>svg]:w-[15px] [&>svg]:h-[15px] [&>svg]:shrink-0";
+    "flex items-center w-[calc(100%-1.2em)] gap-[0.6em] text-[0.85em] font-normal mx-[0.6em] my-[0.15em] px-[0.7em] py-[0.55em] rounded-md text-text-primary cursor-default bg-transparent border-0 outline-none text-left [&:hover:not(:disabled)]:bg-bg-secondary disabled:text-text-tertiary [&>svg]:w-[15px] [&>svg]:h-[15px] [&>svg]:shrink-0";
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -381,7 +391,7 @@ export function Sidebar({
                     chat={chat}
                     isActive={chat.id === activeChatId}
                     archived={mode === "archive"}
-                    unread={mode === "chats" && (unreadChatIds?.has(chat.id) ?? false)}
+                    claimant={computeClaimant(chat.id, self ?? null, others ?? [])}
                     draggable={mode === "chats"}
                     dragOver={dragOverChatId === chat.id}
                     onSelect={() => onSelect(chat.id)}
@@ -449,7 +459,11 @@ export function Sidebar({
             }}
           />
           <PopoverDivider />
-          <PopoverRow title="Version" shortcut={__APP_COMMIT__} onClick={() => {}} />
+          <div className="flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 text-[13px] text-text-primary cursor-text select-text">
+            <span>Version</span>
+            <span className="flex-1" />
+            <span className="text-xs text-text-tertiary">{__APP_COMMIT__}</span>
+          </div>
         </Popover>
       </div>
     </div>

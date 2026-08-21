@@ -2,6 +2,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Attachment, ContentBlock } from "../types/message";
 import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
+import { useSmoothedText } from "../lib/useSmoothedText";
 
 function MessageAttachment({ attachment }: { attachment: Attachment }) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -190,8 +191,22 @@ export function ToolCallRow({ block }: { block: ToolUseBlock }) {
   );
 }
 
-export function MessageBlock({ block, markdown = false }: { block: ContentBlock; markdown?: boolean }) {
+export function MessageBlock({
+  block,
+  markdown = false,
+  live = false,
+}: {
+  block: ContentBlock;
+  markdown?: boolean;
+  // True only for the trailing text block of the message currently
+  // streaming — trickles newly-arrived text in instead of snapping each
+  // delta straight onto the page. See lib/useSmoothedText.ts.
+  live?: boolean;
+}) {
+  const smoothedText = useSmoothedText(block.kind === "text" ? block.text : "", live);
+
   if (block.kind === "text") {
+    const text = live ? smoothedText : block.text;
     // Matches the sibling Claude Code GUI: only assistant text is rendered as
     // markdown (MarkdownText.swift) — user bubbles show plain text there too.
     return markdown ? (
@@ -208,11 +223,11 @@ export function MessageBlock({ block, markdown = false }: { block: ContentBlock;
             },
           }}
         >
-          {block.text}
+          {text}
         </ReactMarkdown>
       </div>
     ) : (
-      <p className="text-[14px] leading-[1.6] m-0">{block.text}</p>
+      <p className="text-[14px] leading-[1.6] m-0">{text}</p>
     );
   }
 

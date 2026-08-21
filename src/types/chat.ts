@@ -11,4 +11,5 @@ export interface ChatRow {
   group_name: string | null;
   archived_at: string | null;
   last_message_at: string | null;
+  project_id: string | null;
 }

@@ -1,6 +1,7 @@
 use crate::merge_paths::{self, TEAM_BRANCH};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::Mutex;
 
 #[derive(Debug, PartialEq)]
 pub enum MergeOutcome {
@@ -8,16 +9,56 @@ pub enum MergeOutcome {
     Conflict { files: Vec<String> },
 }
 
-pub fn repo_root() -> Result<PathBuf, String> {
+// Set once per project selection (see open_project_repo / lib.rs's
+// open_project_repo command) so every existing repo_root() call site below
+// stays a zero-arg call instead of threading a repo path through every
+// Tauri command.
+static ACTIVE_REPO: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+fn git_toplevel(dir: &Path) -> Result<PathBuf, String> {
     let output = Command::new("git")
+        .current_dir(dir)
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     if !output.status.success() {
-        return Err("not inside a git repository".to_string());
+        return Err(format!("{} is not inside a git repository", dir.display()));
     }
     let path = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
     Ok(PathBuf::from(path.trim()))
+}
+
+/// Makes `local_root` the active project repo for all subsequent
+/// repo_root() calls — cloning `repo_url` into it first if nothing's there
+/// yet. Relies on the same local git credentials (SSH key / credential
+/// helper) a manual `git clone`/`git push` would use; there's no separate
+/// GitHub auth in this app.
+pub fn open_project_repo(local_root: &Path, repo_url: &str) -> Result<(), String> {
+    let root = if local_root.exists() {
+        git_toplevel(local_root)?
+    } else {
+        let parent = local_root.parent().ok_or("invalid project repo path")?;
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let clone = Command::new("git")
+            .args(["clone", repo_url, &local_root.to_string_lossy()])
+            .output()
+            .map_err(|e| format!("failed to run git clone: {e}"))?;
+        if !clone.status.success() {
+            return Err(format!("git clone failed: {}", String::from_utf8_lossy(&clone.stderr)));
+        }
+        local_root.to_path_buf()
+    };
+    *ACTIVE_REPO.lock().unwrap() = Some(root);
+    Ok(())
+}
+
+pub fn repo_root() -> Result<PathBuf, String> {
+    if let Some(root) = ACTIVE_REPO.lock().unwrap().clone() {
+        return Ok(root);
+    }
+    // Fallback for pre-project-selection callers (none exist today, but
+    // keeps behavior sane rather than erroring outright).
+    git_toplevel(&std::env::current_dir().map_err(|e| e.to_string())?)
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> Result<Output, String> {

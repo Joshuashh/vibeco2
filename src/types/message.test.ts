@@ -9,6 +9,26 @@ describe("reduceEvent", () => {
     expect(result[0].blocks).toEqual([{ kind: "text", text: "Hi" }]);
   });
 
+  it("merges consecutive text_deltas into one running text block instead of stacking separate blocks", () => {
+    let messages: Message[] = [];
+    messages = reduceEvent(messages, { type: "text_delta", text: "Ban" });
+    messages = reduceEvent(messages, { type: "text_delta", text: "ana." });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].blocks).toEqual([{ kind: "text", text: "Banana." }]);
+  });
+
+  it("starts a fresh text block for text_delta after an intervening tool_use", () => {
+    let messages: Message[] = [];
+    messages = reduceEvent(messages, { type: "text_delta", text: "Let me check " });
+    messages = reduceEvent(messages, { type: "tool_use", id: "t1", name: "Read", input: {} });
+    messages = reduceEvent(messages, { type: "text_delta", text: "Done." });
+    expect(messages[0].blocks).toEqual([
+      { kind: "text", text: "Let me check " },
+      { kind: "tool_use", id: "t1", name: "Read", input: {}, result: null },
+      { kind: "text", text: "Done." },
+    ]);
+  });
+
   it("keeps text and a following tool_use as one ordered block list on the same message", () => {
     let messages: Message[] = [];
     messages = reduceEvent(messages, { type: "text_delta", text: "Let me check " });

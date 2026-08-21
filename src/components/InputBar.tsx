@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { RepoPill, PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
+import { PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
 import { AttachmentStrip, type PendingAttachment } from "./AttachmentStrip";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
@@ -198,10 +198,6 @@ export function InputBar({
           <span className="text-[13px] font-medium text-accent">Drop to attach</span>
         </div>
       )}
-      <div className="flex items-center flex-wrap gap-x-[0.4em] gap-y-[0.4em]">
-        <RepoPill />
-      </div>
-
       <AttachmentStrip items={attachments} onRemove={removeAttachment} />
 
       <div

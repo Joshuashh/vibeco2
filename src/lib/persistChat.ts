@@ -43,14 +43,18 @@ export async function loadChatMessages(chatId: string): Promise<Message[]> {
   return rowsToMessages((data ?? []) as StoredMessageRow[]);
 }
 
-export async function createChat(title: string | null): Promise<string> {
-  const { data, error } = await supabase.from("chats").insert({ title }).select("id").single();
+export async function createChat(title: string | null, projectId: string): Promise<string> {
+  const { data, error } = await supabase.from("chats").insert({ title, project_id: projectId }).select("id").single();
   if (error) throw new Error(`failed to create chat: ${error.message}`);
   return data.id as string;
 }
 
-export async function fetchAllChats(): Promise<ChatRow[]> {
-  const { data, error } = await supabase.from("chats").select("*").order("sort_order", { ascending: true });
+export async function fetchAllChats(projectId: string): Promise<ChatRow[]> {
+  const { data, error } = await supabase
+    .from("chats")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("sort_order", { ascending: true });
   if (error) throw new Error(`failed to fetch chats: ${error.message}`);
   return (data ?? []) as ChatRow[];
 }

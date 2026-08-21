@@ -2,28 +2,18 @@ import { useRef, useState } from "react";
 import { Popover, PopoverHeader, PopoverRow, PopoverDivider } from "./Popover";
 import { usePrefs, MODELS, MORE_MODELS, EFFORTS, PERMISSIONS } from "../lib/prefs";
 
-// ponytail: repo picker and voice input are still local-only/no-op — no repo
-// selection or transcription backend exists yet. Model/effort/permission are
-// wired to real preferences (see lib/prefs.ts) and flow into the actual
-// Claude CLI invocation.
+// ponytail: voice input is still local-only/no-op — no transcription backend
+// exists yet. Model/effort/permission are wired to real preferences (see
+// lib/prefs.ts) and flow into the actual Claude CLI invocation. The repo
+// picker that used to live here was removed — repo selection now happens
+// once, per-project, in ProjectSwitcher.tsx (see decisions.md's multi-project
+// support entries), so a second per-message picker had nothing left to pick.
 
 const MODEL_BADGES: Record<string, string> = { "Fable 5": "Requires usage credits" };
 
 const pillBase =
   "appearance-none border-0 outline-none box-border inline-flex items-center gap-[0.35em] text-[0.78em] px-[0.7em] py-[0.4em] rounded-lg cursor-default hover:bg-bg-tertiary [&>svg]:w-3 [&>svg]:h-3 [&>svg]:stroke-current [&>svg]:fill-none [&>svg]:stroke-2";
-const pillPlain = `${pillBase} text-text-secondary bg-bg-secondary`;
 const pillGhost = `${pillBase} text-text-secondary bg-transparent`;
-
-export function RepoPill({ repo }: { repo?: string }) {
-  return (
-    <button type="button" className={pillPlain} title={repo ?? "Select a GitHub repo"}>
-      <svg viewBox="0 0 24 24" style={{ fill: "currentColor", stroke: "none" }}>
-        <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2z" />
-      </svg>
-      {repo ?? "Select repo"}
-    </button>
-  );
-}
 
 export function PermissionPill() {
   const { permission, setPermission, bypassPermissions, setBypassPermissions } = usePrefs();

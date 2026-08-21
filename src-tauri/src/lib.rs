@@ -116,6 +116,17 @@ fn answer_permission_request(
 }
 
 #[tauri::command]
+fn open_project_repo(app: AppHandle, project_id: String, repo_url: String) -> Result<(), String> {
+    let local_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("projects")
+        .join(&project_id);
+    git_ops::open_project_repo(&local_root, &repo_url)
+}
+
+#[tauri::command]
 fn ensure_chat_worktree(chat_id: String) -> Result<String, String> {
     let root = git_ops::repo_root()?;
     let path = git_ops::ensure_chat_worktree(&root, &chat_id)?;
@@ -294,6 +305,7 @@ pub fn run() {
             start_session,
             stop_session,
             answer_permission_request,
+            open_project_repo,
             ensure_chat_worktree,
             remove_chat_worktree,
             chat_has_unmerged_work,

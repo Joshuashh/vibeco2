@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -6,6 +6,8 @@ import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { LoginScreen } from "./components/LoginScreen";
+import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { ProjectMenu } from "./components/ProjectMenu";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
 import { ViewToggle } from "./components/ViewToggle";
@@ -15,7 +17,6 @@ import { LiveCursors } from "./components/LiveCursors";
 import { TooltipHost } from "./components/TooltipHost";
 import { ToastHost, showToast } from "./components/ToastHost";
 import { PermissionPrompt, type PermissionRequest } from "./components/PermissionPrompt";
-import { markChatViewed, getLastViewed, isChatUnread } from "./lib/lastViewed";
 import type { ChatRow } from "./types/chat";
 import { applyChatEvent, addUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
@@ -36,13 +37,14 @@ import { deriveChatTitle } from "./lib/chatTitle";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
-import { RoomProvider, ROOM_ID, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
+import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
 import { isClaimedByOther, computeClaimant } from "./lib/claim";
 import { PrefsProvider, usePrefs } from "./lib/prefs";
+import type { ProjectRow } from "./types/project";
 
-function AppShell({ session }: { session: Session }) {
+function AppShell({ session, project, onSelectProject }: { session: Session; project: ProjectRow; onSelectProject: (project: ProjectRow) => void }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
@@ -52,7 +54,6 @@ function AppShell({ session }: { session: Session }) {
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [lastViewed, setLastViewed] = useState<Record<string, string>>(() => getLastViewed());
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
 
   // Bumps the in-memory copy so the sidebar's relative-time/unread signal
@@ -65,26 +66,13 @@ function AppShell({ session }: { session: Session }) {
     setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, last_message_at: now } : c)));
   }, []);
 
-  const markViewed = useCallback((chatId: string) => {
-    markChatViewed(chatId);
-    setLastViewed(getLastViewed());
+  const handleSelectActive = useCallback((chatId: string) => {
+    setActiveChatId(chatId);
   }, []);
 
-  const handleSelectActive = useCallback(
-    (chatId: string) => {
-      setActiveChatId(chatId);
-      markViewed(chatId);
-    },
-    [markViewed]
-  );
-
-  const handleSelectRight = useCallback(
-    (chatId: string) => {
-      setRightChatId(chatId);
-      markViewed(chatId);
-    },
-    [markViewed]
-  );
+  const handleSelectRight = useCallback((chatId: string) => {
+    setRightChatId(chatId);
+  }, []);
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
   const others = useOthers();
@@ -92,13 +80,9 @@ function AppShell({ session }: { session: Session }) {
   const prefs = usePrefs();
 
   useEffect(() => {
-    fetchAllChats().then(async (rows) => {
+    fetchAllChats(project.id).then(async (rows) => {
       setChats(rows);
-      setActiveChatId((current) => {
-        if (current) return current;
-        if (rows[0]) markViewed(rows[0].id);
-        return rows[0]?.id ?? null;
-      });
+      setActiveChatId((current) => current ?? rows[0]?.id ?? null);
       const histories = await Promise.all(rows.map((row) => loadChatMessages(row.id)));
       setChatStates((current) => {
         const next = { ...current };
@@ -114,7 +98,7 @@ function AppShell({ session }: { session: Session }) {
         console.error("failed to prune orphaned chat worktrees", err)
       );
     });
-  }, []);
+  }, [project.id]);
 
   useEffect(() => {
     fetchMergeEvents().then(setMergeEvents);
@@ -261,7 +245,6 @@ function AppShell({ session }: { session: Session }) {
         console.error("failed to update chat last_message_at", err)
       );
       bumpLastMessageAt(chatId);
-      markViewed(chatId);
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
       // primed with the stored transcript instead, so Claude isn't blind to
@@ -302,7 +285,7 @@ function AppShell({ session }: { session: Session }) {
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
     },
-    [chats, chatStates, updateMyPresence, session.user.id, prefs, bumpLastMessageAt, markViewed]
+    [chats, chatStates, updateMyPresence, session.user.id, prefs, bumpLastMessageAt]
   );
 
   const handleStop = useCallback((chatId: string) => {
@@ -390,7 +373,7 @@ function AppShell({ session }: { session: Session }) {
   }, []);
 
   const handleCreateChat = useCallback(() => {
-    createChat(null).then((id) => {
+    createChat(null, project.id).then((id) => {
       setChats((prev) => [
         ...prev,
         {
@@ -406,20 +389,16 @@ function AppShell({ session }: { session: Session }) {
           group_name: null,
           archived_at: null,
           last_message_at: null,
+          project_id: project.id,
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
       setActiveChatId(id);
     });
-  }, [session.user.id]);
+  }, [session.user.id, project.id]);
 
   const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
   const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
-
-  const unreadChatIds = useMemo(
-    () => new Set(chats.filter((c) => isChatUnread(c, lastViewed)).map((c) => c.id)),
-    [chats, lastViewed]
-  );
 
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
@@ -460,6 +439,7 @@ function AppShell({ session }: { session: Session }) {
               </svg>
             </button>
           )}
+          <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
         <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions">
@@ -539,7 +519,6 @@ function AppShell({ session }: { session: Session }) {
                 <Sidebar
                   chats={chats}
                   activeChatId={activeChatId}
-                  unreadChatIds={unreadChatIds}
                   onSelect={handleSelectActive}
                   onCreateChat={handleCreateChat}
                   onRename={handleRename}
@@ -550,6 +529,8 @@ function AppShell({ session }: { session: Session }) {
                   onUnarchive={handleUnarchive}
                   userEmail={session.user.email ?? "you"}
                   onSignOut={() => signOut()}
+                  self={selfOccupant}
+                  others={otherOccupants}
                 />
               </div>
               <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
@@ -624,23 +605,44 @@ function AppShell({ session }: { session: Session }) {
 
 function App() {
   const [session, setSession] = useState<Session | null | "loading">("loading");
+  // ponytail: no persistence of the last-picked project across launches —
+  // add (e.g. localStorage) if reselecting every launch turns out annoying.
+  const [project, setProject] = useState<ProjectRow | null>(null);
+  const [repoReady, setRepoReady] = useState(false);
 
   useEffect(() => {
     getSession().then(setSession);
     return onAuthStateChange(setSession);
   }, []);
 
+  // Clones this project's repo locally (if not already cloned on this
+  // machine) and points the Tauri backend's git_ops::repo_root() at it,
+  // before AppShell mounts and starts issuing worktree commands against it.
+  useEffect(() => {
+    if (!project) return;
+    setRepoReady(false);
+    invoke("open_project_repo", { projectId: project.id, repoUrl: project.repo_url })
+      .then(() => setRepoReady(true))
+      .catch((err) => {
+        console.error("failed to open project repo", err);
+        showToast(`Couldn't open "${project.name}"'s repo — check the URL and your git access, then try again.`);
+        setProject(null);
+      });
+  }, [project]);
+
   if (session === "loading") return null;
   if (!session) return <LoginScreen onSignedIn={() => {}} />;
+  if (!project) return <ProjectSwitcher onSelect={setProject} />;
+  if (!repoReady) return null;
 
   return (
     <RoomProvider
-      id={ROOM_ID}
+      id={roomIdForProject(project.id)}
       initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null, cursorView: null }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <PrefsProvider>
-        <AppShell session={session} />
+        <AppShell session={session} project={project} onSelectProject={setProject} />
       </PrefsProvider>
     </RoomProvider>
   );

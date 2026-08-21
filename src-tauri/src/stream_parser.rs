@@ -36,16 +36,20 @@ pub fn parse_line(line: &str) -> ClaudeEvent {
             ClaudeEvent::Ignored
         }
         "assistant" => {
-            // First content block only, per line, mirroring the Swift parser's
-            // one-block-per-stream-json-line assumption for partial messages.
+            // First content block only, per line. Text blocks are *not*
+            // surfaced from here — with --include-partial-messages (see
+            // claude_process::build_args) this "assistant" line only ever
+            // arrives once a text block is already fully complete, which is
+            // what used to make responses "pop in" as one lump instead of
+            // streaming. The real incremental text comes from the
+            // "stream_event"/content_block_delta case below instead; this
+            // arm only still matters for tool_use, whose input isn't usable
+            // until fully assembled anyway (streaming raw partial JSON has
+            // no honest incremental rendering).
             let blocks = value.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array());
             let Some(blocks) = blocks else { return ClaudeEvent::Ignored };
             let Some(block) = blocks.first() else { return ClaudeEvent::Ignored };
             match block.get("type").and_then(|t| t.as_str()) {
-                Some("text") => {
-                    let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                    ClaudeEvent::TextDelta { text }
-                }
                 Some("tool_use") => {
                     let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -54,6 +58,26 @@ pub fn parse_line(line: &str) -> ClaudeEvent {
                 }
                 _ => ClaudeEvent::Ignored,
             }
+        }
+        // Emitted because claude_process::build_args passes
+        // --include-partial-messages: wraps the raw Anthropic Messages API
+        // SSE stream. Only content_block_delta/text_delta is useful here —
+        // thinking_delta/signature_delta/input_json_delta carry nothing we
+        // render incrementally (tool input still comes fully-formed from
+        // the "assistant" case above once complete).
+        "stream_event" => {
+            let event = value.get("event");
+            let event_type = event.and_then(|e| e.get("type")).and_then(|t| t.as_str()).unwrap_or("");
+            if event_type != "content_block_delta" {
+                return ClaudeEvent::Ignored;
+            }
+            let delta = event.and_then(|e| e.get("delta"));
+            let delta_type = delta.and_then(|d| d.get("type")).and_then(|t| t.as_str()).unwrap_or("");
+            if delta_type != "text_delta" {
+                return ClaudeEvent::Ignored;
+            }
+            let text = delta.and_then(|d| d.get("text")).and_then(|t| t.as_str()).unwrap_or("").to_string();
+            ClaudeEvent::TextDelta { text }
         }
         "user" => {
             let blocks = value.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array());
@@ -83,9 +107,29 @@ mod tests {
     }
 
     #[test]
-    fn parses_assistant_text_block() {
+    fn ignores_assistant_text_block_now_carried_by_stream_event() {
+        // The full-text "assistant" line arrives only once the block is
+        // already complete — real incremental text comes from
+        // content_block_delta instead (see below), so this would double up
+        // the text if also surfaced here.
         let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hi there"}]}}"#;
-        assert_eq!(parse_line(line), ClaudeEvent::TextDelta { text: "Hi there".to_string() });
+        assert_eq!(parse_line(line), ClaudeEvent::Ignored);
+    }
+
+    #[test]
+    fn parses_stream_event_text_delta() {
+        let line = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi "}}}"#;
+        assert_eq!(parse_line(line), ClaudeEvent::TextDelta { text: "Hi ".to_string() });
+    }
+
+    #[test]
+    fn ignores_non_text_stream_event_deltas() {
+        let thinking = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"..."}}}"#;
+        assert_eq!(parse_line(thinking), ClaudeEvent::Ignored);
+        let input_json = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}}"#;
+        assert_eq!(parse_line(input_json), ClaudeEvent::Ignored);
+        let message_start = r#"{"type":"stream_event","event":{"type":"message_start"}}"#;
+        assert_eq!(parse_line(message_start), ClaudeEvent::Ignored);
     }
 
     #[test]

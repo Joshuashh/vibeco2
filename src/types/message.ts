@@ -72,7 +72,16 @@ export function reduceEvent(messages: Message[], event: ClaudeEvent): Message[] 
 
   let blocks: ContentBlock[];
   if (event.type === "text_delta") {
-    blocks = [...current.blocks, { kind: "text", text: event.text }];
+    // Deltas are incremental fragments of one running text block (see
+    // stream_parser.rs's content_block_delta handling) — append onto the
+    // currently-open text block instead of starting a new one each time,
+    // so streamed text extends in place instead of stacking as separate
+    // markdown-rendered chunks.
+    const last = current.blocks[current.blocks.length - 1];
+    blocks =
+      last?.kind === "text"
+        ? [...current.blocks.slice(0, -1), { kind: "text", text: last.text + event.text }]
+        : [...current.blocks, { kind: "text", text: event.text }];
   } else if (event.type === "tool_use") {
     blocks = [
       ...current.blocks,
