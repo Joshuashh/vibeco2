@@ -41,6 +41,7 @@ import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
+import { extractMentions, type MentionEvent } from "./lib/mentions";
 import { fetchProfiles, type Profile } from "./lib/profiles";
 import { LogbookPage } from "./components/LogbookPage";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
@@ -217,6 +218,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   // machine's job (above); this just mirrors the same reducer against the
   // events it broadcasts.
   useEventListener(({ event }) => {
+    if ((event as { kind?: string }).kind === "mention") {
+      const mention = event as unknown as MentionEvent;
+      const myName = session.user.email?.split("@")[0]?.toLowerCase();
+      if (myName && mention.fromEmail !== session.user.email && mention.mentioned.includes(myName)) {
+        showToast(`${mention.fromEmail} mentioned you in "${mention.chatTitle ?? "a chat"}"`);
+      }
+      return;
+    }
     const envelope = event as unknown as ChatEnvelope;
     setChatStates((prev) => applyChatEvent(prev, envelope));
     if (envelope.event.type === "turn_complete") bumpLastMessageAt(envelope.chatId);
@@ -313,13 +322,13 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         if (title) handleRename(chatId, title);
       }
       setChatStates((prev) => {
-        const withUserMessage = addUserMessage(prev, chatId, prompt, attachments);
+        const withUserMessage = addUserMessage(prev, chatId, prompt, attachments, session.user.email);
         return {
           ...withUserMessage,
           [chatId]: { ...withUserMessage[chatId], streaming: true },
         };
       });
-      saveChatMessages(chatId, [userMessage(prompt, attachments)]).catch((err) => {
+      saveChatMessages(chatId, [userMessage(prompt, attachments, session.user.email)]).catch((err) => {
         console.error("failed to save user message", err);
         showToast("Couldn't save your message — it may not survive a reload.");
       });
@@ -327,6 +336,17 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         console.error("failed to update chat last_message_at", err)
       );
       bumpLastMessageAt(chatId);
+      const mentioned = extractMentions(prompt);
+      if (mentioned.length > 0 && session.user.email) {
+        const mentionEvent: MentionEvent = {
+          kind: "mention",
+          chatId,
+          chatTitle: chat?.title ?? null,
+          fromEmail: session.user.email,
+          mentioned,
+        };
+        broadcastEvent(mentionEvent as unknown as Json);
+      }
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
       // primed with the stored transcript instead, so Claude isn't blind to
@@ -339,8 +359,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         attachments.length > 0
           ? `\n\nAttached files (use Read to view them):\n${attachments.map((a) => `- ${a.localPath}`).join("\n")}`
           : "";
+      // @mentions are addressed to a human teammate, not Claude — without
+      // this, the raw "@name" text in the prompt reads as an unresolvable
+      // reference and Claude asks who it is instead of just answering.
+      const mentionNote =
+        mentioned.length > 0
+          ? `\n\n(Note: ${mentioned.map((m) => `@${m}`).join(", ")} is a teammate being pulled into this chat to see it, not a name you need to resolve — just answer the message normally.)`
+          : "";
       const effectivePrompt =
-        (isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`) + attachmentNote;
+        (isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`) + attachmentNote + mentionNote;
       // Every chat gets its own git worktree so concurrent chats never edit
       // the same working directory (see docs/superpowers/specs/2026-08-18-
       // main-agent-merge-orchestration-design.md §2). Falls back to the repo
@@ -367,7 +394,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
     },
-    [chats, chatStates, updateMyPresence, session.user.id, prefs, bumpLastMessageAt]
+    [chats, chatStates, updateMyPresence, session.user.id, session.user.email, prefs, bumpLastMessageAt, broadcastEvent]
   );
 
   const handleStop = useCallback((chatId: string) => {
@@ -566,7 +593,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
-        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <ViewToggle
+          mode={viewMode}
+          onChange={setViewMode}
+          onChatClick={() => setChatLayout((l) => (l === "single" ? "split" : "single"))}
+        />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
             <>
@@ -581,50 +612,29 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   <path d="M11 8v6M8 11h6M21 21l-4.3-4.3" />
                 </svg>
               </button>
-              <button className="btn btn-primary" onClick={handleCreateChat}>
-                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <button
+                type="button"
+                className="flex items-center gap-[0.4em] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary"
+                onClick={handleCreateChat}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
                 New chat
               </button>
             </>
           )}
-          {viewMode === "chat" &&
-            (() => {
-              // ponytail: mirrors ViewToggle.tsx's base/active/inactive
-              // pattern — see decisions.md for why base must never carry
-              // a background/text-color utility that active/inactive also
-              // set on the same element.
-              const base = "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md";
-              const active = "bg-bg-primary text-text-primary";
-              const inactive = "bg-transparent text-text-secondary";
-              return (
-                <div className="flex gap-[0.2em] bg-bg-tertiary rounded-lg p-[3px]">
-                  <button
-                    className={chatLayout === "single" ? `${base} ${active}` : `${base} ${inactive}`}
-                    onClick={() => setChatLayout("single")}
-                  >
-                    Single
-                  </button>
-                  <button
-                    className={chatLayout === "split" ? `${base} ${active}` : `${base} ${inactive}`}
-                    onClick={() => setChatLayout("split")}
-                  >
-                    Split
-                  </button>
-                </div>
-              );
-            })()}
-          {logbookEntries[0] && (
-            <button
-              type="button"
-              className="max-w-[260px] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer truncate"
-              title={logbookEntries[0].summary}
-              onClick={() => setViewMode("logbook")}
-            >
-              {logbookEntries[0].user_email ?? "Someone"}: {logbookEntries[0].summary.split("\n")[0]}
-            </button>
-          )}
+          <button
+            type="button"
+            className="flex items-center gap-[0.4em] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary mr-[8px]"
+            onClick={() => setViewMode("logbook")}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+            Log
+          </button>
           <PresenceBar />
         </div>
       </div>

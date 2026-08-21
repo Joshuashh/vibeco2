@@ -9,6 +9,7 @@ import {
   type NodeTypes,
   type Node,
   type Edge,
+  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ChatRow } from "../types/chat";
@@ -32,6 +33,11 @@ const nodeTypes: NodeTypes = {
 };
 const edgeTypes = { pulse: PulseEdge };
 
+// Persists across CanvasView unmount/remount (switching to chat and back)
+// so pan/zoom survives a tab switch. Module-level, not React state — the
+// component tears down entirely when the view isn't canvas.
+let savedViewport: Viewport | null = null;
+
 // New cards spawn at a fixed grid position that's frequently outside the
 // current viewport (React Flow's `fitView` only runs once, on mount) —
 // without this, creating a chat looks like nothing happened. Must render as
@@ -54,20 +60,6 @@ function ReportFlowApi({ apiRef }: { apiRef: RefObject<FlowScreenApi | null> }) 
       apiRef.current = null;
     };
   });
-  return null;
-}
-
-function FocusOnNewChats({ chatIds }: { chatIds: string[] }) {
-  const { fitView } = useReactFlow();
-  const seenIds = useRef<Set<string>>(new Set(chatIds));
-
-  useEffect(() => {
-    const newIds = chatIds.filter((id) => !seenIds.current.has(id));
-    seenIds.current = new Set(chatIds);
-    if (newIds.length === 0) return;
-    fitView({ nodes: newIds.map((id) => ({ id })), duration: 300, maxZoom: 1 });
-  }, [chatIds, fitView]);
-
   return null;
 }
 
@@ -390,11 +382,14 @@ export function CanvasView({
           panOnScroll
           zoomOnScroll={false}
           zoomOnPinch
-          fitView
+          fitView={savedViewport === null}
+          defaultViewport={savedViewport ?? undefined}
+          onMoveEnd={(_event, viewport) => {
+            savedViewport = viewport;
+          }}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--canvas-dot)" gap={28} size={1.5} />
-          <FocusOnNewChats chatIds={chats.map((c) => c.id)} />
           <ReportFlowApi apiRef={flowApiRef} />
         </ReactFlow>
       </ReactFlowProvider>

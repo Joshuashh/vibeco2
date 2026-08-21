@@ -116,7 +116,7 @@ export function ChatView({
         <ChatPreviewPanel chatId={chat.id} />
       ) : (
         <div className="chat-view">
-          <MessageList messages={messages} streaming={streaming} />
+          <MessageList messages={messages} streaming={streaming} teammates={assignableTeammates ?? []} />
         </div>
       )}
     </div>

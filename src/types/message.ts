@@ -37,13 +37,16 @@ export interface Message {
   // Absent only for messages built before this field existed and never
   // reloaded from Supabase — every new/persisted message carries one.
   createdAt?: string;
+  // Which human sent a role:"user" message — absent for assistant messages
+  // and for user messages sent before this field existed.
+  authorEmail?: string;
 }
 
-export function userMessage(text: string, attachments: Attachment[] = []): Message {
+export function userMessage(text: string, attachments: Attachment[] = [], authorEmail?: string): Message {
   const blocks: ContentBlock[] = [];
   if (text) blocks.push({ kind: "text", text });
   for (const attachment of attachments) blocks.push({ kind: "attachment", ...attachment });
-  return { role: "user", blocks, complete: true, createdAt: new Date().toISOString() };
+  return { role: "user", blocks, complete: true, createdAt: new Date().toISOString(), authorEmail };
 }
 
 export function errorMessage(text: string): Message {

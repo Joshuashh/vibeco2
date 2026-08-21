@@ -700,3 +700,20 @@ This was the last Tier 2 task — Section 3 of the migration spec is now fully e
 **Verified:** `npx tsc --noEmit` clean, `npx vitest run` (73/73 — 6 new tests). Not exercised in the running app this session (user verifies UI themselves) — the 260 chars/sec rate and 120-char backlog cap are tuned by feel from the reported "10-15 char jumps," not measured against the real app; worth the user flagging if it now reads as too fast, too slow, or the trailing catch-up is noticeable on longer responses.
 
 **Not committed:** every file below is modified/untracked in the working tree — nothing from this session is committed or pushed. Recommend the user review and commit before ending the session, or accept working-tree changes as intentional to resume from.
+
+## Human message authorship + @mentions, phase 1 (2026-08-22)
+
+**Why:** user wants Slack-style collaboration on top of the existing multiplayer canvas — @-mention a teammate while planning with Claude, have them see it and weigh in. `Message` only ever had `role: "user" | "assistant"` — no concept of *which* human sent a user turn — so this had no foundation yet.
+
+**Scope decision — split into two phases, this session only does phase 1:**
+1. **Author identity + @mention UI + a lightweight ping** (shipped this session).
+2. **A teammate replying inline without invoking Claude, and loosening the claim lock so a non-claimant can post** — explicitly deferred. Today `ChatCard`'s `InputBar` is `disabled` while `claimedByOther`, and every send calls `start_session`/invokes Claude — there's no "just leave a comment" path yet. Revisit as its own change once phase 1 is used for a bit; changing claim semantics is a bigger, separate risk than adding a name tag to a bubble.
+
+**What shipped:**
+- `Message.authorEmail?: string` (types/message.ts) — set only on human-sent `role:"user"` messages, from `session.user.email` at send time. New `messages.author_email` column (`0016_message_author.sql`), same pattern as 0014's `user_email` (store the acting user's own email at write time, no profiles join).
+- `MessageList` shows a small colored name label above a user bubble, but **only when a chat has more than one distinct author** — keeps a normal solo Claude chat visually unchanged.
+- `@mention` autocomplete in `InputBar` (`MentionMenu.tsx`, modeled on the existing `SlashCommandMenu` popover/keyboard-nav pattern), sourced from `assignableTeammates` — same list `AssignChatMenu` already uses, threaded down one more prop level.
+- **Mention "ping" reuses the existing Liveblocks room event bus** (`useBroadcastEvent`/`useEventListener`, already carrying `ChatEnvelope` for live turn streaming) rather than building a notification system — no new transport. Distinguished by a `kind: "mention"` discriminant checked before the existing envelope handling runs, since an untyped event otherwise falls through `reduceEvent`'s default branch and appends a phantom empty assistant message.
+- **Deliberately did not thread `assignableTeammates` into `handleSend`'s mention-detection** — extracting `@name` tokens via regex (`lib/mentions.ts`) and matching them against the *receiving* client's own email local-part avoids needing the teammate list at broadcast time at all (declaration-order in `AppShell` would've also made it awkward — `assignableTeammates` is computed after `handleSend`).
+
+**Verified:** `npx tsc --noEmit` clean, `npx vitest run` (77/77 — updated one test for the new `author_email` row field). Not exercised in the running app this session (user verifies UI themselves, per standing preference) — worth checking: the mention popover's positioning/keyboard nav feel, and that the ping toast actually appears for the mentioned teammate while online.

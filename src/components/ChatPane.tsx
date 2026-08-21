@@ -70,6 +70,7 @@ export function ChatPane({
         disabled={disabled}
         streaming={streaming}
         accentColor={self?.email ? colorForUser(self.email) : undefined}
+        teammates={assignableTeammates}
       />
     </div>
   );

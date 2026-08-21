@@ -23,7 +23,9 @@ describe("persistChat mapping", () => {
     ];
     const chatId = "chat-1";
     const rows = messagesToRows(chatId, messages);
-    expect(rows).toEqual([{ chat_id: "chat-1", role: "assistant", blocks: messages[0].blocks }]);
+    expect(rows).toEqual([
+      { chat_id: "chat-1", role: "assistant", blocks: messages[0].blocks, author_email: null },
+    ]);
 
     const restored = rowsToMessages(rows.map((r) => ({ ...r, id: "row-1", created_at: "2026-08-04" })));
     expect(restored).toEqual(messages.map((m) => ({ ...m, createdAt: "2026-08-04" })));

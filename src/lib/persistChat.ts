@@ -6,6 +6,7 @@ export interface MessageRow {
   chat_id: string;
   role: "user" | "assistant";
   blocks: ContentBlock[];
+  author_email: string | null;
 }
 
 export interface StoredMessageRow extends MessageRow {
@@ -14,7 +15,9 @@ export interface StoredMessageRow extends MessageRow {
 }
 
 export function messagesToRows(chatId: string, messages: Message[]): MessageRow[] {
-  return messages.filter((m) => m.complete).map((m) => ({ chat_id: chatId, role: m.role, blocks: m.blocks }));
+  return messages
+    .filter((m) => m.complete)
+    .map((m) => ({ chat_id: chatId, role: m.role, blocks: m.blocks, author_email: m.authorEmail ?? null }));
 }
 
 export function rowsToMessages(rows: StoredMessageRow[]): Message[] {
@@ -25,7 +28,13 @@ export function rowsToMessages(rows: StoredMessageRow[]): Message[] {
     const prev = rows[i - 1];
     return !prev || prev.role !== row.role || JSON.stringify(prev.blocks) !== JSON.stringify(row.blocks);
   });
-  return deduped.map((row) => ({ role: row.role, blocks: row.blocks, complete: true, createdAt: row.created_at }));
+  return deduped.map((row) => ({
+    role: row.role,
+    blocks: row.blocks,
+    complete: true,
+    createdAt: row.created_at,
+    authorEmail: row.author_email ?? undefined,
+  }));
 }
 
 export async function saveChatMessages(chatId: string, messages: Message[]): Promise<void> {

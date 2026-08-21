@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentBlock, Message } from "../types/message";
 import { MessageBlock } from "./MessageBlock";
 import { ToolGroup } from "./ToolGroup";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { formatRelativeTimeLong } from "../lib/time";
+import { colorForUser } from "../lib/presenceColor";
+import type { AssignableTeammate } from "./AssignChatMenu";
 
 type ToolUseBlock = Extract<ContentBlock, { kind: "tool_use" }>;
 
@@ -15,7 +17,8 @@ function renderBlocks(
   blocks: ContentBlock[],
   markdown: boolean,
   liveTextIndex: number | null,
-  createdAt: string | undefined
+  createdAt: string | undefined,
+  teammates: AssignableTeammate[]
 ) {
   const out: React.ReactNode[] = [];
   let buffer: ToolUseBlock[] = [];
@@ -30,14 +33,31 @@ function renderBlocks(
       buffer.push(block);
     } else {
       flush();
-      out.push(<MessageBlock key={j} block={block} markdown={markdown} live={j === liveTextIndex} createdAt={createdAt} />);
+      out.push(
+        <MessageBlock
+          key={j}
+          block={block}
+          markdown={markdown}
+          live={j === liveTextIndex}
+          createdAt={createdAt}
+          teammates={teammates}
+        />
+      );
     }
   });
   flush();
   return out;
 }
 
-export function MessageList({ messages, streaming }: { messages: Message[]; streaming: boolean }) {
+export function MessageList({
+  messages,
+  streaming,
+  teammates = [],
+}: {
+  messages: Message[];
+  streaming: boolean;
+  teammates?: AssignableTeammate[];
+}) {
   // ponytail: resets to "now" on every streaming-start rather than tracking the
   // real turn-start timestamp from the backend — good enough for an elapsed
   // counter, would need a real timestamp if this ever needs to survive a reload.
@@ -45,6 +65,14 @@ export function MessageList({ messages, streaming }: { messages: Message[]; stre
   useEffect(() => {
     streamStartRef.current = streaming ? Date.now() : null;
   }, [streaming]);
+
+  // A solo chat with Claude has one author for every user message — only
+  // worth labeling bubbles once a second human's messages show up in it.
+  const distinctAuthors = useMemo(
+    () => new Set(messages.filter((m) => m.authorEmail).map((m) => m.authorEmail)),
+    [messages]
+  );
+  const showAuthors = distinctAuthors.size > 1;
 
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -106,14 +134,22 @@ export function MessageList({ messages, streaming }: { messages: Message[]; stre
         );
         return message.role === "user" ? (
           <div key={i} data-msg-index={i} className="flex flex-col items-end">
+            {showAuthors && message.authorEmail && (
+              <span
+                className="text-[11px] font-medium mb-[2px] mr-[2px]"
+                style={{ color: colorForUser(message.authorEmail) }}
+              >
+                {message.authorEmail.split("@")[0]}
+              </span>
+            )}
             <div className="bg-user-bubble rounded-2xl px-[14px] py-[9px] max-w-[82%]">
-              {renderBlocks(message.blocks, false, liveTextIndex, message.createdAt)}
+              {renderBlocks(message.blocks, false, liveTextIndex, message.createdAt, teammates)}
             </div>
             {timestamp}
           </div>
         ) : (
           <div key={i} data-msg-index={i} className="text-text-primary">
-            {renderBlocks(message.blocks, true, liveTextIndex, message.createdAt)}
+            {renderBlocks(message.blocks, true, liveTextIndex, message.createdAt, teammates)}
             {timestamp}
           </div>
         );

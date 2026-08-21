@@ -1,9 +1,37 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Attachment, ContentBlock } from "../types/message";
 import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
 import { useSmoothedText } from "../lib/useSmoothedText";
 import { formatRelativeTimeLong } from "../lib/time";
+import { colorForUser } from "../lib/presenceColor";
+import { MENTION_RE } from "../lib/mentions";
+import type { AssignableTeammate } from "./AssignChatMenu";
+
+// Colors an "@name" run in its own color when it matches a real teammate —
+// leaves any other "@word" (a stray typed symbol, not a real mention) as
+// plain text.
+function renderMentionedText(text: string, teammates: AssignableTeammate[]): ReactNode {
+  if (teammates.length === 0) return text;
+  const emailByName = new Map(teammates.map((t) => [t.email.split("@")[0].toLowerCase(), t.email]));
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(MENTION_RE)) {
+    const email = emailByName.get(match[1].toLowerCase());
+    if (!email) continue;
+    const start = match.index ?? 0;
+    if (start > lastIndex) parts.push(text.slice(lastIndex, start));
+    parts.push(
+      <span key={start} style={{ color: colorForUser(email) }} className="font-medium">
+        @{match[1]}
+      </span>
+    );
+    lastIndex = start + match[0].length;
+  }
+  if (lastIndex === 0) return text;
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
 
 function MessageAttachment({ attachment }: { attachment: Attachment }) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -218,6 +246,7 @@ export function MessageBlock({
   markdown = false,
   live = false,
   createdAt,
+  teammates = [],
 }: {
   block: ContentBlock;
   markdown?: boolean;
@@ -228,6 +257,9 @@ export function MessageBlock({
   // Only used by the handoff_brief branch — other block kinds show a
   // timestamp via the message-level hover tooltip instead.
   createdAt?: string;
+  // Used to color a real @mention in the sender's own presence color —
+  // only meaningful for plain-text (user) blocks, see below.
+  teammates?: AssignableTeammate[];
 }) {
   const smoothedText = useSmoothedText(block.kind === "text" ? block.text : "", live);
 
@@ -238,7 +270,7 @@ export function MessageBlock({
     return markdown ? (
       <MarkdownText text={text} className="markdown text-[14px] leading-[1.6] mt-0 mb-[0.4em] last:mb-0" />
     ) : (
-      <p className="text-[14px] leading-[1.6] m-0">{text}</p>
+      <p className="text-[14px] leading-[1.6] m-0">{renderMentionedText(text, teammates)}</p>
     );
   }
 

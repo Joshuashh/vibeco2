@@ -1,9 +1,11 @@
 export function ViewToggle({
   mode,
   onChange,
+  onChatClick,
 }: {
   mode: "chat" | "canvas" | "preview" | "logbook";
-  onChange: (mode: "chat" | "canvas" | "preview" | "logbook") => void;
+  onChange: (mode: "chat" | "canvas" | "preview") => void;
+  onChatClick?: () => void;
 }) {
   // ponytail: base carries only non-color/background utilities. Tailwind
   // compiles utility classes in an internal order, not JSX order, so a
@@ -11,8 +13,8 @@ export function ViewToggle({
   // (active) at once had `bg-transparent` win the cascade regardless of
   // class order — the active tab's highlight never rendered. Keeping
   // color/background mutually exclusive per state avoids that.
-  const base = "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md";
-  const inactive = "bg-transparent text-text-secondary";
+  const base = "border-none text-[0.85em] font-medium px-[1.1em] py-[0.5em] rounded-md transition-colors";
+  const inactive = "bg-transparent text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary";
   const active = "bg-bg-primary text-text-primary";
   const disabled = "bg-transparent text-text-tertiary opacity-60";
 
@@ -25,7 +27,7 @@ export function ViewToggle({
       </button>
       <button
         className={mode === "chat" ? `${base} ${active}` : `${base} ${inactive}`}
-        onClick={() => onChange("chat")}
+        onClick={() => (mode === "chat" ? onChatClick?.() : onChange("chat"))}
       >
         Chat
       </button>
@@ -40,12 +42,6 @@ export function ViewToggle({
         onClick={() => onChange("preview")}
       >
         Preview
-      </button>
-      <button
-        className={mode === "logbook" ? `${base} ${active}` : `${base} ${inactive}`}
-        onClick={() => onChange("logbook")}
-      >
-        Logbook
       </button>
     </div>
   );

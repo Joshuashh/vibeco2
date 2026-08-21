@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { colorForUser } from "../lib/presenceColor";
 import { MessageList } from "./MessageList";
@@ -40,16 +39,6 @@ function ExpandIcon() {
   );
 }
 
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6h18" />
-      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-    </svg>
-  );
-}
-
 function LeaveIcon() {
   return (
     <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -77,18 +66,8 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
     assignableTeammates,
     onHandoff,
   } = data;
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
-
-  function handleDeleteClick() {
-    if (claimant) return;
-    if (confirmingDelete) {
-      onDelete(chat.id);
-    } else {
-      setConfirmingDelete(true);
-    }
-  }
 
   return (
     <div className={flagged ? `chat-card chat-card-${mergeStatus}` : "chat-card"}>
@@ -105,20 +84,12 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
               <LeaveIcon />
             </button>
           )}
-          {!claimant && (
-            <button
-              className={confirmingDelete ? "icon-button icon-button-danger" : "icon-button"}
-              title={confirmingDelete ? "Confirm delete?" : "Delete"}
-              onClick={handleDeleteClick}
-            >
-              <TrashIcon />
-            </button>
-          )}
           <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
           <ChatCardMenu
             title={chat.title ?? "Untitled chat"}
             onRename={(title) => onRename(chat.id, title)}
             onArchive={() => onArchive(chat.id)}
+            onDelete={claimant ? undefined : () => onDelete(chat.id)}
           />
         </div>
       </div>
@@ -139,7 +110,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           list — trades away scrolling a long history via mouse wheel while
           hovering it on the canvas; open the chat for that instead. */}
       <div className="nodrag chat-card-scroll-region">
-        <MessageList messages={state.messages} streaming={state.streaming} />
+        <MessageList messages={state.messages} streaming={state.streaming} teammates={assignableTeammates} />
       </div>
       <div className="nodrag nowheel">
         <InputBar
@@ -148,6 +119,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           onStop={() => onStop(chat.id)}
           streaming={state.streaming}
           disabled={claimedByOther || state.streaming}
+          teammates={assignableTeammates}
         />
       </div>
     </div>

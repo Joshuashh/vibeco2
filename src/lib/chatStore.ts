@@ -36,10 +36,14 @@ export function addUserMessage(
   states: Record<string, ChatState>,
   chatId: string,
   text: string,
-  attachments: Attachment[] = []
+  attachments: Attachment[] = [],
+  authorEmail?: string
 ): Record<string, ChatState> {
   const current = states[chatId] ?? initChatState();
-  return { ...states, [chatId]: { ...current, messages: [...current.messages, userMessage(text, attachments)] } };
+  return {
+    ...states,
+    [chatId]: { ...current, messages: [...current.messages, userMessage(text, attachments, authorEmail)] },
+  };
 }
 
 export function setSessionError(states: Record<string, ChatState>, chatId: string, text: string): Record<string, ChatState> {

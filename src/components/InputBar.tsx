@@ -4,13 +4,30 @@ import { invoke } from "@tauri-apps/api/core";
 import { PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
 import { AttachmentStrip, type PendingAttachment } from "./AttachmentStrip";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { MentionMenu } from "./MentionMenu";
 import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
 import { uploadAttachment, deleteAttachment } from "../lib/attachments";
 import type { SentAttachment } from "../types/message";
+import type { AssignableTeammate } from "./AssignChatMenu";
 
 // Only while the whole box is still just "/word" (no space yet) — a slash
 // mentioned mid-message shouldn't pop the menu.
 const SLASH_TOKEN = /^\/([a-zA-Z0-9_-]*)$/;
+
+// Finds an in-progress "@word" ending at the cursor, anywhere in the
+// message (unlike SLASH_TOKEN, a mention can appear mid-sentence). Returns
+// null once the token is broken by whitespace or isn't preceded by
+// start-of-string/whitespace (so it doesn't fire inside a pasted email).
+function findMentionToken(value: string, cursor: number): { query: string; start: number } | null {
+  const upToCursor = value.slice(0, cursor);
+  const at = upToCursor.lastIndexOf("@");
+  if (at === -1) return null;
+  const before = at === 0 ? "" : upToCursor[at - 1];
+  if (before && !/\s/.test(before)) return null;
+  const query = upToCursor.slice(at + 1);
+  if (/\s/.test(query)) return null;
+  return { query, start: at };
+}
 
 export function InputBar({
   chatId,
@@ -19,6 +36,7 @@ export function InputBar({
   disabled,
   streaming = false,
   accentColor,
+  teammates = [],
 }: {
   chatId: string;
   onSend: (prompt: string, attachments?: SentAttachment[]) => void;
@@ -26,6 +44,7 @@ export function InputBar({
   disabled: boolean;
   streaming?: boolean;
   accentColor?: string;
+  teammates?: AssignableTeammate[];
 }) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -37,6 +56,9 @@ export function InputBar({
   const dragDepthRef = useRef(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
+  const [mentionToken, setMentionToken] = useState<{ query: string; start: number } | null>(null);
+  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputWrapRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +134,30 @@ export function InputBar({
     }
   }
 
+  const mentionItems =
+    mentionToken !== null && !mentionDismissed
+      ? teammates
+          .filter((t) => t.email.split("@")[0].toLowerCase().startsWith(mentionToken.query.toLowerCase()))
+          .slice(0, 8)
+      : [];
+
+  function selectMention(teammate: AssignableTeammate) {
+    if (!mentionToken) return;
+    const cursor = mentionToken.start + 1 + mentionToken.query.length;
+    const name = teammate.email.split("@")[0];
+    const next = `${value.slice(0, mentionToken.start)}@${name} ${value.slice(cursor)}`;
+    setValue(next);
+    setMentionToken(null);
+    setMentionDismissed(false);
+    setMentionIndex(0);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      const caret = mentionToken.start + name.length + 2;
+      requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+    }
+  }
+
   // Grows with content up to 10 lines, then scrolls internally rather than
   // pushing the rest of the pane around indefinitely.
   function resize(el: HTMLTextAreaElement) {
@@ -130,6 +176,7 @@ export function InputBar({
     const sent = attachments.filter((a) => a.sent != null).map((a) => a.sent as SentAttachment);
     setValue("");
     setAttachments([]);
+    setMentionToken(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.overflowY = "hidden";
@@ -157,6 +204,28 @@ export function InputBar({
       if (e.key === "Escape") {
         e.preventDefault();
         setSlashDismissed(true);
+        return;
+      }
+    }
+    if (mentionItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        selectMention(mentionItems[Math.min(mentionIndex, mentionItems.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionDismissed(true);
         return;
       }
     }
@@ -214,6 +283,9 @@ export function InputBar({
             setValue(e.target.value);
             setSlashDismissed(false);
             setSlashIndex(0);
+            setMentionToken(findMentionToken(e.target.value, e.target.selectionStart ?? e.target.value.length));
+            setMentionDismissed(false);
+            setMentionIndex(0);
             resize(e.target);
           }}
           onKeyDown={handleKeyDown}
@@ -226,6 +298,13 @@ export function InputBar({
           selectedIndex={slashIndex}
           onSelect={selectCommand}
           onClose={() => setSlashDismissed(true)}
+        />
+        <MentionMenu
+          anchorRef={inputWrapRef}
+          items={mentionItems}
+          selectedIndex={mentionIndex}
+          onSelect={selectMention}
+          onClose={() => setMentionDismissed(true)}
         />
         {(() => {
           const sendButtonStyle = {
