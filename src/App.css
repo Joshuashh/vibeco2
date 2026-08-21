@@ -378,7 +378,7 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
 
 /* Resize handles: always invisible, shared by chat cards and the Main Agent
@@ -568,7 +568,7 @@ h1 {
   padding: 1.4em 1.3em;
   display: flex;
   flex-direction: column;
-  gap: 1.2em;
+  gap: 1.8em;
   min-height: 0;
 }
 

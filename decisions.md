@@ -1,5 +1,88 @@
 # Vibeco2 — Decisions Log
 
+## Attachments wired into the actual Claude turn: implemented (2026-08-21)
+
+**Extended beyond the scope entry below after a clarifying question:** "if someone else adds an image, can I see it?" surfaced that the originally-scoped plan (save into the sender's own git worktree, mention the path in the prompt) was sender-local only — invisible to teammates even though chat messages already sync live via Supabase. Checked: this Supabase project had zero Storage buckets and `ContentBlock` had no attachment kind at all. Fixed by doing both halves — a local copy for Claude's `Read` tool, and a shared copy for teammates:
+
+- **Supabase infra** (migration [0010_chat_attachments.sql](supabase/migrations/0010_chat_attachments.sql), applied live via MCP, verified after applying): new public `chat-attachments` Storage bucket (50MB/file limit), insert policy for `authenticated` matching the project's existing open-to-authenticated pattern (no roles table exists anywhere in this project). Per the user's call ("most attachments are used within a session, weekly cleanup is fine") — a `pg_cron` job (`cleanup_old_chat_attachments`, Sundays 03:00 UTC) deletes any object in the bucket older than 7 days, confirmed active in `cron.job` after applying.
+- **Types** ([message.ts](src/types/message.ts)): new `Attachment` (`name`/`url`/`mimeType`, the persisted/shared shape) and `SentAttachment` (`Attachment` + `localPath`, composer-only, never persisted) plus a new `attachment` `ContentBlock` kind. `blocks` is stored as raw jsonb in Supabase, so this needed no DB migration.
+- **Upload** ([attachments.ts](src/lib/attachments.ts)): `uploadAttachment(chatId, file)` uploads to Storage under `<chatId>/<uuid>-<filename>` and returns the public URL.
+- **Local copy for Claude** ([lib.rs](src-tauri/src/lib.rs) `save_attachment`): writes the same file's bytes into `<chat_worktree>/.vibeco-attachments/` (gitignored) — Claude's `Read` tool only sees local disk, not the Supabase URL, so this is still required alongside the upload, not replaced by it.
+- **Wiring**: `InputBar.tsx`'s `submit()` is now async — uploads + saves every attachment (in parallel per file) before calling `onSend(text, sentAttachments)`. `onSend`'s signature grew an optional `attachments` param end-to-end: `InputBar` → `ChatPane`/`ChatCard` → `App.tsx`'s `handleSend`, which persists them as real `attachment` blocks on the user message (so every teammate's client renders a real thumbnail, not just text) and separately appends the *local* paths into the prompt text sent to `start_session` (`"Attached files (use Read to view them):\n- <path>"`) so Claude can actually see them that turn.
+- **Rendering**: extracted the lightbox out of `AttachmentStrip.tsx` into a shared `AttachmentLightbox.tsx` (now takes a generic `{name, mimeType, size?}` + url instead of a raw `File`), reused by both the composer's attachment chips and a new `MessageAttachment` renderer in `MessageBlock.tsx` for persisted attachment blocks in chat history — same thumbnail/click-to-enlarge UX in both places, not two parallel implementations.
+
+**Verified:** `cargo check` clean (pre-existing `open_pty` warning only), `npx tsc --noEmit` clean, `npm test` (65/65). Storage bucket and cron job confirmed live via direct SQL query after applying the migration. Not clicked through live in the running app — worth the user's own pass: attach an image, send it, confirm it renders as a real thumbnail (not a text path) in the message history, and that Claude's response shows it actually looked at the image content.
+
+## Scope: wire attachments into the actual Claude turn — not started, for a fresh session (2026-08-21)
+
+**Motivating gap, flagged when the attachment preview/drag-drop UI shipped:** attachments have only ever been decorative — `InputBar.tsx`'s `submit()` sends `onSend(value)`, the typed text only, and `attachments` is discarded. There's no backend plumbing at all for file bytes to reach the `claude` CLI invocation.
+
+**How this actually works in a terminal, confirmed by how Claude Code behaves generally:** there's no special "attach an image" CLI flag. You just reference a file path in your prompt text, and Claude's own `Read` tool (which natively supports viewing images) reads it off disk. So "wiring attachments" doesn't mean inventing a new transport — it means getting the dropped/picked file's bytes onto disk somewhere Claude can read, then mentioning that path in the prompt text sent to `start_session`. `App.tsx`'s `handleSend` ([App.tsx:168](src/App.tsx:168)) already composes extra context into `effectivePrompt` for the non-owner-resume case (line 196) — appending attachment paths the same way is the same established pattern, not a new one.
+
+**Where the bytes need to land:** the chat's own worktree (`ensure_chat_worktree`, already resolved before `start_session` fires — [App.tsx:201](src/App.tsx:201)), e.g. under a `.vibeco-attachments/` subfolder, so the saved path is naturally inside the working directory Claude is already operating in for that turn — no separate allowed-directory/permission question to solve.
+
+**Proposed plumbing:**
+1. New Tauri command, e.g. `save_attachment(chat_id, file_name, bytes: Vec<u8>) -> String` (absolute path), writing into `<chat_worktree>/.vibeco-attachments/`.
+2. `InputBar.tsx`'s `submit()` reads each attached `File`'s bytes (`file.arrayBuffer()`), invokes the save command per file, and appends the resulting paths into the prompt text itself (e.g. `"...\n\nAttached files:\n- <path>\n- <path>"`) before calling `onSend` — keeping the `onSend(prompt: string)` signature unchanged all the way up through `ChatPane`/`ChatView`/`App.tsx`, since the composition happens entirely inside `InputBar`.
+3. `InputBar` needs a `chatId` prop threaded in from `ChatPane` (which already has `chat.id`) so it knows which worktree to save into — the one new prop needed anywhere in the chain.
+
+**Not decided yet:**
+- Whether saved attachment files get cleaned up after the turn, or just linger as untracked files in the worktree. Leaning toward "leave them, `.gitignore` the folder so they never get swept into a commit/render" as the lazy default — cleanup can be a later pass if it ever actually matters (same shape of resource-lifecycle question as the per-chat preview servers' "stop-on-close" decision above).
+- Nothing special needs deciding for non-image files (PDFs, text, etc.) — `Read` already handles what it handles and fails gracefully on what it doesn't; no format allowlist needed up front.
+
+**Recommendation:** small enough to implement directly next session — the worktree/prompt-composition infrastructure already exists, this is one new Rust command plus a `submit()` change in `InputBar.tsx` and one prop thread-through.
+
+## Slash-command autocomplete in the chat input: implemented (2026-08-21)
+
+**Verified first, since it decided the whole approach:** `claude --print "/<cmd>"` genuinely honors slash commands in non-interactive mode — confirmed live (`num_turns: 0`, zero cost) for `/clear`, `/compact`, `/context`, `/cost`, `/model`; `/review` and `/init` also ran (real agentic work, not free lookups) rather than being rejected. `/help` is the one exception, explicitly disabled ("isn't available in this environment"). Since `claude_process.rs` already passes the raw prompt straight through as the CLI's positional `prompt` arg, this means slash commands need **zero backend changes to actually work** — the only work is UI: suggesting them and letting the user pick one.
+
+**What was built:**
+- [lib.rs](src-tauri/src/lib.rs) — new `list_custom_slash_commands` command, scans `~/.claude/commands/*.md` and `<repo>/.claude/commands/*.md` (flat, non-recursive — no namespaced/nested commands support yet) for user- and project-defined custom commands, reading each file's `description:` frontmatter if present.
+- [slashCommands.ts](src/lib/slashCommands.ts) — a small hardcoded `BUILTIN_COMMANDS` list (the ones verified above), plus `useCustomSlashCommands()` to fetch the scanned ones.
+- [SlashCommandMenu.tsx](src/components/SlashCommandMenu.tsx) — the suggestion popover, built on the existing `Popover` primitive.
+- [InputBar.tsx](src/components/InputBar.tsx) — triggers the menu only while the whole textarea content is still just `/word` (no space yet, so a slash mid-message doesn't pop it); arrow keys/Tab/Enter/Escape navigate and pick, mirroring the model/effort/permission pickers' existing keyboard patterns.
+- [Popover.tsx](src/components/Popover.tsx) — added an opt-in `keepFocus` prop (Radix's `Popover.Content` autofocuses itself by default, which would've yanked focus out of the textarea while typing); every other existing call site is unaffected since it defaults to the old behavior.
+
+**Deliberately not built, out of scope for this pass:** a full enumeration of Claude Code's built-in command list (no CLI flag exists to list them; the hardcoded set above is "the common, verified ones," not exhaustive) or of installed skills/plugins (skills are model-invoked via natural language per their descriptions, not typed as literal `/name` — folding them into this menu as if they were slash commands would be misleading). If the user wants either extended later, the custom-commands scan is the extension point — it already walks real files on disk, nothing to redesign.
+
+**Verified:** `cargo check` clean, `npx tsc --noEmit` clean, `npm test` (65/65), `cargo test` (16/16). Not clicked through live — worth the user's own pass: type `/`, arrow through the list, confirm Enter/Tab fill in `/model ` etc. and Escape dismisses without clearing the box.
+
+## Per-chat local preview: implemented (2026-08-20, same session as the scope entry below)
+
+**Resolved the open questions from the scope entry as follows, then built it:**
+- **Port allocation:** `AtomicU16` counter starting at 5181, assigned on first `ensure_running` per chat_id and reused for the app's lifetime — no persistence, no hashing, simplest thing that avoids collisions ([preview_server.rs](src-tauri/src/preview_server.rs)).
+- **Registry:** `preview_server.rs`'s `TeamPreviewServer` kept as-is; added a sibling `ChatPreviewServers` (`HashMap<chat_id, (Child, port)>`) in the same file rather than a new module, since it's the same spawn/kill logic parameterized differently. Extracted the shared `spawn_dev_server` helper both now call.
+- **Reap policy:** stop-on-close, not stop-on-blur — `ChatPreviewPanel.tsx`'s cleanup effect calls `stop_chat_preview` on unmount, i.e. when the user toggles the preview off. Simpler than tracking focus across panes; revisit only if idle chat-preview processes turn out to pile up in practice.
+- **Trigger placement:** an eye-icon toggle button in `ChatView.tsx`'s header (next to `ChatCardMenu`), swapping `MessageList` for the new `ChatPreviewPanel.tsx` iframe in place rather than opening a separate pane — matches the existing single-pane docked layout, no new layout/pane machinery needed. Canvas-mode `ChatCard.tsx` wasn't touched (out of scope, doesn't render through `ChatView`).
+
+**New Tauri commands:** `ensure_chat_preview_running(chat_id) -> u16` (ensures the chat's worktree exists, starts/reuses its dev server, returns the port), `stop_chat_preview(chat_id)`. Both in [lib.rs](src-tauri/src/lib.rs). `ChatPreviewServers::shutdown_all` wired into the same app-exit `RunEvent::Exit` handler as `TeamPreviewServer::shutdown`.
+
+Render Preview's merge-into-`team` behavior is untouched, per the scope entry below.
+
+**Verified:** `cargo check` clean (one pre-existing unrelated `open_pty` dead-code warning), `npx tsc --noEmit` clean, `npm test` (65/65), `cargo test` (16/16). Not clicked through live in the running app this session — worth the user's own pass (toggle preview open on a chat with an uncommitted change, confirm the iframe shows it and a second chat gets its own independent port).
+
+## Scope: per-chat local preview, separate from the `team` preview — not started, for a fresh session (2026-08-20)
+
+**Motivating problem, from live conversation:** Render Preview is currently the *only* way to see a chat's change actually render — it doubles as "merge into team" and "let me look at this." For a small fix you want to eyeball quickly, that forces a full merge-and-push cycle before you can even look, and it dumps a maybe-not-ready change into `team` just to check it.
+
+**Current state, verified by reading code this session:**
+- Every chat already gets its own isolated worktree/branch (`chat/<id>` off `main`, `ensure_chat_worktree` in [git_ops.rs:37](src-tauri/src/git_ops.rs:37); paths from [merge_paths.rs:16](src-tauri/src/merge_paths.rs:16)) — so the file content to preview already exists on disk per-chat, independent of any merge.
+- The only preview server that exists today is `TeamPreviewServer` ([preview_server.rs](src-tauri/src/preview_server.rs)) — one long-lived `npm run dev --port 5180 --strictPort` child, hardcoded to `team_worktree_path`, started via `ensure_team_preview_running`/on `render_preview` ([lib.rs:122-148](src-tauri/src/lib.rs:122)). Nothing today can start a dev server against a chat's own worktree.
+- `PreviewPage.tsx:27` hardcodes `TEAM_PREVIEW_URL = "http://localhost:5180"` — the frontend has no concept of "which server/port am I looking at" yet, it's a single constant.
+- Render Preview's actual merge behavior is unaffected by any of this — see the "GitHub repo / branch cleanup" thread above; merging into `team` already doesn't touch the chat branch, and this feature doesn't need to change that.
+
+**Proposed shape:**
+1. Generalize `TeamPreviewServer` into a small per-worktree preview-server registry (keyed by chat_id, plus one entry for `team`) instead of a single hardcoded child — same `npm run dev --port <N> --strictPort` spawn, just parameterized on worktree path and port.
+2. Each chat gets an ephemeral/assigned port (e.g. hash chat_id into a range, or allocate-on-first-use and remember it) instead of the fixed 5180 team port.
+3. Frontend: a "Preview" affordance inside the chat (not gated behind Render Preview) that starts/ensures that chat's own server and points a preview pane/tab at its port. `TEAM_PREVIEW_URL` becomes one case of a more general "which server for which context" lookup.
+4. Render Preview keeps its current meaning unchanged — merge into `team`, `team`'s own preview server unaffected.
+
+**Resource-management question, undecided:** N open chats = N dev-server processes if left unmanaged. Likely answer is to stop/reap a chat's preview server when that chat isn't the focused/active one (mirrors `TeamPreviewServer::shutdown` already being called on app exit — extend the same idea to a per-chat lifecycle), rather than running every chat's server continuously. Needs deciding before implementation, not left as a TODO.
+
+**Not decided yet, needs a design pass before a task plan:** exact port-allocation strategy, where the chat→port mapping lives (Rust-side state vs. persisted), and the exact UI location for the "preview this chat" trigger (new button vs. reusing existing Preview pane/tab affordance in [PreviewPage.tsx](src/components/PreviewPage.tsx)).
+
+**Recommendation:** small enough to scope directly into a task plan next session (not a big brainstorm like the repo-selection entry below) — the worktree/branch infrastructure this depends on already exists, this is mostly plumbing plus one UX decision (trigger placement) and one resource-lifecycle decision (when to reap idle preview servers).
+
 ## Hand-off (2026-08-20 session, UI polish + two real bugs + merge-safety)
 
 **What happened this session:** A string of small UI requests (12px spacing pass on chat/split panes and input bar, sidebar collapse toggle, light/dark theme with a Settings toggle, preview page put in the same rounded box as chat panes, presence-colored input focus border instead of fixed orange) plus two real bugs surfaced along the way:

@@ -1,4 +1,4 @@
-import { reduceEvent, userMessage, errorMessage, type ClaudeEvent, type Message } from "../types/message";
+import { reduceEvent, userMessage, errorMessage, type Attachment, type ClaudeEvent, type Message } from "../types/message";
 
 export interface ChatState {
   messages: Message[];
@@ -32,9 +32,14 @@ export function applyChatEvent(
   return { ...states, [envelope.chatId]: { messages, streaming } };
 }
 
-export function addUserMessage(states: Record<string, ChatState>, chatId: string, text: string): Record<string, ChatState> {
+export function addUserMessage(
+  states: Record<string, ChatState>,
+  chatId: string,
+  text: string,
+  attachments: Attachment[] = []
+): Record<string, ChatState> {
   const current = states[chatId] ?? initChatState();
-  return { ...states, [chatId]: { ...current, messages: [...current.messages, userMessage(text)] } };
+  return { ...states, [chatId]: { ...current, messages: [...current.messages, userMessage(text, attachments)] } };
 }
 
 export function setSessionError(states: Record<string, ChatState>, chatId: string, text: string): Record<string, ChatState> {
