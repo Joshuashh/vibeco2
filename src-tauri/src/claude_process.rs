@@ -50,6 +50,15 @@ mod tests {
 
 use std::path::PathBuf;
 
+/// Everything build_args needs to wire a chat's `claude` invocation up to
+/// the permission-approval MCP bridge (see permission_bridge.rs). Only used
+/// when permission_mode is "manual" — see build_args below.
+pub struct PermissionBridgeConfig {
+    pub node_path: PathBuf,
+    pub script_path: PathBuf,
+    pub socket_path: PathBuf,
+}
+
 pub struct SpawnConfig {
     pub prompt: String,
     pub model: String,
@@ -57,7 +66,13 @@ pub struct SpawnConfig {
     pub effort: String,
     pub working_directory: PathBuf,
     pub resume_session_id: Option<String>,
+    pub chat_id: String,
+    pub permission_bridge: Option<PermissionBridgeConfig>,
 }
+
+/// Tool name format for MCP-provided tools is `mcp__<serverName>__<toolName>`
+/// — must match the server name used in the --mcp-config JSON below.
+const PERMISSION_TOOL_NAME: &str = "mcp__vibeco-permissions__approve_tool_use";
 
 pub fn build_args(config: &SpawnConfig) -> Vec<String> {
     let mut args = vec![
@@ -78,6 +93,30 @@ pub fn build_args(config: &SpawnConfig) -> Vec<String> {
         args.push("--resume".to_string());
         args.push(id.clone());
     }
+    // "manual" is the only mode that ever needs a real prompt — acceptEdits/
+    // bypassPermissions/plan/auto don't stop to ask. Without this, "manual"
+    // silently auto-denies every gated tool call instead of asking (see
+    // decisions.md's permission-approval-dialog-gap entry).
+    if config.permission_mode == "manual" {
+        if let Some(bridge) = &config.permission_bridge {
+            let mcp_config = serde_json::json!({
+                "mcpServers": {
+                    "vibeco-permissions": {
+                        "command": bridge.node_path.to_string_lossy(),
+                        "args": [bridge.script_path.to_string_lossy()],
+                        "env": {
+                            "VIBECO_PERM_SOCKET": bridge.socket_path.to_string_lossy(),
+                            "VIBECO_CHAT_ID": config.chat_id,
+                        }
+                    }
+                }
+            });
+            args.push("--permission-prompt-tool".to_string());
+            args.push(PERMISSION_TOOL_NAME.to_string());
+            args.push("--mcp-config".to_string());
+            args.push(mcp_config.to_string());
+        }
+    }
     args
 }
 
@@ -94,6 +133,8 @@ mod spawn_config_tests {
             effort: "high".to_string(),
             working_directory: PathBuf::from("/tmp"),
             resume_session_id: None,
+            chat_id: "chat-1".to_string(),
+            permission_bridge: None,
         };
         let args = build_args(&config);
         assert_eq!(args[0], "--print");
@@ -112,6 +153,8 @@ mod spawn_config_tests {
             effort: "max".to_string(),
             working_directory: PathBuf::from("/tmp"),
             resume_session_id: None,
+            chat_id: "chat-1".to_string(),
+            permission_bridge: None,
         };
         let args = build_args(&config);
         assert!(args.contains(&"--model".to_string()) && args.contains(&"opus".to_string()));
@@ -128,10 +171,60 @@ mod spawn_config_tests {
             effort: "high".to_string(),
             working_directory: PathBuf::from("/tmp"),
             resume_session_id: Some("abc-123".to_string()),
+            chat_id: "chat-1".to_string(),
+            permission_bridge: None,
         };
         let args = build_args(&config);
         assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"abc-123".to_string()));
+    }
+
+    #[test]
+    fn build_args_adds_permission_prompt_tool_only_in_manual_mode() {
+        let bridge = PermissionBridgeConfig {
+            node_path: PathBuf::from("/usr/local/bin/node"),
+            script_path: PathBuf::from("/tmp/mcp-server.mjs"),
+            socket_path: PathBuf::from("/tmp/vibeco.sock"),
+        };
+        let manual_config = SpawnConfig {
+            prompt: "hello".to_string(),
+            model: "sonnet".to_string(),
+            permission_mode: "manual".to_string(),
+            effort: "high".to_string(),
+            working_directory: PathBuf::from("/tmp"),
+            resume_session_id: None,
+            chat_id: "chat-1".to_string(),
+            permission_bridge: Some(bridge),
+        };
+        let args = build_args(&manual_config);
+        assert!(args.contains(&"--permission-prompt-tool".to_string()));
+        assert!(args.contains(&PERMISSION_TOOL_NAME.to_string()));
+        let mcp_config_arg = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .map(|i| args[i + 1].clone())
+            .expect("--mcp-config should be present");
+        assert!(mcp_config_arg.contains("vibeco-permissions"));
+        assert!(mcp_config_arg.contains("/tmp/vibeco.sock"));
+        assert!(mcp_config_arg.contains("chat-1"));
+
+        let accept_edits_config = SpawnConfig {
+            prompt: "hello".to_string(),
+            model: "sonnet".to_string(),
+            permission_mode: "acceptEdits".to_string(),
+            effort: "high".to_string(),
+            working_directory: PathBuf::from("/tmp"),
+            resume_session_id: None,
+            chat_id: "chat-1".to_string(),
+            permission_bridge: Some(PermissionBridgeConfig {
+                node_path: PathBuf::from("/usr/local/bin/node"),
+                script_path: PathBuf::from("/tmp/mcp-server.mjs"),
+                socket_path: PathBuf::from("/tmp/vibeco.sock"),
+            }),
+        };
+        let args = build_args(&accept_edits_config);
+        assert!(!args.contains(&"--permission-prompt-tool".to_string()));
+        assert!(!args.contains(&"--mcp-config".to_string()));
     }
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -13,6 +13,9 @@ import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
 import { LiveCursors } from "./components/LiveCursors";
 import { TooltipHost } from "./components/TooltipHost";
+import { ToastHost, showToast } from "./components/ToastHost";
+import { PermissionPrompt, type PermissionRequest } from "./components/PermissionPrompt";
+import { markChatViewed, getLastViewed, isChatUnread } from "./lib/lastViewed";
 import type { ChatRow } from "./types/chat";
 import { applyChatEvent, addUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
@@ -49,6 +52,39 @@ function AppShell({ session }: { session: Session }) {
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [lastViewed, setLastViewed] = useState<Record<string, string>>(() => getLastViewed());
+  const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
+
+  // Bumps the in-memory copy so the sidebar's relative-time/unread signal
+  // reacts immediately, without waiting on a round trip to Postgres — the
+  // real value is written by touchChatLastMessageAt (DB) alongside every
+  // call site below; there's no `chats` UPDATE realtime subscription to
+  // pick it up otherwise (only INSERT/DELETE are subscribed above).
+  const bumpLastMessageAt = useCallback((chatId: string) => {
+    const now = new Date().toISOString();
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, last_message_at: now } : c)));
+  }, []);
+
+  const markViewed = useCallback((chatId: string) => {
+    markChatViewed(chatId);
+    setLastViewed(getLastViewed());
+  }, []);
+
+  const handleSelectActive = useCallback(
+    (chatId: string) => {
+      setActiveChatId(chatId);
+      markViewed(chatId);
+    },
+    [markViewed]
+  );
+
+  const handleSelectRight = useCallback(
+    (chatId: string) => {
+      setRightChatId(chatId);
+      markViewed(chatId);
+    },
+    [markViewed]
+  );
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
   const others = useOthers();
@@ -58,7 +94,11 @@ function AppShell({ session }: { session: Session }) {
   useEffect(() => {
     fetchAllChats().then(async (rows) => {
       setChats(rows);
-      setActiveChatId((current) => current ?? rows[0]?.id ?? null);
+      setActiveChatId((current) => {
+        if (current) return current;
+        if (rows[0]) markViewed(rows[0].id);
+        return rows[0]?.id ?? null;
+      });
       const histories = await Promise.all(rows.map((row) => loadChatMessages(row.id)));
       setChatStates((current) => {
         const next = { ...current };
@@ -81,6 +121,34 @@ function AppShell({ session }: { session: Session }) {
   }, []);
 
   useEffect(() => {
+    // Same StrictMode double-listen guard as the claude-event listener below.
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
+    listen<PermissionRequest>("permission-request", (event) => {
+      setPermissionRequests((prev) =>
+        prev.some((r) => r.requestId === event.payload.requestId) ? prev : [...prev, event.payload]
+      );
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenFn = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlistenFn?.();
+    };
+  }, []);
+
+  const handleAnswerPermission = useCallback((requestId: string, allow: boolean) => {
+    setPermissionRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+    invoke("answer_permission_request", { requestId, allow }).catch((err) =>
+      console.error("failed to answer permission request", err)
+    );
+  }, []);
+
+  useEffect(() => {
     // listen() is async (a Tauri IPC round-trip), so under React StrictMode's
     // mount→cleanup→mount dev double-invoke, the first mount's cleanup can
     // fire before its listen() call resolves, racing the second mount's
@@ -98,12 +166,14 @@ function AppShell({ session }: { session: Session }) {
           const messages = next[event.payload.chatId]?.messages ?? [];
           const last = messages[messages.length - 1];
           if (last?.complete) {
-            saveChatMessages(event.payload.chatId, [last]).catch((err) =>
-              console.error("failed to save assistant message", err)
-            );
+            saveChatMessages(event.payload.chatId, [last]).catch((err) => {
+              console.error("failed to save assistant message", err);
+              showToast("Couldn't save the response — it may not survive a reload.");
+            });
             touchChatLastMessageAt(event.payload.chatId).catch((err) =>
               console.error("failed to update chat last_message_at", err)
             );
+            bumpLastMessageAt(event.payload.chatId);
           }
         }
         return next;
@@ -128,14 +198,16 @@ function AppShell({ session }: { session: Session }) {
       cancelled = true;
       unlistenFn?.();
     };
-  }, [broadcastEvent, session.user.id]);
+  }, [broadcastEvent, session.user.id, bumpLastMessageAt]);
 
   // Applies a teammate's in-progress turn locally as it streams in. Doesn't
   // save to Supabase or touch claude_session_id — that's the sending
   // machine's job (above); this just mirrors the same reducer against the
   // events it broadcasts.
   useEventListener(({ event }) => {
-    setChatStates((prev) => applyChatEvent(prev, event as unknown as ChatEnvelope));
+    const envelope = event as unknown as ChatEnvelope;
+    setChatStates((prev) => applyChatEvent(prev, envelope));
+    if (envelope.event.type === "turn_complete") bumpLastMessageAt(envelope.chatId);
   });
 
   useEffect(() => {
@@ -181,12 +253,15 @@ function AppShell({ session }: { session: Session }) {
           [chatId]: { ...withUserMessage[chatId], streaming: true },
         };
       });
-      saveChatMessages(chatId, [userMessage(prompt, attachments)]).catch((err) =>
-        console.error("failed to save user message", err)
-      );
+      saveChatMessages(chatId, [userMessage(prompt, attachments)]).catch((err) => {
+        console.error("failed to save user message", err);
+        showToast("Couldn't save your message — it may not survive a reload.");
+      });
       touchChatLastMessageAt(chatId).catch((err) =>
         console.error("failed to update chat last_message_at", err)
       );
+      bumpLastMessageAt(chatId);
+      markViewed(chatId);
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
       // primed with the stored transcript instead, so Claude isn't blind to
@@ -227,7 +302,7 @@ function AppShell({ session }: { session: Session }) {
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
     },
-    [chats, chatStates, updateMyPresence, session.user.id, prefs]
+    [chats, chatStates, updateMyPresence, session.user.id, prefs, bumpLastMessageAt, markViewed]
   );
 
   const handleStop = useCallback((chatId: string) => {
@@ -257,17 +332,24 @@ function AppShell({ session }: { session: Session }) {
         ) {
           return;
         }
-        deleteChat(chatId).catch((err) => console.error("failed to delete chat", err));
+        deleteChat(chatId)
+          .then(() => setChats((prev) => prev.filter((c) => c.id !== chatId)))
+          .catch((err) => {
+            console.error("failed to delete chat", err);
+            showToast("Couldn't delete the chat — it's still there, try again.");
+          });
         invoke("remove_chat_worktree", { chatId }).catch((err) =>
           console.error("failed to remove chat worktree", err)
         );
-        setChats((prev) => prev.filter((c) => c.id !== chatId));
       });
   }, []);
 
   const handleRename = useCallback((chatId: string, title: string) => {
     setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, title } : c)));
-    updateChatTitle(chatId, title).catch((err) => console.error("failed to rename chat", err));
+    updateChatTitle(chatId, title).catch((err) => {
+      console.error("failed to rename chat", err);
+      showToast("Couldn't save the new chat name.");
+    });
   }, []);
 
   const handleReorder = useCallback((chatId: string, sortOrder: number) => {
@@ -279,18 +361,27 @@ function AppShell({ session }: { session: Session }) {
 
   const handleGroupChange = useCallback((chatId: string, groupName: string | null) => {
     setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, group_name: groupName } : c)));
-    updateChatGroup(chatId, groupName).catch((err) => console.error("failed to update chat group", err));
+    updateChatGroup(chatId, groupName).catch((err) => {
+      console.error("failed to update chat group", err);
+      showToast("Couldn't save the group change.");
+    });
   }, []);
 
   const handleArchive = useCallback((chatId: string) => {
     const archivedAt = new Date().toISOString();
     setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, archived_at: archivedAt } : c)));
-    setChatArchived(chatId, true).catch((err) => console.error("failed to archive chat", err));
+    setChatArchived(chatId, true).catch((err) => {
+      console.error("failed to archive chat", err);
+      showToast("Couldn't archive the chat.");
+    });
   }, []);
 
   const handleUnarchive = useCallback((chatId: string) => {
     setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, archived_at: null } : c)));
-    setChatArchived(chatId, false).catch((err) => console.error("failed to unarchive chat", err));
+    setChatArchived(chatId, false).catch((err) => {
+      console.error("failed to unarchive chat", err);
+      showToast("Couldn't restore the chat.");
+    });
   }, []);
 
   const handleExpand = useCallback((chatId: string) => {
@@ -325,6 +416,11 @@ function AppShell({ session }: { session: Session }) {
   const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
   const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
 
+  const unreadChatIds = useMemo(
+    () => new Set(chats.filter((c) => isChatUnread(c, lastViewed)).map((c) => c.id)),
+    [chats, lastViewed]
+  );
+
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
   const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
@@ -346,6 +442,8 @@ function AppShell({ session }: { session: Session }) {
   return (
     <div className="app" ref={appRef}>
       <TooltipHost />
+      <ToastHost />
+      <PermissionPrompt requests={permissionRequests} chats={chats} onAnswer={handleAnswerPermission} />
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar">
         <div className="toolbar-side">
@@ -441,7 +539,8 @@ function AppShell({ session }: { session: Session }) {
                 <Sidebar
                   chats={chats}
                   activeChatId={activeChatId}
-                  onSelect={setActiveChatId}
+                  unreadChatIds={unreadChatIds}
+                  onSelect={handleSelectActive}
                   onCreateChat={handleCreateChat}
                   onRename={handleRename}
                   onDelete={handleDelete}
@@ -461,7 +560,7 @@ function AppShell({ session }: { session: Session }) {
               <ChatPane
                 chat={activeChat}
                 chats={chats}
-                onSelectChat={setActiveChatId}
+                onSelectChat={handleSelectActive}
                 self={selfOccupant}
                 others={otherOccupants}
                 excludeChatId={effectiveRightChatId}
@@ -479,7 +578,7 @@ function AppShell({ session }: { session: Session }) {
               <ChatPaneEmpty
                 text="Select a chat, or start a new one."
                 chats={chats}
-                onSelectChat={setActiveChatId}
+                onSelectChat={handleSelectActive}
                 onCreateChat={handleCreateChat}
                 self={selfOccupant}
                 others={otherOccupants}
@@ -492,7 +591,7 @@ function AppShell({ session }: { session: Session }) {
                 <ChatPane
                   chat={rightChat}
                   chats={chats}
-                  onSelectChat={setRightChatId}
+                  onSelectChat={handleSelectRight}
                   self={selfOccupant}
                   others={otherOccupants}
                   excludeChatId={activeChatId}
@@ -510,7 +609,7 @@ function AppShell({ session }: { session: Session }) {
                 <ChatPaneEmpty
                   text={chats.length === 0 ? "No chats available" : "Choose a chat for this pane."}
                   chats={chats}
-                  onSelectChat={setRightChatId}
+                  onSelectChat={handleSelectRight}
                   self={selfOccupant}
                   others={otherOccupants}
                   excludeChatId={activeChatId}

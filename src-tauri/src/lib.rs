@@ -2,6 +2,7 @@ mod claude_binary;
 mod claude_process;
 mod git_ops;
 mod merge_paths;
+mod permission_bridge;
 mod preview_server;
 mod stream_parser;
 
@@ -26,6 +27,7 @@ fn greet(name: &str) -> String {
 fn start_session(
     app: AppHandle,
     active_sessions: tauri::State<claude_process::ActiveSessions>,
+    permission_bridge: tauri::State<permission_bridge::PermissionBridge>,
     chat_id: String,
     prompt: String,
     working_directory: String,
@@ -37,6 +39,21 @@ fn start_session(
     let claude_path =
         claude_binary::resolve_claude_binary().ok_or_else(|| "claude binary not found".to_string())?;
 
+    // Only "manual" mode ever stops to ask permission — see
+    // claude_process::build_args and decisions.md's permission-approval-
+    // dialog-gap entry. Other modes don't need node/the bridge at all.
+    let permission_bridge_config = if permission_mode == "manual" {
+        let node_path = claude_binary::resolve_node_binary()
+            .ok_or_else(|| "node binary not found (required for permission prompts in Manual mode)".to_string())?;
+        Some(claude_process::PermissionBridgeConfig {
+            node_path,
+            script_path: permission_bridge.script_path.clone(),
+            socket_path: permission_bridge.socket_path.clone(),
+        })
+    } else {
+        None
+    };
+
     let config = claude_process::SpawnConfig {
         prompt,
         model,
@@ -44,6 +61,8 @@ fn start_session(
         effort,
         working_directory: std::path::PathBuf::from(working_directory),
         resume_session_id,
+        chat_id: chat_id.clone(),
+        permission_bridge: permission_bridge_config,
     };
 
     let claude_process::ClaudeSession { master, child } = claude_process::spawn_session(&claude_path, &config)?;
@@ -84,6 +103,16 @@ fn stop_session(active_sessions: tauri::State<claude_process::ActiveSessions>, c
         child.kill().map_err(|e| format!("failed to stop session: {e}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn answer_permission_request(
+    permission_bridge: tauri::State<permission_bridge::PermissionBridge>,
+    request_id: String,
+    allow: bool,
+    message: Option<String>,
+) {
+    permission_bridge.resolve(&request_id, allow, message);
 }
 
 #[tauri::command]
@@ -255,10 +284,16 @@ pub fn run() {
         .manage(preview_server::TeamPreviewServer::new())
         .manage(preview_server::ChatPreviewServers::new())
         .manage(claude_process::ActiveSessions::new())
+        .setup(|app| {
+            let bridge = permission_bridge::PermissionBridge::start(app.handle().clone())?;
+            app.manage(bridge);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             start_session,
             stop_session,
+            answer_permission_request,
             ensure_chat_worktree,
             remove_chat_worktree,
             chat_has_unmerged_work,

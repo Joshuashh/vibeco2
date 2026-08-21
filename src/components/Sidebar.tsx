@@ -4,6 +4,7 @@ import { Popover, PopoverRow, PopoverDivider } from "./Popover";
 import { usePrefs } from "../lib/prefs";
 import { computeSortOrder } from "../lib/reorder";
 import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats } from "../lib/chatGroups";
+import { formatRelativeTime } from "../lib/time";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,6 +87,7 @@ function SidebarRow({
   chat,
   isActive,
   archived,
+  unread,
   draggable,
   onSelect,
   onRename,
@@ -101,6 +103,7 @@ function SidebarRow({
   chat: ChatRow;
   isActive: boolean;
   archived: boolean;
+  unread: boolean;
   draggable: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
@@ -172,7 +175,15 @@ function SidebarRow({
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
+        <span className="flex-1 flex items-center gap-[0.4em] min-w-0">
+          {unread && <span className="w-[6px] h-[6px] rounded-full bg-accent shrink-0" title="New activity" />}
+          <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
+          {chat.last_message_at && (
+            <span className="text-[0.7em] text-text-tertiary shrink-0 ml-auto pl-[0.5em]">
+              {formatRelativeTime(chat.last_message_at)}
+            </span>
+          )}
+        </span>
       )}
       <div onClick={(e) => e.stopPropagation()}>
         <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -236,6 +247,7 @@ function SidebarSectionHeader({ text }: { text: string }) {
 export function Sidebar({
   chats,
   activeChatId,
+  unreadChatIds,
   onSelect,
   onCreateChat,
   onRename,
@@ -249,6 +261,7 @@ export function Sidebar({
 }: {
   chats: ChatRow[];
   activeChatId: string | null;
+  unreadChatIds?: Set<string>;
   onSelect: (chatId: string) => void;
   onCreateChat: () => void;
   onRename: (chatId: string, title: string) => void;
@@ -368,6 +381,7 @@ export function Sidebar({
                     chat={chat}
                     isActive={chat.id === activeChatId}
                     archived={mode === "archive"}
+                    unread={mode === "chats" && (unreadChatIds?.has(chat.id) ?? false)}
                     draggable={mode === "chats"}
                     dragOver={dragOverChatId === chat.id}
                     onSelect={() => onSelect(chat.id)}
