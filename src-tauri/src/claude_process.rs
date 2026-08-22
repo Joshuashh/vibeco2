@@ -74,6 +74,11 @@ pub struct SpawnConfig {
 /// — must match the server name used in the --mcp-config JSON below.
 const PERMISSION_TOOL_NAME: &str = "mcp__vibeco-permissions__approve_tool_use";
 
+/// Every Vibeco2 chat is scoped to one project's repo. Most projects won't
+/// have their own CLAUDE.md telling Claude to notice scope drift, so we
+/// inject the check here instead of depending on that.
+const SCOPE_GUARDRAIL_PROMPT: &str = "This chat is scoped to one project's repository. If the user's request describes building something unrelated to what this repository already is (e.g. a different app entirely), don't just proceed — say in one line that it looks out of scope for this project and suggest starting a new project for it, then ask if they want to continue here anyway.";
+
 pub fn build_args(config: &SpawnConfig) -> Vec<String> {
     let mut args = vec![
         "--print".to_string(),
@@ -88,6 +93,8 @@ pub fn build_args(config: &SpawnConfig) -> Vec<String> {
         config.permission_mode.clone(),
         "--effort".to_string(),
         config.effort.clone(),
+        "--append-system-prompt".to_string(),
+        SCOPE_GUARDRAIL_PROMPT.to_string(),
     ];
     if let Some(id) = &config.resume_session_id {
         args.push("--resume".to_string());

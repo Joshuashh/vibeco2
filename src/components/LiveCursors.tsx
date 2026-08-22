@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useOthers, useUpdateMyPresence } from "../lib/liveblocks";
-import { colorForUser } from "../lib/presenceColor";
+import { colorForUser, textColorForBackground, displayNameForUser } from "../lib/presenceColor";
 import type { FlowScreenApi } from "./CanvasView";
 
 type ViewMode = "chat" | "canvas" | "preview";
@@ -96,10 +96,13 @@ export function LiveCursors({
               <path d="M4 2l16 8-6.5 2L11 20 4 2z" />
             </svg>
             <span
-              className="inline-block ml-[14px] -mt-1 px-[7px] py-0.5 rounded-md text-[11px] font-medium text-white whitespace-nowrap"
-              style={{ background: colorForUser(other.presence.email) }}
+              className="inline-block ml-[14px] -mt-1 px-[7px] py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+              style={{
+                background: colorForUser(other.presence.email),
+                color: textColorForBackground(colorForUser(other.presence.email)),
+              }}
             >
-              {other.presence.email}
+              {displayNameForUser(other.presence.email)}
             </span>
           </div>
         );

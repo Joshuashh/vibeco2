@@ -5,8 +5,9 @@ import { usePrefs } from "../lib/prefs";
 import { computeSortOrder } from "../lib/reorder";
 import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats } from "../lib/chatGroups";
 import { formatRelativeTime } from "../lib/time";
-import { colorForUser } from "../lib/presenceColor";
+import { colorForUser, displayNameForUser, PRESENCE_PALETTE } from "../lib/presenceColor";
 import { computeClaimant, type Occupant } from "../lib/claim";
+import type { Profile } from "../lib/profiles";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -142,7 +143,7 @@ function SidebarRow({
 
   return (
     <div
-      className={`flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.3em] rounded-md cursor-default hover:bg-bg-secondary ${
+      className={`group flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.3em] rounded-md cursor-default hover:bg-bg-secondary ${
         isActive ? "bg-bg-tertiary" : ""
       } ${dragOver ? "outline outline-1 outline-accent -outline-offset-1" : ""}`}
       onClick={onSelect}
@@ -198,7 +199,12 @@ function SidebarRow({
           )}
         </span>
       )}
-      <div onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`shrink-0 overflow-hidden w-0 opacity-0 group-hover:w-[24px] group-hover:opacity-100 ${
+          open || confirmingDelete ? "w-[24px] opacity-100" : ""
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <DropdownMenu open={open} onOpenChange={setOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -273,6 +279,9 @@ export function Sidebar({
   self,
   others,
   mentionedChatIds,
+  selfProfile,
+  otherProfiles,
+  onUpdateProfile,
 }: {
   chats: ChatRow[];
   activeChatId: string | null;
@@ -289,14 +298,23 @@ export function Sidebar({
   self?: Occupant | null;
   others?: Occupant[];
   mentionedChatIds?: Set<string>;
+  selfProfile?: Profile | null;
+  otherProfiles?: Profile[];
+  onUpdateProfile?: (updates: { display_name?: string | null; color?: string | null }) => void;
 }) {
   const { theme, setTheme } = usePrefs();
   const [searchText, setSearchText] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState<"main" | "personalization">("main");
+  const [nameDraft, setNameDraft] = useState(selfProfile?.display_name ?? "");
   const [mode, setMode] = useState<"chats" | "archive">("chats");
   const [dragChatId, setDragChatId] = useState<string | null>(null);
   const [dragOverChatId, setDragOverChatId] = useState<string | null>(null);
   const settingsAnchorRef = useRef<HTMLButtonElement>(null);
+  const takenColors = useMemo(
+    () => new Map((otherProfiles ?? []).filter((p) => p.color).map((p) => [p.color as string, p])),
+    [otherProfiles]
+  );
 
   const activeChats = useMemo(() => filterActiveChats(chats), [chats]);
   const archivedChats = useMemo(
@@ -436,9 +454,9 @@ export function Sidebar({
 
       <div className="flex items-center gap-[0.6em] p-[0.7em] border-t border-border">
         <span className="w-[22px] h-[22px] shrink-0 flex items-center justify-center rounded-full bg-bg-tertiary text-[0.7em] font-medium">
-          {userEmail.slice(0, 1).toUpperCase()}
+          {displayNameForUser(userEmail).slice(0, 1).toUpperCase()}
         </span>
-        <span className="flex-1 text-[0.78em] text-text-secondary truncate">{userEmail}</span>
+        <span className="flex-1 text-[0.78em] text-text-secondary truncate">{displayNameForUser(userEmail)}</span>
         <button
           type="button"
           ref={settingsAnchorRef}
@@ -448,30 +466,109 @@ export function Sidebar({
         >
           <GearIcon />
         </button>
-        <Popover open={settingsOpen} onClose={() => setSettingsOpen(false)} anchorRef={settingsAnchorRef} width={180}>
-          <PopoverRow title="Dark" checked={theme === "dark"} onClick={() => setTheme("dark")} />
-          <PopoverRow title="Light" checked={theme === "light"} onClick={() => setTheme("light")} />
-          <PopoverDivider />
-          <PopoverRow
-            title="Reload app"
-            onClick={() => {
-              setSettingsOpen(false);
-              window.location.reload();
-            }}
-          />
-          <PopoverRow
-            title="Sign out"
-            onClick={() => {
-              setSettingsOpen(false);
-              onSignOut();
-            }}
-          />
-          <PopoverDivider />
-          <div className="flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 text-[13px] text-text-primary cursor-text select-text">
-            <span>Version</span>
-            <span className="flex-1" />
-            <span className="text-xs text-text-tertiary">{__APP_COMMIT__}</span>
-          </div>
+        <Popover
+          open={settingsOpen}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsPanel("main");
+          }}
+          anchorRef={settingsAnchorRef}
+          width={200}
+        >
+          {settingsPanel === "main" ? (
+            <>
+              <PopoverRow title="Dark" checked={theme === "dark"} onClick={() => setTheme("dark")} />
+              <PopoverRow title="Light" checked={theme === "light"} onClick={() => setTheme("light")} />
+              <PopoverDivider />
+              <PopoverRow
+                title="Personalization"
+                chevron
+                dotColor={selfProfile?.color ?? colorForUser(userEmail)}
+                onClick={() => {
+                  setNameDraft(selfProfile?.display_name ?? "");
+                  setSettingsPanel("personalization");
+                }}
+              />
+              <PopoverDivider />
+              <PopoverRow
+                title="Reload app"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  window.location.reload();
+                }}
+              />
+              <PopoverRow
+                title="Sign out"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  onSignOut();
+                }}
+              />
+              <PopoverDivider />
+              <div className="flex items-center w-[calc(100%-8px)] mx-1 my-0 py-[7px] px-2.5 text-[13px] text-text-primary cursor-text select-text">
+                <span>Version</span>
+                <span className="flex-1" />
+                <span className="text-xs text-text-tertiary">{__APP_COMMIT__}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="appearance-none bg-transparent border-0 outline-none font-normal text-left text-text-tertiary text-[12px] flex items-center gap-1 w-[calc(100%-8px)] mx-1 my-0 py-[6px] px-2.5 cursor-default hover:text-text-primary"
+                onClick={() => setSettingsPanel("main")}
+              >
+                <span className="[&>svg]:w-2.5 [&>svg]:h-2.5 flex rotate-180">
+                  <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </span>
+                Back
+              </button>
+              <PopoverDivider />
+              <div className="px-2.5 pt-1.5 pb-2">
+                <label className="block text-[11px] font-semibold text-text-tertiary mb-1">Username</label>
+                <input
+                  className="chat-card-rename-input w-full"
+                  placeholder={userEmail}
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  onBlur={() => onUpdateProfile?.({ display_name: nameDraft.trim() || null })}
+                />
+              </div>
+              <div className="px-2.5 pb-2">
+                <span className="block text-[11px] font-semibold text-text-tertiary mb-1.5">Color</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESENCE_PALETTE.map((color) => {
+                    const takenBy = takenColors.get(color);
+                    const isMine = selfProfile?.color === color;
+                    return (
+                      <button
+                        key={color}
+                        type="button"
+                        title={takenBy ? `Taken by ${displayNameForUser(takenBy.email)}` : color}
+                        disabled={!!takenBy}
+                        className={`w-[20px] h-[20px] rounded-full shrink-0 flex items-center justify-center ${
+                          takenBy ? "opacity-30 cursor-not-allowed" : ""
+                        }`}
+                        style={{ background: color }}
+                        onClick={() => onUpdateProfile?.({ color })}
+                      >
+                        {isMine && (
+                          <svg viewBox="0 0 24 24" stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </Popover>
       </div>
     </div>

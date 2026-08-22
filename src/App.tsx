@@ -37,6 +37,7 @@ import {
 } from "./lib/persistChat";
 import { userMessage, handoffBriefMessage, type SentAttachment } from "./types/message";
 import { deriveChatTitle } from "./lib/chatTitle";
+import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
@@ -51,7 +52,8 @@ import {
   type MentionInboxEntry,
 } from "./lib/mentions";
 import { notifyMention } from "./lib/notify";
-import { fetchProfiles, type Profile } from "./lib/profiles";
+import { fetchProfiles, updateMyProfile, type Profile } from "./lib/profiles";
+import { setProfileOverrides, pickUnusedColor } from "./lib/presenceColor";
 import { LogPanel } from "./components/LogPanel";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
@@ -164,8 +166,71 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   }, [project.id]);
 
   useEffect(() => {
-    fetchProfiles().then(setProfiles);
+    fetchProfiles().then((next) => {
+      setProfiles(next);
+      setProfileOverrides(next);
+    });
   }, []);
+
+  // Live so a teammate's chosen name/color show up immediately instead of on
+  // next reload — profiles aren't scoped to a project, so unlike the other
+  // realtime subscriptions below this one isn't keyed on project.id.
+  useEffect(() => {
+    const channel = supabase
+      .channel("profiles-live")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
+        const row = payload.new as Profile;
+        setProfiles((prev) => {
+          const next = prev.map((p) => (p.id === row.id ? row : p));
+          setProfileOverrides(next);
+          return next;
+        });
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "profiles" }, (payload) => {
+        const row = payload.new as Profile;
+        setProfiles((prev) => {
+          const next = prev.some((p) => p.id === row.id) ? prev : [...prev, row];
+          setProfileOverrides(next);
+          return next;
+        });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleUpdateProfile = useCallback(
+    (updates: { display_name?: string | null; color?: string | null }) => {
+      updateMyProfile(session.user.id, updates)
+        .then(() => fetchProfiles())
+        .then((next) => {
+          setProfiles(next);
+          setProfileOverrides(next);
+        })
+        .catch((err) => {
+          console.error("failed to update profile", err);
+          showToast(
+            err instanceof Error && err.message.includes("profiles_color_unique")
+              ? "That color was just taken — pick another."
+              : "Couldn't save your personalization."
+          );
+        });
+    },
+    [session.user.id]
+  );
+
+  // Without "Automatic", everyone needs a concrete color — assign the first
+  // one nobody else has taken the first time this profile is seen with none.
+  const autoAssignedColorRef = useRef(false);
+  useEffect(() => {
+    if (autoAssignedColorRef.current) return;
+    const mine = profiles.find((p) => p.id === session.user.id);
+    if (!mine || mine.color) return;
+    autoAssignedColorRef.current = true;
+    const taken = new Set(profiles.filter((p) => p.id !== session.user.id && p.color).map((p) => p.color as string));
+    handleUpdateProfile({ color: pickUnusedColor(taken) });
+  }, [profiles, session.user.id, handleUpdateProfile]);
 
   // Seeds the mentions inbox with anything sent while this session wasn't
   // open — a mention is now a durable row (0018_mentions.sql), not just a
@@ -640,29 +705,34 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   }, []);
 
   const handleCreateChat = useCallback(() => {
-    createChat(null, project.id).then((id) => {
-      setChats((prev) => [
-        ...prev,
-        {
-          id,
-          title: null,
-          user_id: session.user.id,
-          position_x: null,
-          position_y: null,
-          claude_session_id: null,
-          claude_session_owner: null,
-          created_at: new Date().toISOString(),
-          sort_order: Date.now() / 1000,
-          group_name: null,
-          archived_at: null,
-          last_message_at: null,
-          project_id: project.id,
-          handed_off_to: null,
-          open: false,
-        },
-      ]);
-      setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
-      setActiveChatId(id);
+    setChats((prevChats) => {
+      const minSortOrder = prevChats.reduce((min, c) => Math.min(min, c.sort_order), Infinity);
+      const sortOrder = computeSortOrder(null, Number.isFinite(minSortOrder) ? minSortOrder : null);
+      createChat(null, project.id, sortOrder).then((id) => {
+        setChats((prev) => [
+          ...prev,
+          {
+            id,
+            title: null,
+            user_id: session.user.id,
+            position_x: null,
+            position_y: null,
+            claude_session_id: null,
+            claude_session_owner: null,
+            created_at: new Date().toISOString(),
+            sort_order: sortOrder,
+            group_name: null,
+            archived_at: null,
+            last_message_at: null,
+            project_id: project.id,
+            handed_off_to: null,
+            open: false,
+          },
+        ]);
+        setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
+        setActiveChatId(id);
+      });
+      return prevChats;
     });
   }, [session.user.id, project.id]);
 
@@ -811,6 +881,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   self={selfOccupant}
                   others={otherOccupants}
                   mentionedChatIds={mentionedChatIds}
+                  selfProfile={profiles.find((p) => p.id === session.user.id) ?? null}
+                  otherProfiles={profiles.filter((p) => p.id !== session.user.id)}
+                  onUpdateProfile={handleUpdateProfile}
                 />
               </div>
               <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
