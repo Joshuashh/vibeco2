@@ -791,6 +791,12 @@ This was the last Tier 2 task — Section 3 of the migration spec is now fully e
 
 **Verified:** `npx tsc --noEmit` clean, `npx vitest run` (77/77). Not exercised in the running app this session.
 
+## Bug: handing off an empty chat asked the LLM to summarize nothing (2026-08-22)
+
+Manual handoff (`handleHandoff`) called `generate_session_brief` unconditionally, even with zero messages — asking Claude to brief an empty transcript produced a confused, technical reply about system-reminder blocks and no conversation content, surfaced verbatim as the handoff summary. The auto-checkpoint path (app closed while still holding a claim) already guarded this (`if (!chatId || messages.length === 0) return`) but manual handoff never got the same check. Fixed by skipping the LLM call entirely when `messages.length === 0` and using a canned `"Empty chat — nothing's happened here yet."` brief instead — cheaper and correct, rather than trying to prompt-engineer the backend into handling empty input gracefully.
+
+**Verified:** `npx tsc --noEmit` clean, `npx vitest run` (77/77). Not exercised in the running app this session.
+
 ## Log entries click-to-jump; log auto-scroll to newest (2026-08-22)
 
 **Log entries now clickable:** the "For you" alert list already jumped to the chat on click (`onJumpToChat`, renamed from `onJumpToMention` since it now covers both surfaces). The main "Activity log" stream (persisted checkpoint/handoff summaries) didn't — added the same behavior there for any entry with a `chat_id`, with `role="button"`/keyboard support since `MarkdownText`'s block-level markdown output can't be nested inside a real `<button>`. Caught one nested-click hazard while wiring this: `CodeBlock`'s "Copy" button (`MessageBlock.tsx`) had no `stopPropagation`, so copying code inside a log entry would now also bubble up and navigate away — fixed at the source rather than only in `LogPanel`, since anywhere else that ever wraps `MarkdownText` in a clickable row would hit the same bug.

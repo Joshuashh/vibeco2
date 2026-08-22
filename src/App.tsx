@@ -501,8 +501,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const handleHandoff = useCallback(
     (chatId: string, teammateEmail: string) => {
       const messages = chatStates[chatId]?.messages ?? [];
-      const transcript = buildSummaryTranscript(messages);
-      return invoke<string>("generate_session_brief", { transcript })
+      // Nothing to summarize — asking the LLM to brief an empty transcript
+      // produces a confused, overly technical reply instead of a real
+      // summary. Skip the call entirely rather than trying to prompt around it.
+      const briefPromise =
+        messages.length === 0
+          ? Promise.resolve("Empty chat — nothing's happened here yet.")
+          : invoke<string>("generate_session_brief", { transcript: buildSummaryTranscript(messages) });
+      return briefPromise
         .then((brief) => {
           const startedAt = claimedSinceRef.current[chatId];
           const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
