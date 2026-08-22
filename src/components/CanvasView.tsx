@@ -110,7 +110,9 @@ interface CanvasViewProps {
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
   onHandoff: (chatId: string, teammateEmail: string) => Promise<void>;
+  onToggleOpen: (chatId: string) => void;
   assignableTeammates: AssignableTeammate[];
+  mentionedChatIds: Set<string>;
   flowApiRef: RefObject<FlowScreenApi | null>;
 }
 
@@ -126,7 +128,9 @@ export function CanvasView({
   onExpand,
   onRename,
   onHandoff,
+  onToggleOpen,
   assignableTeammates,
+  mentionedChatIds,
   flowApiRef,
 }: CanvasViewProps) {
   // Archived chats stay in Supabase/the sidebar's Archive list but shouldn't
@@ -240,6 +244,8 @@ export function CanvasView({
             onRename,
             assignableTeammates,
             onHandoff: (email: string) => onHandoff(chat.id, email),
+            onToggleOpen: () => onToggleOpen(chat.id),
+            mentioned: mentionedChatIds.has(chat.id),
           },
         };
       });
@@ -304,7 +310,9 @@ export function CanvasView({
     onExpand,
     onRename,
     onHandoff,
+    onToggleOpen,
     assignableTeammates,
+    mentionedChatIds,
     setNodes,
     renameGroup,
   ]);

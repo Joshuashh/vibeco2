@@ -3,7 +3,7 @@ export function ViewToggle({
   onChange,
   onChatClick,
 }: {
-  mode: "chat" | "canvas" | "preview" | "logbook";
+  mode: "chat" | "canvas" | "preview";
   onChange: (mode: "chat" | "canvas" | "preview") => void;
   onChatClick?: () => void;
 }) {

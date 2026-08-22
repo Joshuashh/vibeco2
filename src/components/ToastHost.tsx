@@ -6,6 +6,7 @@ interface Toast {
   id: number;
   text: string;
   variant: "error" | "info";
+  onClick?: () => void;
 }
 
 // Module-level subscriber list, same pattern as TooltipHost: any file can
@@ -13,8 +14,8 @@ interface Toast {
 let nextId = 0;
 let listeners: ((toast: Toast) => void)[] = [];
 
-export function showToast(text: string, variant: Toast["variant"] = "error") {
-  const toast: Toast = { id: nextId++, text, variant };
+export function showToast(text: string, variant: Toast["variant"] = "error", onClick?: () => void) {
+  const toast: Toast = { id: nextId++, text, variant, onClick };
   listeners.forEach((fn) => fn(toast));
 }
 
@@ -45,7 +46,10 @@ export function ToastHost() {
           className={`text-[13px] text-text-primary bg-bg-tertiary border rounded-md px-3 py-2 shadow-[0_3px_10px_rgba(0,0,0,0.25)] cursor-default max-w-[320px] ${
             toast.variant === "error" ? "border-danger" : "border-border"
           }`}
-          onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+          onClick={() => {
+            toast.onClick?.();
+            setToasts((prev) => prev.filter((t) => t.id !== toast.id));
+          }}
         >
           {toast.text}
         </div>

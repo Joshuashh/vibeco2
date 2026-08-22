@@ -305,6 +305,7 @@ fn delete_attachment(chat_id: String, file_name: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(preview_server::TeamPreviewServer::new())
         .manage(preview_server::ChatPreviewServers::new())
         .manage(claude_process::ActiveSessions::new())

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "./App.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -29,6 +29,7 @@ import {
   updateChatSortOrder,
   updateChatGroup,
   setChatArchived,
+  setChatOpen,
   deleteChat,
   saveChatMessages,
   touchChatLastMessageAt,
@@ -41,9 +42,17 @@ import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
-import { extractMentions, type MentionEvent } from "./lib/mentions";
+import {
+  extractMentions,
+  resolveMentions,
+  fetchUnreadMentions,
+  insertMentions,
+  markMentionsRead,
+  type MentionInboxEntry,
+} from "./lib/mentions";
+import { notifyMention } from "./lib/notify";
 import { fetchProfiles, type Profile } from "./lib/profiles";
-import { LogbookPage } from "./components/LogbookPage";
+import { LogPanel } from "./components/LogPanel";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
@@ -56,13 +65,16 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
   const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
+  const [mentionInbox, setMentionInbox] = useState<MentionInboxEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview" | "logbook">("chat");
+  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview">("chat");
   const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [logPanelOpen, setLogPanelOpen] = useState(false);
+  const [logPanelWidth, setLogPanelWidth] = useState(320);
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
 
   // Bumps the in-memory copy so the sidebar's relative-time/unread signal
@@ -81,6 +93,28 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   const handleSelectRight = useCallback((chatId: string) => {
     setRightChatId(chatId);
+  }, []);
+
+  // Used by the mention toast/badge/inbox to snap straight to the chat that
+  // was pinged — unread state itself clears via the effect below once this
+  // chat becomes the active/right pane, not here directly.
+  const jumpToChat = useCallback((chatId: string) => {
+    setViewMode("chat");
+    setActiveChatId(chatId);
+  }, []);
+
+  // Clears the local badge and persists read_at for whatever's cleared —
+  // the DB row is the actual source of truth (0018_mentions.sql), so a
+  // teammate's own "unread" query stays correct even if this client never
+  // reopens that chat again this session.
+  const clearMentionsForChat = useCallback((chatId: string) => {
+    setMentionInbox((prev) => {
+      const toClear = prev.filter((m) => m.chatId === chatId);
+      if (toClear.length > 0) {
+        markMentionsRead(toClear.map((m) => m.id)).catch((err) => console.error("failed to mark mentions read", err));
+      }
+      return prev.filter((m) => m.chatId !== chatId);
+    });
   }, []);
   const updateMyPresence = useUpdateMyPresence();
   const self = useSelf();
@@ -132,6 +166,68 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   useEffect(() => {
     fetchProfiles().then(setProfiles);
   }, []);
+
+  // Seeds the mentions inbox with anything sent while this session wasn't
+  // open — a mention is now a durable row (0018_mentions.sql), not just a
+  // live broadcast, so this is what actually makes "tag Ben while he's
+  // offline" work: he sees it here on his next launch regardless of whether
+  // he was online when it was sent.
+  useEffect(() => {
+    if (!session.user.email) return;
+    fetchUnreadMentions(session.user.email).then(setMentionInbox);
+  }, [session.user.email]);
+
+  useEffect(() => {
+    if (!session.user.email) return;
+    const channel = supabase
+      .channel("mentions-live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "mentions", filter: `to_email=eq.${session.user.email}` },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            chat_id: string;
+            chat_title: string | null;
+            from_email: string;
+            to_email: string;
+            kind: "mention" | "handoff";
+            created_at: string;
+          };
+          // Belt-and-braces alongside the `to_email` filter above: only ever
+          // alert when this row is actually addressed to you. A *positive*
+          // check on `to_email` (not a negative check on `from_email`) —
+          // the earlier version rejected on `from_email === you`, which also
+          // wrongly blocked a legitimate self-directed handoff (from you, to
+          // you). Checking `to_email` handles both: still guards against a
+          // row the server-side filter shouldn't have let through, without
+          // penalizing the case where you really are the recipient.
+          if (row.to_email !== session.user.email) return;
+          const entry: MentionInboxEntry = {
+            id: row.id,
+            chatId: row.chat_id,
+            chatTitle: row.chat_title,
+            fromEmail: row.from_email,
+            kind: row.kind,
+            createdAt: row.created_at,
+          };
+          setMentionInbox((prev) => [entry, ...prev]);
+          const chatTitle = entry.chatTitle ?? "a chat";
+          const text =
+            entry.kind === "handoff"
+              ? `${entry.fromEmail} handed off "${chatTitle}" to you`
+              : `${entry.fromEmail} mentioned you in "${chatTitle}"`;
+          showToast(text, "info", () => jumpToChat(entry.chatId));
+          notifyMention(entry.kind === "handoff" ? `${entry.fromEmail} handed off a chat to you` : `${entry.fromEmail} mentioned you`, chatTitle).catch(
+            (err) => console.error("failed to send notification", err)
+          );
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session.user.email, jumpToChat]);
 
   useEffect(() => {
     // Same StrictMode double-listen guard as the claude-event listener below.
@@ -218,14 +314,6 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   // machine's job (above); this just mirrors the same reducer against the
   // events it broadcasts.
   useEventListener(({ event }) => {
-    if ((event as { kind?: string }).kind === "mention") {
-      const mention = event as unknown as MentionEvent;
-      const myName = session.user.email?.split("@")[0]?.toLowerCase();
-      if (myName && mention.fromEmail !== session.user.email && mention.mentioned.includes(myName)) {
-        showToast(`${mention.fromEmail} mentioned you in "${mention.chatTitle ?? "a chat"}"`);
-      }
-      return;
-    }
     const envelope = event as unknown as ChatEnvelope;
     setChatStates((prev) => applyChatEvent(prev, envelope));
     if (envelope.event.type === "turn_complete") bumpLastMessageAt(envelope.chatId);
@@ -315,6 +403,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     (chatId: string, prompt: string, attachments: SentAttachment[] = []) => {
       updateMyPresence({ claimedChatId: chatId });
       claimedSinceRef.current[chatId] ??= Date.now();
+      clearMentionsForChat(chatId);
       const chat = chats.find((c) => c.id === chatId);
       const isFirstMessage = (chatStates[chatId]?.messages.length ?? 0) === 0;
       if (isFirstMessage && !chat?.title) {
@@ -338,14 +427,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       bumpLastMessageAt(chatId);
       const mentioned = extractMentions(prompt);
       if (mentioned.length > 0 && session.user.email) {
-        const mentionEvent: MentionEvent = {
-          kind: "mention",
+        const toEmails = resolveMentions(mentioned, profiles, session.user.email);
+        insertMentions({
+          projectId: project.id,
           chatId,
           chatTitle: chat?.title ?? null,
           fromEmail: session.user.email,
-          mentioned,
-        };
-        broadcastEvent(mentionEvent as unknown as Json);
+          toEmails,
+        }).catch((err) => console.error("failed to save mentions", err));
       }
       // Native `--resume` only works for whoever's machine/account created the
       // session (see decisions.md). A different claimant gets a fresh session
@@ -394,7 +483,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
     },
-    [chats, chatStates, updateMyPresence, session.user.id, session.user.email, prefs, bumpLastMessageAt, broadcastEvent]
+    [chats, chatStates, updateMyPresence, session.user.id, session.user.email, prefs, bumpLastMessageAt, profiles, project.id, clearMentionsForChat]
   );
 
   const handleStop = useCallback((chatId: string) => {
@@ -440,13 +529,24 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           );
           setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, handed_off_to: teammateEmail } : c)));
           updateMyPresence({ claimedChatId: null });
+          if (session.user.email) {
+            const chat = chats.find((c) => c.id === chatId);
+            insertMentions({
+              projectId: project.id,
+              chatId,
+              chatTitle: chat?.title ?? null,
+              fromEmail: session.user.email,
+              toEmails: [teammateEmail],
+              kind: "handoff",
+            }).catch((err) => console.error("failed to save handoff notification", err));
+          }
         })
         .catch((err) => {
           console.error("failed to generate handoff brief", err);
           showToast("Couldn't generate a handoff brief — try again.");
         });
     },
-    [chatStates, project.id, session.user.id, session.user.email, updateMyPresence]
+    [chatStates, chats, project.id, session.user.id, session.user.email, updateMyPresence]
   );
 
   const handleDelete = useCallback((chatId: string) => {
@@ -516,6 +616,18 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     });
   }, []);
 
+  const handleToggleOpen = useCallback((chatId: string) => {
+    setChats((prev) => {
+      const chat = prev.find((c) => c.id === chatId);
+      const nextOpen = !chat?.open;
+      setChatOpen(chatId, nextOpen).catch((err) => {
+        console.error("failed to update chat open state", err);
+        showToast("Couldn't update multiplayer access for this chat.");
+      });
+      return prev.map((c) => (c.id === chatId ? { ...c, open: nextOpen } : c));
+    });
+  }, []);
+
   const handleExpand = useCallback((chatId: string) => {
     setActiveChatId(chatId);
     setViewMode("chat");
@@ -540,6 +652,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           last_message_at: null,
           project_id: project.id,
           handed_off_to: null,
+          open: false,
         },
       ]);
       setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
@@ -566,6 +679,17 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const rightState = effectiveRightChatId ? chatStates[effectiveRightChatId] : undefined;
   const rightClaimant = effectiveRightChatId ? computeClaimant(effectiveRightChatId, selfOccupant, otherOccupants) : null;
   const rightClaimedByOther = effectiveRightChatId ? isClaimedByOther(effectiveRightChatId, selfOccupant, otherOccupants) : false;
+
+  // A mention badge counts as read once its chat is actually opened in the
+  // docked view — sending into a chat (any view, see handleSend) is the
+  // other "you've seen this" signal, since canvas cards don't have a single
+  // "open" moment the way the docked pane's active/right slot does.
+  useEffect(() => {
+    if (activeChatId) clearMentionsForChat(activeChatId);
+    if (effectiveRightChatId) clearMentionsForChat(effectiveRightChatId);
+  }, [activeChatId, effectiveRightChatId, clearMentionsForChat]);
+
+  const mentionedChatIds = useMemo(() => new Set(mentionInbox.map((m) => m.chatId)), [mentionInbox]);
 
   const appRef = useRef<HTMLDivElement>(null);
   const flowApiRef = useRef<FlowScreenApi | null>(null);
@@ -626,8 +750,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <button
             type="button"
-            className="flex items-center gap-[0.4em] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary mr-[8px]"
-            onClick={() => setViewMode("logbook")}
+            className="flex items-center gap-[0.4em] text-[12px] bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary mr-[8px]"
+            style={logPanelOpen ? { color: "var(--accent)" } : { color: "var(--text-secondary)" }}
+            onClick={() => setLogPanelOpen((o) => !o)}
           >
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -638,28 +763,27 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           <PresenceBar />
         </div>
       </div>
+      <div className="flex-1 min-h-0 flex">
       {viewMode === "canvas" ? (
-        <>
-          <CanvasView
-            chats={chats}
-            chatStates={chatStates}
-            mergeEvents={mergeEvents}
-            onSend={handleSend}
-            onStop={handleStop}
-            onLeave={handleLeave}
-            onDelete={handleDelete}
-            onArchive={handleArchive}
-            onExpand={handleExpand}
-            onRename={handleRename}
-            onHandoff={handleHandoff}
-            assignableTeammates={assignableTeammates}
-            flowApiRef={flowApiRef}
-          />
-        </>
+        <CanvasView
+          chats={chats}
+          chatStates={chatStates}
+          mergeEvents={mergeEvents}
+          onSend={handleSend}
+          onStop={handleStop}
+          onLeave={handleLeave}
+          onDelete={handleDelete}
+          onArchive={handleArchive}
+          onExpand={handleExpand}
+          onRename={handleRename}
+          onHandoff={handleHandoff}
+          onToggleOpen={handleToggleOpen}
+          assignableTeammates={assignableTeammates}
+          mentionedChatIds={mentionedChatIds}
+          flowApiRef={flowApiRef}
+        />
       ) : viewMode === "preview" ? (
         <PreviewPage session={session} />
-      ) : viewMode === "logbook" ? (
-        <LogbookPage chats={chats} entries={logbookEntries} />
       ) : (
         <div className="chat-workspace">
           {!sidebarCollapsed && (
@@ -680,6 +804,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   onSignOut={() => signOut()}
                   self={selfOccupant}
                   others={otherOccupants}
+                  mentionedChatIds={mentionedChatIds}
                 />
               </div>
               <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
@@ -697,7 +822,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                 state={activeState}
                 claimant={activeClaimant}
                 isSelf={activeClaimant === session.user.email}
-                disabled={activeState?.streaming === true || activeClaimedByOther}
+                disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
                 streaming={activeState?.streaming === true}
                 onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
                 onStop={() => handleStop(activeChatId)}
@@ -705,6 +830,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                 onDelete={() => handleDelete(activeChatId)}
                 assignableTeammates={assignableTeammates}
                 onHandoff={(email) => handleHandoff(activeChatId, email)}
+                onToggleOpen={() => handleToggleOpen(activeChatId)}
               />
             ) : (
               <ChatPaneEmpty
@@ -730,7 +856,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   state={rightState}
                   claimant={rightClaimant}
                   isSelf={rightClaimant === session.user.email}
-                  disabled={rightState?.streaming === true || rightClaimedByOther}
+                  disabled={rightState?.streaming === true || (rightClaimedByOther && !rightChat.open)}
                   streaming={rightState?.streaming === true}
                   onSend={(prompt, attachments) => handleSend(effectiveRightChatId, prompt, attachments)}
                   onStop={() => handleStop(effectiveRightChatId)}
@@ -738,6 +864,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   onDelete={() => handleDelete(effectiveRightChatId)}
                   assignableTeammates={assignableTeammates}
                   onHandoff={(email) => handleHandoff(effectiveRightChatId, email)}
+                  onToggleOpen={() => handleToggleOpen(effectiveRightChatId)}
                 />
               ) : (
                 <ChatPaneEmpty
@@ -752,6 +879,28 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           </div>
         </div>
       )}
+      {logPanelOpen && (
+        <>
+          <ResizeDivider invert width={logPanelWidth} onChange={setLogPanelWidth} min={260} max={480} />
+          <div className="sidebar-panel" style={{ width: logPanelWidth }}>
+            <LogPanel
+              chats={chats}
+              entries={logbookEntries}
+              mentions={mentionInbox}
+              selfEmail={session.user.email ?? null}
+              onJumpToChat={jumpToChat}
+              onClearMentions={() => {
+                markMentionsRead(mentionInbox.map((m) => m.id)).catch((err) =>
+                  console.error("failed to mark mentions read", err)
+                );
+                setMentionInbox([]);
+              }}
+              onClose={() => setLogPanelOpen(false)}
+            />
+          </div>
+        </>
+      )}
+      </div>
     </div>
   );
 }

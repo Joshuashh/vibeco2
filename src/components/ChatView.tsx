@@ -26,6 +26,24 @@ function EyeIcon() {
   );
 }
 
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+function UnlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+    </svg>
+  );
+}
+
 export function ChatView({
   chat,
   chats,
@@ -41,6 +59,7 @@ export function ChatView({
   onDelete,
   assignableTeammates,
   onHandoff,
+  onToggleOpen,
 }: {
   chat: ChatRow;
   chats?: ChatRow[];
@@ -56,6 +75,7 @@ export function ChatView({
   onDelete: () => void;
   assignableTeammates?: AssignableTeammate[];
   onHandoff?: (teammateEmail: string) => Promise<void>;
+  onToggleOpen?: () => void;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return (
@@ -100,6 +120,17 @@ export function ChatView({
           </span>
         )}
         <div className="absolute right-[1em] flex items-center gap-[0.3em]">
+          {onToggleOpen && (
+            <button
+              type="button"
+              className="icon-button"
+              title={chat.open ? "Open — any teammate can respond. Click to restrict to the claimant." : "Restricted to the claimant. Click to open to teammates."}
+              style={chat.open ? { color: "var(--accent)" } : undefined}
+              onClick={onToggleOpen}
+            >
+              {chat.open ? <UnlockIcon /> : <LockIcon />}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setPreviewOpen((open) => !open)}

@@ -90,6 +90,7 @@ function SidebarRow({
   isActive,
   archived,
   claimant,
+  mentioned,
   draggable,
   onSelect,
   onRename,
@@ -106,6 +107,7 @@ function SidebarRow({
   isActive: boolean;
   archived: boolean;
   claimant: string | null;
+  mentioned: boolean;
   draggable: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
@@ -186,6 +188,9 @@ function SidebarRow({
             />
           )}
           <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
+          {mentioned && (
+            <span className="w-[6px] h-[6px] rounded-full shrink-0 bg-accent" title="You were mentioned" />
+          )}
           {chat.last_message_at && (
             <span className="text-[0.7em] text-text-tertiary shrink-0 ml-auto pl-[0.5em]">
               {formatRelativeTime(chat.last_message_at)}
@@ -267,6 +272,7 @@ export function Sidebar({
   onSignOut,
   self,
   others,
+  mentionedChatIds,
 }: {
   chats: ChatRow[];
   activeChatId: string | null;
@@ -282,6 +288,7 @@ export function Sidebar({
   onSignOut: () => void;
   self?: Occupant | null;
   others?: Occupant[];
+  mentionedChatIds?: Set<string>;
 }) {
   const { theme, setTheme } = usePrefs();
   const [searchText, setSearchText] = useState("");
@@ -392,6 +399,7 @@ export function Sidebar({
                     isActive={chat.id === activeChatId}
                     archived={mode === "archive"}
                     claimant={computeClaimant(chat.id, self ?? null, others ?? [])}
+                    mentioned={mentionedChatIds?.has(chat.id) ?? false}
                     draggable={mode === "chats"}
                     dragOver={dragOverChatId === chat.id}
                     onSelect={() => onSelect(chat.id)}

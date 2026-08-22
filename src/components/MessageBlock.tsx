@@ -75,7 +75,8 @@ function CodeBlock({ language, source }: { language: string; source: string }) {
         <button
           type="button"
           className="text-[11px] text-text-tertiary bg-transparent border-none cursor-pointer p-0 hover:text-text-primary"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             navigator.clipboard.writeText(source);
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
@@ -91,7 +92,7 @@ function CodeBlock({ language, source }: { language: string; source: string }) {
   );
 }
 
-function MarkdownText({ text, className }: { text: string; className?: string }) {
+export function MarkdownText({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className}>
       <ReactMarkdown

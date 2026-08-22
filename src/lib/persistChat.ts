@@ -116,6 +116,11 @@ export async function updateChatHandoff(chatId: string, handedOffTo: string | nu
   if (error) throw new Error(`failed to update chat handoff: ${error.message}`);
 }
 
+export async function setChatOpen(chatId: string, open: boolean): Promise<void> {
+  const { error } = await supabase.from("chats").update({ open }).eq("id", chatId);
+  if (error) throw new Error(`failed to update chat open state: ${error.message}`);
+}
+
 export async function deleteChat(chatId: string): Promise<void> {
   const { error } = await supabase.from("chats").delete().eq("id", chatId);
   if (error) throw new Error(`failed to delete chat: ${error.message}`);

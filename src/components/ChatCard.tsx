@@ -23,6 +23,8 @@ export interface ChatCardData {
   onRename: (chatId: string, title: string) => void;
   assignableTeammates: AssignableTeammate[];
   onHandoff: (teammateEmail: string) => Promise<void>;
+  onToggleOpen: () => void;
+  mentioned: boolean;
   [key: string]: unknown;
 }
 
@@ -49,6 +51,24 @@ function LeaveIcon() {
   );
 }
 
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+function UnlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+    </svg>
+  );
+}
+
 export function ChatCard({ data }: NodeProps<ChatCardNode>) {
   const {
     chat,
@@ -65,6 +85,8 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
     onRename,
     assignableTeammates,
     onHandoff,
+    onToggleOpen,
+    mentioned,
   } = data;
   const claimedByOther = claimant !== null && !isSelf;
   const flagged = mergeStatus === "held" || mergeStatus === "conflict";
@@ -74,6 +96,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
       <NodeResizer minWidth={420} minHeight={320} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
       <div className="chat-card-header">
         <span className="chat-card-title">{chat.title ?? "Untitled chat"}</span>
+        {mentioned && <span className="w-[6px] h-[6px] rounded-full shrink-0 bg-accent" title="You were mentioned" />}
         <div className="chat-card-actions">
           {flagged && <span className="chat-card-badge">⚠ {mergeStatus}</span>}
           <button className="icon-button" title="Expand" onClick={() => onExpand(chat.id)}>
@@ -84,6 +107,14 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
               <LeaveIcon />
             </button>
           )}
+          <button
+            className="icon-button"
+            title={chat.open ? "Open — any teammate can respond. Click to restrict to the claimant." : "Restricted to the claimant. Click to open to teammates."}
+            style={chat.open ? { color: "var(--accent)" } : undefined}
+            onClick={onToggleOpen}
+          >
+            {chat.open ? <UnlockIcon /> : <LockIcon />}
+          </button>
           <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
           <ChatCardMenu
             title={chat.title ?? "Untitled chat"}
@@ -118,7 +149,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           onSend={(prompt, attachments) => onSend(chat.id, prompt, attachments)}
           onStop={() => onStop(chat.id)}
           streaming={state.streaming}
-          disabled={claimedByOther || state.streaming}
+          disabled={(claimedByOther && !chat.open) || state.streaming}
           teammates={assignableTeammates}
         />
       </div>

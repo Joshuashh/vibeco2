@@ -5,11 +5,14 @@ export function ResizeDivider({
   onChange,
   min,
   max,
+  invert = false,
 }: {
   width: number;
   onChange: (width: number) => void;
   min: number;
   max: number;
+  /** Set for a panel to the divider's right: dragging left grows it instead of dragging right. */
+  invert?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -17,10 +20,10 @@ export function ResizeDivider({
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
       if (!dragRef.current) return;
-      const delta = e.clientX - dragRef.current.startX;
+      const delta = (e.clientX - dragRef.current.startX) * (invert ? -1 : 1);
       onChange(Math.min(max, Math.max(min, dragRef.current.startWidth + delta)));
     },
-    [onChange, min, max]
+    [onChange, min, max, invert]
   );
 
   const onPointerUp = useCallback(() => {

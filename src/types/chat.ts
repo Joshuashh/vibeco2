@@ -13,4 +13,5 @@ export interface ChatRow {
   last_message_at: string | null;
   project_id: string | null;
   handed_off_to: string | null;
+  open: boolean;
 }
