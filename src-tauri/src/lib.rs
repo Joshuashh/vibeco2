@@ -196,6 +196,16 @@ fn promote_to_main() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn check_for_app_update() -> Result<bool, String> {
+    git_ops::check_for_app_update()
+}
+
+#[tauri::command]
+fn pull_app_update() -> Result<(), String> {
+    git_ops::pull_app_update()
+}
+
+#[tauri::command]
 fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewServer>) -> Result<(), String> {
     let root = git_ops::repo_root()?;
     let team_path = git_ops::ensure_team_worktree(&root)?;
@@ -338,6 +348,8 @@ pub fn run() {
             prune_orphaned_chat_worktrees,
             render_preview,
             promote_to_main,
+            check_for_app_update,
+            pull_app_update,
             generate_session_brief,
             ensure_team_preview_running,
             ensure_chat_preview_running,

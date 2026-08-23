@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PermissionPill, ModelPicker, EffortPicker, AttachButton, MicButton } from "./InputToolbelt";
@@ -10,6 +10,8 @@ import { uploadAttachment, deleteAttachment } from "../lib/attachments";
 import type { SentAttachment } from "../types/message";
 import type { AssignableTeammate } from "./AssignChatMenu";
 import { ChatUsageRing } from "./ChatUsageRing";
+import { useOthers, useUpdateMyPresence } from "../lib/liveblocks";
+import { colorForUser, displayNameForUser } from "../lib/presenceColor";
 
 // Only while the whole box is still just "/word" (no space yet) — a slash
 // mentioned mid-message shouldn't pop the menu.
@@ -64,6 +66,48 @@ export function InputBar({
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputWrapRef = useRef<HTMLDivElement>(null);
+
+  // A teammate currently focused in *this* chat's box — locks the box for
+  // everyone else until they blur or send (see the focus/blur handlers and
+  // updateMyPresence calls below). Only one teammate can hold it at a time;
+  // ponytail: last-focus-wins, no queueing, good enough for a two-person MVP.
+  const others = useOthers();
+  const updateMyPresence = useUpdateMyPresence();
+  const typingOther = others.find((o) => o.presence.typing?.chatId === chatId)?.presence;
+  const lockedByOther = typingOther != null;
+
+  const latestTyping = useRef("");
+  const typingFrameRef = useRef<number | null>(null);
+  function broadcastTyping(text: string) {
+    latestTyping.current = text;
+    if (typingFrameRef.current != null) return;
+    typingFrameRef.current = requestAnimationFrame(() => {
+      typingFrameRef.current = null;
+      updateMyPresence({ typing: { chatId, text: latestTyping.current } });
+    });
+  }
+  function releaseTyping() {
+    if (typingFrameRef.current != null) {
+      cancelAnimationFrame(typingFrameRef.current);
+      typingFrameRef.current = null;
+    }
+    updateMyPresence({ typing: null });
+  }
+  // Releases the lock when this pane switches to a different chat (the
+  // component doesn't unmount on that — see ChatPane, same instance just
+  // gets a new chatId prop) or unmounts outright — otherwise a chat you
+  // navigated away from mid-type would stay "selected" for everyone else
+  // forever.
+  useEffect(() => {
+    return () => {
+      if (typingFrameRef.current != null) {
+        cancelAnimationFrame(typingFrameRef.current);
+        typingFrameRef.current = null;
+      }
+      updateMyPresence({ typing: null });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   // Uploads start the moment a file is attached, not when Send is pressed —
   // so the composer's spinner is real, visible feedback of an in-flight
@@ -171,6 +215,12 @@ export function InputBar({
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
+  // A locked box's value updates from presence, not local onChange, so it
+  // needs its own trigger to grow with the teammate's live text.
+  useEffect(() => {
+    if (lockedByOther && textareaRef.current) resize(textareaRef.current);
+  }, [lockedByOther, typingOther?.typing?.text]);
+
   const stillUploading = attachments.some((a) => a.status === "uploading");
 
   function submit() {
@@ -184,6 +234,7 @@ export function InputBar({
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.overflowY = "hidden";
     }
+    releaseTyping();
     onSend(text, sent.length > 0 ? sent : undefined);
   }
 
@@ -272,16 +323,27 @@ export function InputBar({
       )}
       <AttachmentStrip items={attachments} onRemove={removeAttachment} />
 
+      {typingOther && (
+        <div className="flex items-center gap-[0.4em] text-[12px] text-text-tertiary px-[0.3em]">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorForUser(typingOther.email) }} />
+          {displayNameForUser(typingOther.email)} is typing…
+        </div>
+      )}
+
       <div
         ref={inputWrapRef}
-        className="relative min-h-[40px] flex items-center bg-[var(--input-pill-bg)] border border-border rounded-xl py-[0.45em] pr-[3em] pl-[0.3em] focus-within:border-[var(--user-color)]"
-        style={{ ["--user-color" as string]: accentColor ?? "var(--accent)" }}
+        className={`relative min-h-[40px] flex items-center bg-[var(--input-pill-bg)] border rounded-xl py-[0.45em] pr-[3em] pl-[0.3em] ${
+          lockedByOther ? "border-[var(--user-color)]" : "border-border focus-within:border-[var(--user-color)]"
+        }`}
+        style={{
+          ["--user-color" as string]: lockedByOther ? colorForUser(typingOther.email) : accentColor ?? "var(--accent)",
+        }}
       >
         <textarea
           ref={textareaRef}
           rows={1}
           className="appearance-none bg-transparent border-0 outline-none block w-full resize-none overflow-y-hidden text-sm text-text-primary [font-family:inherit] leading-[1.4] placeholder:text-text-tertiary"
-          value={value}
+          value={lockedByOther ? typingOther.typing?.text ?? "" : value}
           onChange={(e) => {
             setValue(e.target.value);
             setSlashDismissed(false);
@@ -290,10 +352,13 @@ export function InputBar({
             setMentionDismissed(false);
             setMentionIndex(0);
             resize(e.target);
+            broadcastTyping(e.target.value);
           }}
+          onFocus={() => broadcastTyping(value)}
+          onBlur={releaseTyping}
           onKeyDown={handleKeyDown}
           placeholder="Describe a task or ask a question, or type / for commands"
-          disabled={disabled}
+          disabled={disabled || lockedByOther}
         />
         <SlashCommandMenu
           anchorRef={inputWrapRef}
@@ -365,7 +430,7 @@ export function InputBar({
         <span className="flex-1 min-w-0" />
         <ModelPicker />
         <EffortPicker />
-        <ChatUsageRing chatId={chatId} sessionId={sessionId} />
+        <ChatUsageRing chatId={chatId} sessionId={sessionId} accentColor={accentColor} />
       </div>
     </div>
   );

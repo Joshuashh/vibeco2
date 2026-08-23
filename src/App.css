@@ -271,7 +271,7 @@ h1 {
   align-items: center;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
-  height: 44px;
+  height: 48px;
   padding: 0 1em;
 }
 
@@ -282,11 +282,11 @@ h1 {
   gap: 0.4em;
 }
 
-/* Clears the macOS traffic lights (x:16 y:24 per tauri.conf.json — the
+/* Clears the macOS traffic lights (x:16 y:26 per tauri.conf.json — the
    cluster is ~54px wide) and sits icons on the same row as the dots. */
 .toolbar-side-traffic-lights {
   padding-left: 74px;
-  gap: 0;
+  gap: 12px;
 }
 
 .toolbar-actions {

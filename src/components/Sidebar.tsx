@@ -8,6 +8,7 @@ import { formatRelativeTime } from "../lib/time";
 import { colorForUser, displayNameForUser, PRESENCE_PALETTE } from "../lib/presenceColor";
 import { computeClaimant, type Occupant } from "../lib/claim";
 import type { Profile } from "../lib/profiles";
+import { UpdateButton } from "./UpdateButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -457,6 +458,7 @@ export function Sidebar({
           {displayNameForUser(userEmail).slice(0, 1).toUpperCase()}
         </span>
         <span className="flex-1 text-[0.78em] text-text-secondary truncate">{displayNameForUser(userEmail)}</span>
+        <UpdateButton />
         <button
           type="button"
           ref={settingsAnchorRef}

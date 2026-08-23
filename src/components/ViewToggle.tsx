@@ -15,7 +15,7 @@ export function ViewToggle({
   // (active) at once had `bg-transparent` win the cascade regardless of
   // class order — the active tab's highlight never rendered. Keeping
   // color/background mutually exclusive per state avoids that.
-  const base = "relative border-none text-[0.85em] font-medium px-[1.1em] py-[0.2em] rounded-md transition-colors";
+  const base = "relative border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors";
   const inactive = "bg-transparent text-text-secondary hover:text-text-primary";
   const active = "view-toggle-active text-text-primary";
   const disabled = "bg-transparent text-text-tertiary opacity-60";

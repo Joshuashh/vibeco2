@@ -11,6 +11,7 @@ import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
+import { PaneResizeHandle } from "./components/PaneResizeHandle";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
@@ -19,7 +20,7 @@ import { TooltipHost } from "./components/TooltipHost";
 import { ToastHost, showToast } from "./components/ToastHost";
 import { PermissionPrompt, type PermissionRequest } from "./components/PermissionPrompt";
 import type { ChatRow } from "./types/chat";
-import { applyChatEvent, addUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
+import { applyChatEvent, appendUserMessage, setSessionError, cancelStreaming, initChatState, type ChatEnvelope, type ChatState } from "./lib/chatStore";
 import {
   createChat,
   loadChatMessages,
@@ -35,7 +36,7 @@ import {
   touchChatLastMessageAt,
   updateChatHandoff,
 } from "./lib/persistChat";
-import { userMessage, handoffBriefMessage, type SentAttachment } from "./types/message";
+import { userMessage, handoffBriefMessage, type SentAttachment, type Message } from "./types/message";
 import { deriveChatTitle } from "./lib/chatTitle";
 import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
@@ -62,6 +63,21 @@ import { isClaimedByOther, computeClaimant } from "./lib/claim";
 import { PrefsProvider, usePrefs } from "./lib/prefs";
 import type { ProjectRow } from "./types/project";
 
+// Even 50/50 split, computed from the container's live width so a freshly
+// opened split view starts balanced instead of snapping to whatever the
+// last drag left behind. clientWidth includes the container's own padding
+// (12px normally, 9px on the left when the sidebar's showing), which has to
+// come out too — otherwise the fixed-width left pane claims its share of
+// that padding as real space while the flexible right pane silently
+// shrinks to absorb the overflow, so the "50/50" split reads left-heavy.
+// 12 = .chat-panes' flex gap between the two panes.
+function defaultSplitPaneWidth(container: HTMLDivElement | null): number {
+  if (!container) return (800 - 12) / 2;
+  const style = getComputedStyle(container);
+  const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+  return (container.clientWidth - horizontalPadding - 12) / 2;
+}
+
 function AppShell({ session, project, onSelectProject }: { session: Session; project: ProjectRow; onSelectProject: (project: ProjectRow) => void }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
@@ -75,6 +91,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [leftPaneWidth, setLeftPaneWidth] = useState<number | null>(null);
+  const chatPanesRef = useRef<HTMLDivElement>(null);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [logPanelWidth, setLogPanelWidth] = useState(320);
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
@@ -360,7 +378,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       // Stream this turn to teammates live, ahead of it landing in Postgres —
       // Liveblocks room events are the ephemeral pub/sub already wired up for
       // presence, so no new transport needed.
-      broadcastEvent(event.payload as unknown as Json);
+      broadcastEvent({ kind: "claude_event", ...event.payload } as unknown as Json);
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -374,12 +392,18 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     };
   }, [broadcastEvent, session.user.id, bumpLastMessageAt]);
 
-  // Applies a teammate's in-progress turn locally as it streams in. Doesn't
-  // save to Supabase or touch claude_session_id — that's the sending
-  // machine's job (above); this just mirrors the same reducer against the
-  // events it broadcasts.
+  // Applies a teammate's in-progress turn (and their outgoing prompts)
+  // locally as they happen. Doesn't save to Supabase or touch
+  // claude_session_id — that's the sending machine's job (above); this just
+  // mirrors the same reducers against whatever it broadcasts.
   useEventListener(({ event }) => {
-    const envelope = event as unknown as ChatEnvelope;
+    const broadcast = event as unknown as { kind: "user_message" | "claude_event" } & Record<string, unknown>;
+    if (broadcast.kind === "user_message") {
+      const { chatId, message } = broadcast as unknown as { chatId: string; message: Message };
+      setChatStates((prev) => appendUserMessage(prev, chatId, message));
+      return;
+    }
+    const envelope = broadcast as unknown as ChatEnvelope;
     setChatStates((prev) => applyChatEvent(prev, envelope));
     if (envelope.event.type === "turn_complete") bumpLastMessageAt(envelope.chatId);
   });
@@ -475,14 +499,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         const title = deriveChatTitle(prompt);
         if (title) handleRename(chatId, title);
       }
-      setChatStates((prev) => {
-        const withUserMessage = addUserMessage(prev, chatId, prompt, attachments, session.user.email);
-        return {
-          ...withUserMessage,
-          [chatId]: { ...withUserMessage[chatId], streaming: true },
-        };
-      });
-      saveChatMessages(chatId, [userMessage(prompt, attachments, session.user.email)]).catch((err) => {
+      const sentMessage = userMessage(prompt, attachments, session.user.email);
+      setChatStates((prev) => appendUserMessage(prev, chatId, sentMessage));
+      // Teammates otherwise never see this prompt live: the claude-event
+      // broadcast below only covers the assistant's turn, so without this a
+      // teammate's screen shows Claude's replies but not what was asked —
+      // they'd only catch up on the next full reload's loadChatMessages.
+      broadcastEvent({ kind: "user_message", chatId, message: sentMessage } as unknown as Json);
+      saveChatMessages(chatId, [sentMessage]).catch((err) => {
         console.error("failed to save user message", err);
         showToast("Couldn't save your message — it may not survive a reload.");
       });
@@ -893,72 +917,97 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
             </>
           )}
-          <div className="chat-panes" style={!sidebarCollapsed ? { paddingLeft: 9 } : undefined}>
-            {activeChatId && activeChat ? (
-              <ChatPane
-                chat={activeChat}
-                chats={chats}
-                onSelectChat={handleSelectActive}
-                self={selfOccupant}
-                others={otherOccupants}
-                excludeChatId={effectiveRightChatId}
-                state={activeState}
-                claimant={activeClaimant}
-                isSelf={activeClaimant === session.user.email}
-                disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
-                streaming={activeState?.streaming === true}
-                onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
-                onStop={() => handleStop(activeChatId)}
-                onRename={(title) => handleRename(activeChatId, title)}
-                onDelete={() => handleDelete(activeChatId)}
-                assignableTeammates={assignableTeammates}
-                onHandoff={(email) => handleHandoff(activeChatId, email)}
-                onToggleOpen={() => handleToggleOpen(activeChatId)}
-              />
-            ) : (
-              <ChatPaneEmpty
-                text="Select a chat, or start a new one."
-                chats={chats}
-                onSelectChat={handleSelectActive}
-                onCreateChat={handleCreateChat}
-                self={selfOccupant}
-                others={otherOccupants}
-                excludeChatId={effectiveRightChatId}
-              />
-            )}
-
-            {chatLayout === "split" &&
-              (effectiveRightChatId && rightChat ? (
+          <div
+            ref={chatPanesRef}
+            className="chat-panes"
+            style={!sidebarCollapsed ? { paddingLeft: 9 } : undefined}
+          >
+            <div
+              className={`min-w-0 min-h-0 flex flex-col flex-1${chatLayout === "split" ? " relative" : ""}`}
+              style={
+                chatLayout === "split"
+                  ? { flex: `0 0 ${leftPaneWidth ?? defaultSplitPaneWidth(chatPanesRef.current)}px` }
+                  : undefined
+              }
+            >
+              {activeChatId && activeChat ? (
                 <ChatPane
-                  chat={rightChat}
+                  chat={activeChat}
                   chats={chats}
-                  onSelectChat={handleSelectRight}
+                  onSelectChat={handleSelectActive}
                   self={selfOccupant}
                   others={otherOccupants}
-                  excludeChatId={activeChatId}
-                  state={rightState}
-                  claimant={rightClaimant}
-                  isSelf={rightClaimant === session.user.email}
-                  disabled={rightState?.streaming === true || (rightClaimedByOther && !rightChat.open)}
-                  streaming={rightState?.streaming === true}
-                  onSend={(prompt, attachments) => handleSend(effectiveRightChatId, prompt, attachments)}
-                  onStop={() => handleStop(effectiveRightChatId)}
-                  onRename={(title) => handleRename(effectiveRightChatId, title)}
-                  onDelete={() => handleDelete(effectiveRightChatId)}
+                  excludeChatId={effectiveRightChatId}
+                  state={activeState}
+                  claimant={activeClaimant}
+                  isSelf={activeClaimant === session.user.email}
+                  disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
+                  streaming={activeState?.streaming === true}
+                  onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
+                  onStop={() => handleStop(activeChatId)}
+                  onRename={(title) => handleRename(activeChatId, title)}
+                  onDelete={() => handleDelete(activeChatId)}
                   assignableTeammates={assignableTeammates}
-                  onHandoff={(email) => handleHandoff(effectiveRightChatId, email)}
-                  onToggleOpen={() => handleToggleOpen(effectiveRightChatId)}
+                  onHandoff={(email) => handleHandoff(activeChatId, email)}
+                  onToggleOpen={() => handleToggleOpen(activeChatId)}
                 />
               ) : (
                 <ChatPaneEmpty
-                  text={chats.length === 0 ? "No chats available" : "Choose a chat for this pane."}
+                  text="Select a chat, or start a new one."
                   chats={chats}
-                  onSelectChat={handleSelectRight}
+                  onSelectChat={handleSelectActive}
+                  onCreateChat={handleCreateChat}
                   self={selfOccupant}
                   others={otherOccupants}
-                  excludeChatId={activeChatId}
+                  excludeChatId={effectiveRightChatId}
                 />
-              ))}
+              )}
+              {chatLayout === "split" && (
+                <PaneResizeHandle
+                  width={leftPaneWidth ?? defaultSplitPaneWidth(chatPanesRef.current)}
+                  onChange={setLeftPaneWidth}
+                  onReset={() => setLeftPaneWidth(null)}
+                  min={280}
+                  max={Math.max(280, (chatPanesRef.current?.clientWidth ?? 2000) - 280 - 12)}
+                />
+              )}
+            </div>
+
+            {chatLayout === "split" && (
+              <div className="min-w-0 min-h-0 flex flex-col flex-1">
+                {effectiveRightChatId && rightChat ? (
+                  <ChatPane
+                    chat={rightChat}
+                    chats={chats}
+                    onSelectChat={handleSelectRight}
+                    self={selfOccupant}
+                    others={otherOccupants}
+                    excludeChatId={activeChatId}
+                    state={rightState}
+                    claimant={rightClaimant}
+                    isSelf={rightClaimant === session.user.email}
+                    disabled={rightState?.streaming === true || (rightClaimedByOther && !rightChat.open)}
+                    streaming={rightState?.streaming === true}
+                    onSend={(prompt, attachments) => handleSend(effectiveRightChatId, prompt, attachments)}
+                    onStop={() => handleStop(effectiveRightChatId)}
+                    onRename={(title) => handleRename(effectiveRightChatId, title)}
+                    onDelete={() => handleDelete(effectiveRightChatId)}
+                    assignableTeammates={assignableTeammates}
+                    onHandoff={(email) => handleHandoff(effectiveRightChatId, email)}
+                    onToggleOpen={() => handleToggleOpen(effectiveRightChatId)}
+                  />
+                ) : (
+                  <ChatPaneEmpty
+                    text={chats.length === 0 ? "No chats available" : "Choose a chat for this pane."}
+                    chats={chats}
+                    onSelectChat={handleSelectRight}
+                    self={selfOccupant}
+                    others={otherOccupants}
+                    excludeChatId={activeChatId}
+                  />
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1023,7 +1072,13 @@ function App() {
   return (
     <RoomProvider
       id={roomIdForProject(project.id)}
-      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null, cursorView: null }}
+      initialPresence={{
+        email: session.user.email ?? "unknown",
+        claimedChatId: null,
+        cursor: null,
+        cursorView: null,
+        typing: null,
+      }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <PrefsProvider>

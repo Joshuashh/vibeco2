@@ -32,6 +32,22 @@ export function applyChatEvent(
   return { ...states, [envelope.chatId]: { messages, streaming } };
 }
 
+// Shared by the sender (who builds the message fresh) and a teammate
+// applying it from a Liveblocks broadcast (who already has the built
+// Message) — both need to land in the same place with streaming flipped on,
+// so the recipient's thinking indicator starts the moment the prompt does.
+export function appendUserMessage(
+  states: Record<string, ChatState>,
+  chatId: string,
+  message: Message
+): Record<string, ChatState> {
+  const current = states[chatId] ?? initChatState();
+  return {
+    ...states,
+    [chatId]: { messages: [...current.messages, message], streaming: true },
+  };
+}
+
 export function addUserMessage(
   states: Record<string, ChatState>,
   chatId: string,
@@ -39,11 +55,7 @@ export function addUserMessage(
   attachments: Attachment[] = [],
   authorEmail?: string
 ): Record<string, ChatState> {
-  const current = states[chatId] ?? initChatState();
-  return {
-    ...states,
-    [chatId]: { ...current, messages: [...current.messages, userMessage(text, attachments, authorEmail)] },
-  };
+  return appendUserMessage(states, chatId, userMessage(text, attachments, authorEmail));
 }
 
 export function setSessionError(states: Record<string, ChatState>, chatId: string, text: string): Record<string, ChatState> {

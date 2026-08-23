@@ -305,3 +305,47 @@ fn advance_local_main(root: &Path) {
         let _ = run_git(root, &["update-ref", "refs/heads/main", "origin/main"]);
     }
 }
+
+// The Vibeco2 app's own source checkout — deliberately independent of
+// ACTIVE_REPO (whichever *project* repo a user has open for their chats).
+// CARGO_MANIFEST_DIR is baked in at compile time (this crate's own
+// src-tauri/ dir), so it names the app's real source location regardless of
+// what project happens to be active or what the process's cwd is.
+fn app_repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("src-tauri always has a parent directory")
+        .to_path_buf()
+}
+
+/// True if `origin/main` has commits this checkout doesn't (a plain
+/// `git fetch` + `rev-list` — no auth beyond whatever `git pull` would
+/// already use locally).
+pub fn check_for_app_update() -> Result<bool, String> {
+    let root = app_repo_root();
+    let fetch = run_git(&root, &["fetch", "origin", "main", "--quiet"])?;
+    if !fetch.status.success() {
+        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+    }
+    let behind = run_git(&root, &["rev-list", "--count", "HEAD..origin/main"])?;
+    if !behind.status.success() {
+        return Err(format!("git rev-list failed: {}", String::from_utf8_lossy(&behind.stderr)));
+    }
+    let count: u32 = String::from_utf8_lossy(&behind.stdout).trim().parse().unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// Fast-forwards the app's own checkout to `origin/main`. Left as a plain
+/// `git pull` rather than anything fancier — `tauri dev`'s own file
+/// watcher picks up the changed files on disk and rebuilds/reloads from
+/// there, so this only has to get the source current. Fails (rather than
+/// stashing/discarding anything) if local changes conflict, same as running
+/// `git pull` by hand would.
+pub fn pull_app_update() -> Result<(), String> {
+    let root = app_repo_root();
+    let pull = run_git(&root, &["pull", "origin", "main", "--ff-only"])?;
+    if !pull.status.success() {
+        return Err(format!("git pull failed: {}", String::from_utf8_lossy(&pull.stderr)));
+    }
+    Ok(())
+}

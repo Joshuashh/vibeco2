@@ -80,7 +80,7 @@ export function ChatView({
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       <div className="flex items-center justify-center relative py-[0.9em] px-[1em] shrink-0">
         {onHandoff && assignableTeammates && (
           <div className="absolute left-[1em]">
