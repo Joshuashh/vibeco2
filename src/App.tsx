@@ -59,7 +59,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview" | "logbook">("chat");
-  const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
+  // One chat screen vs two side-by-side. Persisted so the choice sticks; a
+  // visible One/Two toggle in the toolbar drives it (see below).
+  const [chatLayout, setChatLayoutState] = useState<"single" | "split">(
+    () => (localStorage.getItem("vibeco:chatLayout") === "split" ? "split" : "single")
+  );
+  const setChatLayout = (layout: "single" | "split") => {
+    localStorage.setItem("vibeco:chatLayout", layout);
+    setChatLayoutState(layout);
+  };
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -594,11 +602,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
-        <ViewToggle
-          mode={viewMode}
-          onChange={setViewMode}
-          onChatClick={() => setChatLayout((l) => (l === "single" ? "split" : "single"))}
-        />
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
             <>
@@ -624,6 +628,26 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                 New chat
               </button>
             </>
+          )}
+          {viewMode === "chat" && (
+            <div className="flex gap-[0.2em] bg-bg-tertiary rounded-lg p-[3px] mr-[8px]">
+              {(["single", "split"] as const).map((layout) => (
+                <button
+                  key={layout}
+                  type="button"
+                  title={layout === "single" ? "One chat" : "Two chats side by side"}
+                  className={
+                    "border-none text-[0.8em] font-medium px-[0.9em] py-[0.35em] rounded-md transition-colors " +
+                    (chatLayout === layout
+                      ? "bg-bg-primary text-text-primary"
+                      : "bg-transparent text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary")
+                  }
+                  onClick={() => setChatLayout(layout)}
+                >
+                  {layout === "single" ? "One" : "Two"}
+                </button>
+              ))}
+            </div>
           )}
           <button
             type="button"
