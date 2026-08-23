@@ -35,6 +35,11 @@ export function roomIdForProject(projectId: string): string {
 type Presence = {
   email: string;
   claimedChatId: string | null;
+  // Which chat this user has marked themselves "ready to send" in, for the
+  // Agent Window's multiplayer ready-check (AgentWindow.tsx). null when not
+  // ready anywhere; scoped to a chat id so readiness doesn't leak across the
+  // chats a teammate switches between.
+  readyForChatId: string | null;
   cursor: { x: number; y: number } | null;
   // Which tab the cursor's (x, y) is relative to — canvas coords are in flow
   // space (content-relative, zoom-independent); chat/preview coords are

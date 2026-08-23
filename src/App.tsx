@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
+import { AgentWindow } from "./components/AgentWindow";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
@@ -554,8 +555,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
-  const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
-  const activeClaimedByOther = activeChatId ? isClaimedByOther(activeChatId, selfOccupant, otherOccupants) : false;
+  // (claim gating for the active pane moved into AgentWindow's ready-check;
+  // the split-view right pane below still uses computeClaimant/isClaimedByOther.)
 
   // Split-view right pane: defaults to whichever teammate currently has a
   // chat claimed (nice when you haven't picked yet), but rightChatId lets
@@ -687,24 +688,17 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <div className="chat-panes">
             {activeChatId && activeChat ? (
-              <ChatPane
+              // Design 3a — the active chat renders as the multiplayer Agent
+              // Window (shared prompt + ready-check → Nova replies → shelf),
+              // replacing the classic ChatPane per the imported design.
+              <AgentWindow
+                chatId={activeChatId}
                 chat={activeChat}
-                chats={chats}
-                onSelectChat={handleSelectActive}
-                self={selfOccupant}
-                others={otherOccupants}
-                excludeChatId={effectiveRightChatId}
                 state={activeState}
-                claimant={activeClaimant}
-                isSelf={activeClaimant === session.user.email}
-                disabled={activeState?.streaming === true || activeClaimedByOther}
                 streaming={activeState?.streaming === true}
                 onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
                 onStop={() => handleStop(activeChatId)}
-                onRename={(title) => handleRename(activeChatId, title)}
-                onDelete={() => handleDelete(activeChatId)}
-                assignableTeammates={assignableTeammates}
-                onHandoff={(email) => handleHandoff(activeChatId, email)}
+                teammates={assignableTeammates}
               />
             ) : (
               <ChatPaneEmpty
@@ -791,7 +785,7 @@ function App() {
   return (
     <RoomProvider
       id={roomIdForProject(project.id)}
-      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, cursor: null, cursorView: null }}
+      initialPresence={{ email: session.user.email ?? "unknown", claimedChatId: null, readyForChatId: null, cursor: null, cursorView: null }}
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <PrefsProvider>
