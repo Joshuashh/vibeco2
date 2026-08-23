@@ -5,8 +5,8 @@ export function ViewToggle({
   onChange,
   onChatClick,
 }: {
-  mode: "chat" | "canvas" | "preview";
-  onChange: (mode: "chat" | "canvas" | "preview") => void;
+  mode: "chat" | "canvas" | "preview" | "plan";
+  onChange: (mode: "chat" | "canvas" | "preview" | "plan") => void;
   onChatClick?: () => void;
 }) {
   // ponytail: base carries only non-color/background utilities. Tailwind
@@ -18,7 +18,6 @@ export function ViewToggle({
   const base = "relative border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors";
   const inactive = "bg-transparent text-text-secondary hover:text-text-primary";
   const active = "view-toggle-active text-text-primary";
-  const disabled = "bg-transparent text-text-tertiary opacity-60";
 
   // Sliding hover pill: tracks whichever tab the pointer is over so the
   // highlight visibly glides between tabs, while the actually-selected tab
@@ -26,10 +25,11 @@ export function ViewToggle({
   // the pointer leaves, the (now invisible) pill snaps back to sit under the
   // selected tab, so the *next* hover always animates out from there rather
   // than from wherever it was last hovering.
+  const planRef = useRef<HTMLButtonElement>(null);
   const chatRef = useRef<HTMLButtonElement>(null);
   const canvasRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLButtonElement>(null);
-  const activeRef = mode === "chat" ? chatRef : mode === "canvas" ? canvasRef : previewRef;
+  const activeRef = mode === "plan" ? planRef : mode === "chat" ? chatRef : mode === "canvas" ? canvasRef : previewRef;
 
   const [hoverRect, setHoverRect] = useState<{ left: number; width: number } | null>(null);
   const [hovering, setHovering] = useState(false);
@@ -64,9 +64,12 @@ export function ViewToggle({
           transition: "left 180ms cubic-bezier(0.4,0,0.2,1), width 180ms cubic-bezier(0.4,0,0.2,1), opacity 120ms ease",
         }}
       />
-      {/* ponytail: no planning-mode backend yet — visual slot only, matching
-          Sidebar's Projects/Skills rows. */}
-      <button className={`${base} ${disabled}`} disabled title="Not yet available">
+      <button
+        ref={planRef}
+        className={mode === "plan" ? `${base} ${active}` : `${base} ${inactive}`}
+        onMouseEnter={trackHover}
+        onClick={() => onChange("plan")}
+      >
         Plan
       </button>
       <button
