@@ -7,6 +7,9 @@ import { colorForUser, displayNameForUser, initialsForUser } from "../lib/presen
 import { defaultSplitPaneWidth } from "../lib/layout";
 import { MessageList } from "./MessageList";
 import { PaneResizeHandle } from "./PaneResizeHandle";
+import { SlashCommandMenu } from "./SlashCommandMenu";
+import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
+import { ModelPicker, EffortPicker } from "./InputToolbelt";
 import type { AssignableTeammate } from "./AssignChatMenu";
 
 // ── Design 3a — "Agent window prototype / collapsed rails" ──────────────────
@@ -121,6 +124,10 @@ function QuoteIcon() {
   );
 }
 
+// Only while the whole draft is still just "/word" (no space yet) — see
+// InputBar.tsx's identical constant.
+const SLASH_TOKEN = /^\/([a-zA-Z0-9_-]*)$/;
+
 function initialsFor(email: string): string {
   return initialsForUser(displayNameForUser(email));
 }
@@ -210,6 +217,8 @@ export function AgentWindow({
   chatId,
   state,
   streaming,
+  disabled = false,
+  disabledReason,
   onSend,
   onStop,
   teammates = [],
@@ -220,6 +229,11 @@ export function AgentWindow({
   chatId: string;
   state: ChatState | undefined;
   streaming: boolean;
+  // True when this chat is claimed elsewhere (e.g. someone's running it in
+  // Solo right now) — blocks sending here so two sessions never race the
+  // same chatId/session concurrently.
+  disabled?: boolean;
+  disabledReason?: string | null;
   onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop: () => void;
   teammates?: AssignableTeammate[];
@@ -256,7 +270,37 @@ export function AgentWindow({
   const allReady = total > 0 && readyCount === total;
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
+  const slashAnchorRef = useRef<HTMLDivElement>(null);
   const [draftLen, setDraftLen] = useState(0);
+  const [draftText, setDraftText] = useState("");
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const customCommands = useCustomSlashCommands();
+  const allCommands = useMemo(() => [...BUILTIN_COMMANDS, ...customCommands], [customCommands]);
+  const slashMatch = SLASH_TOKEN.exec(draftText);
+  const slashQuery = slashMatch?.[1] ?? null;
+  const slashItems =
+    slashQuery !== null && !slashDismissed
+      ? allCommands.filter((c) => c.name.toLowerCase().startsWith(slashQuery.toLowerCase())).slice(0, 8)
+      : [];
+
+  function selectCommand(cmd: SlashCommand) {
+    const el = editorRef.current;
+    if (el) {
+      el.textContent = `/${cmd.name} `;
+      setDraftLen(measureDraft(el));
+      setDraftText(el.innerText);
+      el.focus();
+      const after = endOfContentRange(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(after);
+      savedRangeRef.current = after.cloneRange();
+    }
+    setSlashDismissed(false);
+    setSlashIndex(0);
+  }
   // Which formats apply at the current caret/selection, so the toolbar can
   // show e.g. Bold as pressed while you're typing inside bold text — mirrors
   // what every rich-text toolbar does, just computed by hand for the
@@ -496,6 +540,28 @@ export function AgentWindow({
   // engine, so being first-child-with-nothing-before-it holds whether it's
   // the first line in the whole draft or one after a line break.
   function handleEditorKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (slashItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        selectCommand(slashItems[Math.min(slashIndex, slashItems.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
     // Backspace inside an emptied-out blockquote (you deleted everything you
     // quoted, or created one and never typed into it) otherwise has nowhere
     // to go — it's the editor's only content, so there's no "after it" to
@@ -568,13 +634,14 @@ export function AgentWindow({
   }
 
   function send() {
-    if (!allReady || streaming) return;
+    if (!allReady || streaming || disabled) return;
     const el = editorRef.current;
     const text = el ? draftToMarkdown(el) : "";
     if (!text) return;
     onSend(text);
     if (el) el.innerHTML = "";
     setDraftLen(0);
+    setDraftText("");
     setForced({});
     // Reset own readiness for the next turn; teammates reset their own.
     updateMyPresence({ readyForChatId: null });
@@ -583,7 +650,14 @@ export function AgentWindow({
   // ── Render values ──────────────────────────────────────────────────────────
   const anyUnready = occupants.some((o) => !o.ready && !forced[o.email] && !o.isMe);
   const readyShort = `${readyCount}/${total} ready`;
-  const sendShort = streaming ? "Working…" : allReady ? "Send to Nova" : `Send · ${total - readyCount} left`;
+  const sendShort = disabled
+    ? disabledReason ?? "Claimed elsewhere"
+    : streaming
+      ? "Working…"
+      : allReady
+        ? "Send to Nova"
+        : `Send · ${total - readyCount} left`;
+  const canSend = allReady && !streaming && !disabled;
 
   const avatar = (email: string, size: number, ring?: string, dim?: number, onClick?: () => void) => {
     const bg = colorForUser(email);
@@ -636,16 +710,21 @@ export function AgentWindow({
           <div style={{ padding: "12px 18px", borderBottom: `1px solid ${C.seam}`, fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: C.sub }}>
             Collaborators
           </div>
-          <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "auto" }}>
+          <div ref={editorWrapRef} style={{ position: "relative", flex: 1, minHeight: 0, overflow: "auto" }}>
             <div
               ref={editorRef}
               className="agent-draft-editor"
-              contentEditable={!streaming}
+              contentEditable={!streaming && !disabled}
               suppressContentEditableWarning
               spellCheck={false}
               onInput={() => {
                 const el = editorRef.current;
-                if (el) setDraftLen(measureDraft(el));
+                if (el) {
+                  setDraftLen(measureDraft(el));
+                  setDraftText(el.innerText);
+                }
+                setSlashDismissed(false);
+                setSlashIndex(0);
                 updateActiveFormats();
               }}
               onKeyDown={handleEditorKeyDown}
@@ -663,9 +742,23 @@ export function AgentWindow({
             />
             {draftLen === 0 && (
               <div style={{ position: "absolute", top: 28, left: 30, fontSize: 15.5, lineHeight: 2.2, color: C.fainter, pointerEvents: "none" }}>
-                Describe the change for Nova… everyone marks ready, then send.
+                Describe the change for Nova, or type / for commands… everyone marks ready, then send.
               </div>
             )}
+            {/* A slash command only ever matches while the whole draft is
+                still "/word" (see SLASH_TOKEN) — i.e. the first line, right
+                at the editor's top-left padding — so an anchor pinned there
+                tracks the caret without needing real caret-rect tracking.
+                Anchoring the popover to editorWrapRef (the full scrollable
+                pane) instead put it off-screen below a tall draft area. */}
+            <div ref={slashAnchorRef} style={{ position: "absolute", top: 28, left: 30, width: 1, height: 24, pointerEvents: "none" }} />
+            <SlashCommandMenu
+              anchorRef={slashAnchorRef}
+              items={slashItems}
+              selectedIndex={slashIndex}
+              onSelect={selectCommand}
+              onClose={() => setSlashDismissed(true)}
+            />
           </div>
           <div
             // Belt-and-braces alongside each button's own onMouseLeave: if a
@@ -817,16 +910,17 @@ export function AgentWindow({
               </div>
               <div
                 onClick={send}
+                title={disabled ? disabledReason ?? "This chat is claimed elsewhere" : undefined}
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
                   padding: "9px 14px",
                   borderRadius: 8,
-                  cursor: allReady && !streaming ? "pointer" : "default",
+                  cursor: canSend ? "pointer" : "default",
                   whiteSpace: "nowrap",
-                  color: allReady && !streaming ? C.blueInk : C.faint,
-                  background: allReady && !streaming ? C.blueBg : C.idleBg,
-                  border: `1px solid ${allReady && !streaming ? C.blueBorder : C.idleBorder}`,
+                  color: canSend ? C.blueInk : C.faint,
+                  background: canSend ? C.blueBg : C.idleBg,
+                  border: `1px solid ${canSend ? C.blueBorder : C.idleBorder}`,
                 }}
               >
                 {sendShort}
@@ -846,8 +940,20 @@ export function AgentWindow({
       {/* right: LLM response area */}
       <div className="min-w-0 min-h-0 flex flex-col flex-1">
         <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-chat-pane-bg border border-border rounded-xl overflow-hidden">
-          <div style={{ padding: "12px 18px", borderBottom: `1px solid ${C.seam}`, fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: C.sub }}>
-            Nova
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "8px 10px 8px 18px",
+              borderBottom: `1px solid ${C.seam}`,
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: C.sub }}>
+              Nova
+            </span>
+            <span style={{ flex: 1 }} />
+            <ModelPicker />
+            <EffortPicker />
           </div>
           <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 4px" }}>
             {(state?.messages?.length ?? 0) === 0 && !streaming ? (
@@ -874,7 +980,7 @@ export function AgentWindow({
                   border: `1px solid ${C.idleBorder}`,
                 }}
               >
-                {shelving ? "Rendering…" : "Add latest reply to shelf"}
+                {shelving ? "Rendering…" : "Add to Queue"}
               </div>
             </div>
           )}

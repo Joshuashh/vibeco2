@@ -60,6 +60,9 @@ export function ChatView({
   assignableTeammates,
   onHandoff,
   onToggleOpen,
+  canShelve,
+  shelving,
+  onShelve,
 }: {
   chat: ChatRow;
   chats?: ChatRow[];
@@ -76,16 +79,33 @@ export function ChatView({
   assignableTeammates?: AssignableTeammate[];
   onHandoff?: (teammateEmail: string) => Promise<void>;
   onToggleOpen?: () => void;
+  canShelve?: boolean;
+  shelving?: boolean;
+  onShelve?: () => void;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const myColor = self?.email ? colorForUser(self.email) : "var(--accent)";
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       <div className="flex items-center justify-center relative py-[0.9em] px-[1em] shrink-0">
-        {onHandoff && assignableTeammates && (
-          <div className="absolute left-[1em]">
-            <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
+        {(onHandoff && assignableTeammates) || onToggleOpen ? (
+          <div className="absolute left-[1em] flex items-center gap-[0.3em]">
+            {onHandoff && assignableTeammates && (
+              <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
+            )}
+            {onToggleOpen && (
+              <button
+                type="button"
+                className="icon-button"
+                title={chat.open ? "Open — any teammate can respond. Click to restrict to the claimant." : "Restricted to the claimant. Click to open to teammates."}
+                style={chat.open ? { color: "var(--accent)" } : undefined}
+                onClick={onToggleOpen}
+              >
+                {chat.open ? <UnlockIcon /> : <LockIcon />}
+              </button>
+            )}
           </div>
-        )}
+        ) : null}
         {chats && onSelectChat ? (
           <ChatPicker
             chats={chats}
@@ -120,15 +140,20 @@ export function ChatView({
           </span>
         )}
         <div className="absolute right-[1em] flex items-center gap-[0.3em]">
-          {onToggleOpen && (
+          {canShelve && (
             <button
               type="button"
-              className="icon-button"
-              title={chat.open ? "Open — any teammate can respond. Click to restrict to the claimant." : "Restricted to the claimant. Click to open to teammates."}
-              style={chat.open ? { color: "var(--accent)" } : undefined}
-              onClick={onToggleOpen}
+              onClick={onShelve}
+              disabled={shelving}
+              title="Queue this chat's changes to merge into team"
+              className="text-[12px] rounded-md px-[0.7em] py-[0.3em] cursor-pointer max-w-[160px] truncate transition-colors disabled:cursor-default disabled:opacity-60"
+              style={{
+                color: myColor,
+                background: `color-mix(in srgb, ${myColor} 14%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${myColor} 32%, transparent)`,
+              }}
             >
-              {chat.open ? <UnlockIcon /> : <LockIcon />}
+              {shelving ? "Rendering…" : "Add to Queue"}
             </button>
           )}
           <button

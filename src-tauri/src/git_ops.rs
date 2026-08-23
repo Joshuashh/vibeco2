@@ -157,6 +157,18 @@ pub fn ensure_team_worktree(root: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Whatever `team` we know about right now — local first, then the remote
+/// copy, falling back to `main` if `team` doesn't exist yet at all.
+fn team_ref(root: &Path) -> String {
+    if branch_exists(root, TEAM_BRANCH) {
+        TEAM_BRANCH.to_string()
+    } else if branch_exists(root, &format!("origin/{TEAM_BRANCH}")) {
+        format!("origin/{TEAM_BRANCH}")
+    } else {
+        "main".to_string()
+    }
+}
+
 /// True if deleting this chat's worktree right now would discard work that
 /// never made it into `team` — either uncommitted changes, or committed work
 /// on the chat branch that was never rendered. Used to gate chat deletion
@@ -177,18 +189,7 @@ pub fn chat_has_unmerged_work(root: &Path, chat_id: &str) -> Result<bool, String
     if !branch_exists(root, &branch) {
         return Ok(false);
     }
-    // Compare against whatever `team` we know about — local first, then the
-    // remote copy, falling back to `main` if `team` doesn't exist yet at all
-    // (nothing has ever been rendered, so any commit here is unmerged).
-    let team_ref = if branch_exists(root, TEAM_BRANCH) {
-        TEAM_BRANCH.to_string()
-    } else if branch_exists(root, &format!("origin/{TEAM_BRANCH}")) {
-        format!("origin/{TEAM_BRANCH}")
-    } else {
-        "main".to_string()
-    };
-
-    let count = run_git(root, &["rev-list", "--count", &format!("{team_ref}..{branch}")])?;
+    let count = run_git(root, &["rev-list", "--count", &format!("{}..{branch}", team_ref(root))])?;
     if !count.status.success() {
         return Ok(false);
     }
@@ -196,17 +197,21 @@ pub fn chat_has_unmerged_work(root: &Path, chat_id: &str) -> Result<bool, String
     Ok(unmerged > 0)
 }
 
-pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
+/// Commits whatever's currently in the chat's worktree (if anything changed)
+/// and pushes the chat branch to origin. This is the "add to queue" half of
+/// what used to be a single `render_preview` call — it deliberately stops
+/// here and does not touch `team`, so queueing a change no longer ships it;
+/// only `merge_chat_into_team` (called at publish time) does that.
+pub fn commit_and_push_chat_branch(root: &Path, chat_id: &str) -> Result<(), String> {
     let chat_path = merge_paths::chat_worktree_path(root, chat_id);
     if !chat_path.exists() {
         return Err(format!("no worktree for chat {chat_id} — call ensure_chat_worktree first"));
     }
 
-    // Commit whatever's currently in the chat's worktree, if anything changed.
     run_git(&chat_path, &["add", "-A"])?;
     let status = run_git(&chat_path, &["status", "--porcelain"])?;
     if !String::from_utf8_lossy(&status.stdout).trim().is_empty() {
-        let message = format!("chat/{chat_id}: render preview");
+        let message = format!("chat/{chat_id}: queue for publish");
         let commit = run_git(&chat_path, &["commit", "-m", &message])?;
         if !commit.status.success() {
             return Err(format!("git commit failed: {}", String::from_utf8_lossy(&commit.stderr)));
@@ -218,7 +223,44 @@ pub fn render_preview(root: &Path, chat_id: &str) -> Result<MergeOutcome, String
     if !push.status.success() {
         return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr)));
     }
+    Ok(())
+}
 
+// Capped so a genuinely huge diff (a big refactor, a lockfile churn) doesn't
+// blow up the summarization prompt — a truncated diff still gives Claude
+// enough to describe the shape of the change, just not every last line.
+const MAX_DIFF_CHARS: usize = 20_000;
+
+/// Everything currently on the chat branch that isn't in `team` yet, as a
+/// unified diff — i.e. what this chat would actually add if merged right
+/// now. Used to feed the AI queue-summary; deliberately diffs against
+/// `team`'s current state (not a separately tracked "last queued" marker),
+/// so the diff naturally shrinks to just the new work once a prior queue of
+/// this same chat actually gets published and `team` moves forward.
+pub fn diff_since_team(root: &Path, chat_id: &str) -> Result<String, String> {
+    let chat_path = merge_paths::chat_worktree_path(root, chat_id);
+    if !chat_path.exists() {
+        return Err(format!("no worktree for chat {chat_id} — call ensure_chat_worktree first"));
+    }
+    let branch = merge_paths::chat_branch_name(chat_id);
+    let diff = run_git(&chat_path, &["diff", &format!("{}...{branch}", team_ref(root))])?;
+    if !diff.status.success() {
+        return Err(format!("git diff failed: {}", String::from_utf8_lossy(&diff.stderr)));
+    }
+    let text = String::from_utf8_lossy(&diff.stdout).into_owned();
+    Ok(if text.len() > MAX_DIFF_CHARS {
+        format!("{}\n… (diff truncated, {} chars total)", &text[..MAX_DIFF_CHARS], text.len())
+    } else {
+        text
+    })
+}
+
+/// Merges an already-queued (committed + pushed) chat branch into `team` and
+/// pushes it — the "publish" half of what used to be a single
+/// `render_preview` call. Assumes `commit_and_push_chat_branch` already ran
+/// for this chat; does not commit or push the chat branch itself.
+pub fn merge_chat_into_team(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
+    let branch = merge_paths::chat_branch_name(chat_id);
     let team_path = ensure_team_worktree(root)?;
 
     // Two chats can render at once, both racing to push `team`. Git's own

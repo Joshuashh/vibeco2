@@ -3,19 +3,20 @@ use std::process::Command;
 
 const BRIEF_INSTRUCTION: &str = "Summarize the following chat transcript as a short state-of-play brief for a teammate picking this up. Use three short sections: Shipped, Fixed/Changed, Next steps. Be concise — this is a handoff note, not a report.";
 
-/// Runs a one-shot, non-streaming `claude --print` call to summarize a
-/// transcript into a handoff/checkpoint brief. Unlike `claude_process`'s PTY
-/// pipeline (which streams into the visible chat and broadcasts to
-/// teammates as a real turn), this is a plain synchronous subprocess call —
-/// same request/response shape as `git_ops::render_preview` — so it can
-/// never leak into `chatStates` as a fake turn.
-pub fn generate_session_brief(transcript: String) -> Result<String, String> {
+const DIFF_INSTRUCTION: &str = "Summarize the following git diff in one short paragraph (2-3 sentences) for a teammate deciding whether to publish it. Name the actual files/behavior that changed — be concrete, not generic. Do not restate that it's a diff.";
+
+/// Runs a one-shot, non-streaming `claude --print` call and returns its
+/// result text. Unlike `claude_process`'s PTY pipeline (which streams into
+/// the visible chat and broadcasts to teammates as a real turn), this is a
+/// plain synchronous subprocess call — same request/response shape as
+/// `git_ops::merge_chat_into_team` — so it can never leak into `chatStates`
+/// as a fake turn.
+fn run_claude_print(prompt: &str) -> Result<String, String> {
     let claude_path = claude_binary::resolve_claude_binary().ok_or_else(|| "claude binary not found".to_string())?;
     let root = git_ops::repo_root()?;
-    let prompt = format!("{BRIEF_INSTRUCTION}\n\n---\n\n{transcript}");
 
     let output = Command::new(&claude_path)
-        .args(["--print", &prompt, "--output-format", "json"])
+        .args(["--print", prompt, "--output-format", "json"])
         .current_dir(&root)
         .output()
         .map_err(|e| format!("failed to run claude: {e}"))?;
@@ -26,6 +27,19 @@ pub fn generate_session_brief(transcript: String) -> Result<String, String> {
     }
 
     parse_brief_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+pub fn generate_session_brief(transcript: String) -> Result<String, String> {
+    run_claude_print(&format!("{BRIEF_INSTRUCTION}\n\n---\n\n{transcript}"))
+}
+
+/// Summarizes a git diff (see `git_ops::diff_since_team`) into a short
+/// queue-item description — real "what changed", not a reused chat reply.
+pub fn summarize_diff(diff: String) -> Result<String, String> {
+    if diff.trim().is_empty() {
+        return Ok("No file changes since this chat was last queued.".to_string());
+    }
+    run_claude_print(&format!("{DIFF_INSTRUCTION}\n\n---\n\n{diff}"))
 }
 
 /// Pulls the `result` text out of `claude --print --output-format json`'s

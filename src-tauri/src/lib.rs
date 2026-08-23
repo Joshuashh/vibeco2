@@ -155,25 +155,41 @@ fn prune_orphaned_chat_worktrees(known_chat_ids: Vec<String>) -> Result<(), Stri
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "status")]
-enum RenderPreviewResult {
+enum MergeResult {
     Clean,
     Conflict { files: Vec<String> },
 }
 
+// "Add to queue": commit + push the chat branch only. Does not touch `team`
+// — that happens later, per queued item, at publish time (merge_chat_into_team).
 #[tauri::command]
-fn render_preview(
+fn queue_chat_branch(chat_id: String) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    git_ops::commit_and_push_chat_branch(&root, &chat_id)
+}
+
+#[tauri::command]
+fn diff_since_team(chat_id: String) -> Result<String, String> {
+    let root = git_ops::repo_root()?;
+    git_ops::diff_since_team(&root, &chat_id)
+}
+
+// "Publish": merge one already-queued chat branch into `team`. Called once
+// per queued item from the frontend's publish loop.
+#[tauri::command]
+fn merge_chat_into_team(
     state: tauri::State<preview_server::TeamPreviewServer>,
     chat_id: String,
-) -> Result<RenderPreviewResult, String> {
+) -> Result<MergeResult, String> {
     let root = git_ops::repo_root()?;
-    let outcome = git_ops::render_preview(&root, &chat_id)?;
+    let outcome = git_ops::merge_chat_into_team(&root, &chat_id)?;
     if let git_ops::MergeOutcome::Clean = outcome {
         let team_path = merge_paths::team_worktree_path(&root);
         state.ensure_running(&team_path)?;
     }
     Ok(match outcome {
-        git_ops::MergeOutcome::Clean => RenderPreviewResult::Clean,
-        git_ops::MergeOutcome::Conflict { files } => RenderPreviewResult::Conflict { files },
+        git_ops::MergeOutcome::Clean => MergeResult::Clean,
+        git_ops::MergeOutcome::Conflict { files } => MergeResult::Conflict { files },
     })
 }
 
@@ -187,6 +203,13 @@ async fn generate_session_brief(transcript: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || claude_summary::generate_session_brief(transcript))
         .await
         .map_err(|e| format!("brief generation task panicked: {e}"))?
+}
+
+#[tauri::command]
+async fn summarize_diff(diff: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || claude_summary::summarize_diff(diff))
+        .await
+        .map_err(|e| format!("diff summarization task panicked: {e}"))?
 }
 
 #[tauri::command]
@@ -346,7 +369,10 @@ pub fn run() {
             remove_chat_worktree,
             chat_has_unmerged_work,
             prune_orphaned_chat_worktrees,
-            render_preview,
+            queue_chat_branch,
+            diff_since_team,
+            merge_chat_into_team,
+            summarize_diff,
             promote_to_main,
             check_for_app_update,
             pull_app_update,

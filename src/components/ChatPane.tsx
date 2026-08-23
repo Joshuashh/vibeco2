@@ -19,6 +19,7 @@ export function ChatPane({
   claimant,
   isSelf,
   disabled,
+  placeholder,
   streaming,
   onSend,
   onStop,
@@ -27,6 +28,9 @@ export function ChatPane({
   assignableTeammates,
   onHandoff,
   onToggleOpen,
+  canShelve,
+  shelving,
+  onShelve,
 }: {
   chat: ChatRow;
   chats?: ChatRow[];
@@ -38,6 +42,7 @@ export function ChatPane({
   claimant: string | null;
   isSelf: boolean;
   disabled: boolean;
+  placeholder?: string;
   streaming: boolean;
   onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop: () => void;
@@ -46,6 +51,9 @@ export function ChatPane({
   assignableTeammates?: AssignableTeammate[];
   onHandoff?: (teammateEmail: string) => Promise<void>;
   onToggleOpen?: () => void;
+  canShelve?: boolean;
+  shelving?: boolean;
+  onShelve?: () => void;
 }) {
   return (
     <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-chat-pane-bg border border-border rounded-xl overflow-hidden">
@@ -65,6 +73,9 @@ export function ChatPane({
         assignableTeammates={assignableTeammates}
         onHandoff={onHandoff}
         onToggleOpen={onToggleOpen}
+        canShelve={canShelve}
+        shelving={shelving}
+        onShelve={onShelve}
       />
       <InputBar
         chatId={chat.id}
@@ -72,6 +83,7 @@ export function ChatPane({
         onSend={onSend}
         onStop={onStop}
         disabled={disabled}
+        placeholder={placeholder}
         streaming={streaming}
         accentColor={self?.email ? colorForUser(self.email) : undefined}
         teammates={assignableTeammates}

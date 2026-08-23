@@ -7,6 +7,7 @@ import { activeChats as filterActiveChats, filterChatsByTitle, groupActiveChats 
 import { formatRelativeTime } from "../lib/time";
 import { colorForUser, displayNameForUser, PRESENCE_PALETTE } from "../lib/presenceColor";
 import { computeClaimant, type Occupant } from "../lib/claim";
+import { isChatLockedForCowork } from "../lib/chatLock";
 import type { Profile } from "../lib/profiles";
 import { UpdateButton } from "./UpdateButton";
 import {
@@ -42,14 +43,6 @@ function ChatBubbleIcon() {
   );
 }
 
-function TrayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 8L21 16 3 16 3 8M21 8L17 3 7 3 3 8M21 8L3 8" />
-    </svg>
-  );
-}
-
 function ArchiveIcon() {
   return (
     <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -77,6 +70,15 @@ function SearchIcon() {
   );
 }
 
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
 function DotsIcon() {
   return (
     <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -92,6 +94,9 @@ function SidebarRow({
   isActive,
   archived,
   claimant,
+  assignedOnline,
+  locked,
+  blockedForCowork,
   mentioned,
   draggable,
   onSelect,
@@ -109,6 +114,11 @@ function SidebarRow({
   isActive: boolean;
   archived: boolean;
   claimant: string | null;
+  assignedOnline: boolean;
+  locked: boolean;
+  // True when this row can't be opened in the current (Cowork) tab at all —
+  // restricted chats are Solo-only while their lock is actually in effect.
+  blockedForCowork: boolean;
   mentioned: boolean;
   draggable: boolean;
   onSelect: () => void;
@@ -144,11 +154,14 @@ function SidebarRow({
 
   return (
     <div
-      className={`group flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.3em] rounded-md cursor-default hover:bg-bg-secondary ${
+      className={`group flex items-center justify-between gap-[0.4em] mx-[0.6em] my-[0.05em] px-[0.6em] py-[0.3em] rounded-md hover:bg-bg-secondary ${
         isActive ? "bg-bg-tertiary" : ""
-      } ${dragOver ? "outline outline-1 outline-accent -outline-offset-1" : ""}`}
-      onClick={onSelect}
-      draggable={draggable}
+      } ${dragOver ? "outline outline-1 outline-accent -outline-offset-1" : ""} ${
+        blockedForCowork ? "opacity-50 cursor-not-allowed" : "cursor-default"
+      }`}
+      title={blockedForCowork ? "Restricted — locked to its owner while they're active. Solo-only until it unlocks." : undefined}
+      onClick={blockedForCowork ? undefined : onSelect}
+      draggable={draggable && !blockedForCowork}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -182,14 +195,39 @@ function SidebarRow({
         />
       ) : (
         <span className="flex-1 flex items-center gap-[0.4em] min-w-0">
-          {claimant && (
+          {claimant ? (
             <span
               className="w-[6px] h-[6px] rounded-full shrink-0"
               style={{ background: colorForUser(claimant) }}
               title={`In progress: ${claimant}`}
             />
+          ) : (
+            chat.handed_off_to && (
+              // Hollow, never filled, here — filled means "actively working on
+              // it right now," which is the claimant branch above. Reaching
+              // this branch already means no one's claimed the chat, so the
+              // assignee (online or not) isn't currently in it.
+              <span
+                className="w-[6px] h-[6px] rounded-full shrink-0 box-border"
+                style={{ background: "transparent", border: `1px solid ${colorForUser(chat.handed_off_to)}` }}
+                title={`Assigned to ${chat.handed_off_to}${assignedOnline ? "" : " (offline)"}`}
+              />
+            )
           )}
           <span className="text-[0.85em] truncate">{chat.title ?? "Untitled chat"}</span>
+          {/* `locked` (see lib/chatLock.ts) is true only while the
+              restriction is actually in effect — restricted, and the owner
+              is online and recently active — not just whenever
+              chat.open === false, so the icon disappears the moment the
+              owner goes idle/offline and the chat auto-unlocks. */}
+          {locked && (
+            <span
+              className="w-[10px] h-[10px] shrink-0 text-text-tertiary [&>svg]:w-full [&>svg]:h-full"
+              title={claimant ? `Locked to ${claimant} — restricted, no one else can respond` : "Restricted — locked to its owner"}
+            >
+              <LockIcon />
+            </span>
+          )}
           {mentioned && (
             <span className="w-[6px] h-[6px] rounded-full shrink-0 bg-accent" title="You were mentioned" />
           )}
@@ -279,6 +317,9 @@ export function Sidebar({
   onSignOut,
   self,
   others,
+  onlineEmails,
+  profiles,
+  activeTab,
   mentionedChatIds,
   selfProfile,
   otherProfiles,
@@ -298,6 +339,12 @@ export function Sidebar({
   onSignOut: () => void;
   self?: Occupant | null;
   others?: Occupant[];
+  onlineEmails?: Set<string>;
+  // Needed to resolve each chat's persisted owner (claude_session_owner /
+  // user_id) to an email, and to know whether the sidebar should block
+  // selecting a restricted chat (Cowork tab only — see lib/chatLock.ts).
+  profiles?: Profile[];
+  activeTab?: "cowork" | "solo";
   mentionedChatIds?: Set<string>;
   selfProfile?: Profile | null;
   otherProfiles?: Profile[];
@@ -373,13 +420,6 @@ export function Sidebar({
           <ChatBubbleIcon />
           Chats
         </button>
-        {/* ponytail: no Projects backend yet — visual slot only, per this
-            project's established pattern of keeping inert UI in place (see
-            ChatCardMenu's fork row) rather than omitting it. */}
-        <button type="button" className={navRowBase} disabled title="Not yet available">
-          <TrayIcon />
-          Projects
-        </button>
         <button
           type="button"
           className={mode === "archive" ? `${navRowBase} bg-bg-tertiary` : navRowBase}
@@ -418,6 +458,9 @@ export function Sidebar({
                     isActive={chat.id === activeChatId}
                     archived={mode === "archive"}
                     claimant={computeClaimant(chat.id, self ?? null, others ?? [])}
+                    assignedOnline={!!chat.handed_off_to && (onlineEmails?.has(chat.handed_off_to) ?? false)}
+                    locked={isChatLockedForCowork(chat, profiles ?? [], onlineEmails ?? new Set())}
+                    blockedForCowork={activeTab === "cowork" && isChatLockedForCowork(chat, profiles ?? [], onlineEmails ?? new Set())}
                     mentioned={mentionedChatIds?.has(chat.id) ?? false}
                     draggable={mode === "chats"}
                     dragOver={dragOverChatId === chat.id}

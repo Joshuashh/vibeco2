@@ -39,21 +39,6 @@ import {
   updateChatHandoff,
 } from "./lib/persistChat";
 import { userMessage, handoffBriefMessage, type SentAttachment, type Message } from "./types/message";
-
-// The shelf's old summary was a fixed string ("Nova's latest change from
-// this chat…") for every item — useless once more than one thing is queued.
-// Pulling the actual reply text tells you what you're about to merge without
-// having to reopen the chat.
-function summarizeReply(message: Message | undefined): string {
-  const text = (message?.blocks ?? [])
-    .filter((b): b is Extract<Message["blocks"][number], { kind: "text" }> => b.kind === "text")
-    .map((b) => b.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text) return "Nova's latest reply (no text — check the chat for tool calls/attachments).";
-  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
-}
 import { deriveChatTitle } from "./lib/chatTitle";
 import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
@@ -71,11 +56,12 @@ import {
 } from "./lib/mentions";
 import { notifyMention } from "./lib/notify";
 import { fetchProfiles, updateMyProfile, type Profile } from "./lib/profiles";
-import { setProfileOverrides, pickUnusedColor } from "./lib/presenceColor";
+import { setProfileOverrides, pickUnusedColor, displayNameForUser } from "./lib/presenceColor";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
-import { isClaimedByOther, computeClaimant } from "./lib/claim";
+import { computeClaimant } from "./lib/claim";
+import { isChatLockedForCowork, isChatLockedForViewer, ownerEmailForChat } from "./lib/chatLock";
 import { PrefsProvider, usePrefs } from "./lib/prefs";
 import type { ProjectRow } from "./types/project";
 
@@ -774,13 +760,26 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
   const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
-  const activeClaimedByOther = activeChatId ? isClaimedByOther(activeChatId, selfOccupant, otherOccupants) : false;
+  // Locking is keyed off claude_session_owner (falling back to the creator,
+  // user_id, for chats nobody's sent in yet) rather than live presence —
+  // presence only exists while its holder is actively mid-send and clears
+  // on reload, which would let anyone slip past a restricted chat's lock
+  // the moment its owner is just reading. See lib/chatLock.ts for the
+  // owner-online/idle-timeout auto-unlock rule.
+  const activeLockedForCowork = activeChat ? isChatLockedForCowork(activeChat, profiles, onlineEmails) : false;
+  const activeLockedOut = activeChat
+    ? isChatLockedForViewer(activeChat, session.user.email ?? "", profiles, onlineEmails)
+    : false;
+  // Cowork's "choose a chat" picker (used both for the empty state and,
+  // implicitly, whatever the sidebar offers) shouldn't dangle an option that
+  // just bounces you back to the locked-chat message.
+  const chatsForCoworkPicker = chats.filter((c) => !isChatLockedForCowork(c, profiles, onlineEmails));
 
-  // Team mode's shelf/publish gate — lifted here (rather than living inside
-  // ShelfPanel or AgentWindow) since the "add to shelf" trigger sits in
-  // AgentWindow's reply pane while the queue/agree/publish UI sits in
-  // ShelfPanel, two siblings that both need this state.
-  const myEmail = self?.presence.email ?? session.user.email ?? "you";
+  // The publish queue — lifted here (rather than living inside ShelfPanel or
+  // AgentWindow/ChatPane) since the "add to queue" trigger sits in each
+  // surface's own reply pane while the queue/publish UI sits in ShelfPanel,
+  // siblings that all need this state. App-wide, not per-chat or per-mode:
+  // Cowork and Solo both add into the same queue (see decisions.md).
   const [shelf, setShelf] = useState<ShelfItem[]>([]);
   const [shelving, setShelving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -791,98 +790,77 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   );
   const canShelve = !!lastReply && activeState?.streaming !== true;
 
-  // Approval list = whoever actually contributed a message to this chat, not
-  // whoever happens to be present in the tab right now — a chat someone
-  // stepped away from still needs their sign-off, and someone just watching
-  // shouldn't be counted as a required approver.
-  const contributors = useMemo(() => {
-    const emails = new Set<string>();
-    for (const m of activeState?.messages ?? []) {
-      if (m.role === "user" && m.authorEmail) emails.add(m.authorEmail);
-    }
-    return Array.from(emails);
-  }, [activeState?.messages]);
-
+  // "Add to queue": commit + push the chat branch (no team merge yet), then
+  // ask Claude to summarize the actual file diff since this chat was last
+  // queued/published — not a reused chat reply, an honest "what changed".
   const handleShelve = useCallback(async () => {
     if (!canShelve || shelving || !activeChatId) return;
     setShelving(true);
     try {
-      const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
-        "render_preview",
-        { chatId: activeChatId }
-      );
-      const approvers = contributors.length ? contributors : [myEmail];
-      if (result.status === "Clean") {
-        await insertMergeEvent(activeChatId, "held", null);
-        setShelf((s) => [
-          ...s,
-          {
-            id: `s-${Date.now()}`,
-            title: activeChat?.title ?? "Untitled change",
-            summary: summarizeReply(lastReply),
-            approvers,
-            agreed: [myEmail],
-            status: "held",
-          },
-        ]);
-      } else {
-        await insertMergeEvent(activeChatId, "conflict", result.files.join(", "));
-        setShelf((s) => [
-          ...s,
-          {
-            id: `s-${Date.now()}`,
-            title: activeChat?.title ?? "Untitled change",
-            summary: `Conflicts with the team branch in: ${result.files.join(", ")}`,
-            approvers,
-            agreed: [],
-            status: "conflict",
-          },
-        ]);
-      }
+      await invoke("queue_chat_branch", { chatId: activeChatId });
+      const diff = await invoke<string>("diff_since_team", { chatId: activeChatId });
+      const summary = await invoke<string>("summarize_diff", { diff });
+      await insertMergeEvent(activeChatId, "held", null);
+      setShelf((s) => [
+        ...s,
+        {
+          id: `s-${Date.now()}`,
+          chatId: activeChatId,
+          title: activeChat?.title ?? "Untitled change",
+          summary,
+          status: "queued",
+        },
+      ]);
     } catch (err) {
-      console.error("render_preview failed", err);
+      console.error("queue_chat_branch failed", err);
+      showToast("Couldn't add this chat to the queue — try again.");
     } finally {
       setShelving(false);
     }
-  }, [canShelve, shelving, activeChatId, activeChat?.title, contributors, myEmail, lastReply]);
+  }, [canShelve, shelving, activeChatId, activeChat?.title]);
 
   const handleRemoveFromShelf = useCallback((id: string) => {
     setShelf((s) => s.filter((it) => it.id !== id));
   }, []);
 
-  const handleToggleAgree = useCallback(
-    (id: string) => {
-      setShelf((s) =>
-        s.map((it) =>
-          it.id !== id
-            ? it
-            : {
-                ...it,
-                agreed: it.agreed.includes(myEmail) ? it.agreed.filter((a) => a !== myEmail) : [...it.agreed, myEmail],
-              }
-        )
-      );
-    },
-    [myEmail]
-  );
-
-  const publishable = shelf.filter(
-    (it) => it.status !== "conflict" && it.agreed.length >= it.approvers.length && it.approvers.length > 0
-  );
+  // "Publish": merge every queued chat branch into `team`, one at a time —
+  // unconditional, no approval gate (that's a separate, not-yet-built step
+  // meant to live in the Preview tab, gating team -> main instead; see
+  // decisions.md). A conflicting item stays in the queue, marked, rather
+  // than blocking the rest of the batch.
   const handlePublish = useCallback(async () => {
-    if (!publishable.length || publishing) return;
+    const queued = shelf.filter((it) => it.status === "queued");
+    if (!queued.length || publishing) return;
     setPublishing(true);
     try {
-      await invoke("promote_to_main");
-      await insertMergeEvent(null, "merged", "promoted team → main");
-      const ids = new Set(publishable.map((it) => it.id));
-      setShelf((s) => s.filter((it) => !ids.has(it.id)));
-    } catch (err) {
-      console.error("promote_to_main failed", err);
+      for (const item of queued) {
+        try {
+          const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
+            "merge_chat_into_team",
+            { chatId: item.chatId }
+          );
+          if (result.status === "Clean") {
+            await insertMergeEvent(item.chatId, "merged", "chat → team");
+            setShelf((s) => s.filter((it) => it.id !== item.id));
+          } else {
+            await insertMergeEvent(item.chatId, "conflict", result.files.join(", "));
+            setShelf((s) =>
+              s.map((it) =>
+                it.id !== item.id
+                  ? it
+                  : { ...it, status: "conflict", summary: `Conflicts with the team branch in: ${result.files.join(", ")}` }
+              )
+            );
+          }
+        } catch (err) {
+          console.error(`merge_chat_into_team failed for ${item.chatId}`, err);
+          showToast(`Couldn't publish "${item.title}" — try again.`);
+        }
+      }
     } finally {
       setPublishing(false);
     }
-  }, [publishable, publishing]);
+  }, [shelf, publishing]);
 
   // A mention badge counts as read once its chat is actually opened in the
   // docked view — sending into a chat (any view, see handleSend) is the
@@ -1008,6 +986,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   onSignOut={() => signOut()}
                   self={selfOccupant}
                   others={otherOccupants}
+                  onlineEmails={onlineEmails}
+                  profiles={profiles}
+                  activeTab={viewMode === "cowork" ? "cowork" : "solo"}
                   mentionedChatIds={mentionedChatIds}
                   selfProfile={profiles.find((p) => p.id === session.user.id) ?? null}
                   otherProfiles={profiles.filter((p) => p.id !== session.user.id)}
@@ -1024,28 +1005,44 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           >
             {activeChatId && activeChat ? (
               viewMode === "cowork" ? (
-                <AgentWindow
-                  chatId={activeChatId}
-                  state={activeState}
-                  streaming={activeState?.streaming === true}
-                  onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
-                  onStop={() => handleStop(activeChatId)}
-                  teammates={assignableTeammates}
-                  canShelve={canShelve}
-                  shelving={shelving}
-                  onShelve={handleShelve}
-                />
+                activeLockedForCowork ? (
+                  <ChatPaneEmpty
+                    text={`"${activeChat.title ?? "This chat"}" is restricted to ${
+                      displayNameForUser(ownerEmailForChat(activeChat, profiles) ?? "its owner")
+                    } right now — open it in Solo to observe, or wait for it to unlock.`}
+                    chats={chatsForCoworkPicker}
+                    onSelectChat={handleSelectActive}
+                    onCreateChat={handleCreateChat}
+                    self={selfOccupant}
+                    others={otherOccupants}
+                  />
+                ) : (
+                  <AgentWindow
+                    chatId={activeChatId}
+                    state={activeState}
+                    streaming={activeState?.streaming === true}
+                    onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
+                    onStop={() => handleStop(activeChatId)}
+                    teammates={assignableTeammates}
+                    canShelve={canShelve}
+                    shelving={shelving}
+                    onShelve={handleShelve}
+                  />
+                )
               ) : (
                 <ChatPane
                   chat={activeChat}
-                  chats={chats}
-                  onSelectChat={handleSelectActive}
                   self={selfOccupant}
                   others={otherOccupants}
                   state={activeState}
                   claimant={activeClaimant}
                   isSelf={activeClaimant === session.user.email}
-                  disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
+                  disabled={activeState?.streaming === true || activeLockedOut}
+                  placeholder={
+                    activeLockedOut
+                      ? `Observing — locked to ${displayNameForUser(ownerEmailForChat(activeChat, profiles) ?? "its owner")}, can't send`
+                      : undefined
+                  }
                   streaming={activeState?.streaming === true}
                   onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
                   onStop={() => handleStop(activeChatId)}
@@ -1054,12 +1051,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   assignableTeammates={assignableTeammates}
                   onHandoff={(email) => handleHandoff(activeChatId, email)}
                   onToggleOpen={() => handleToggleOpen(activeChatId)}
+                  canShelve={canShelve}
+                  shelving={shelving}
+                  onShelve={handleShelve}
                 />
               )
             ) : (
               <ChatPaneEmpty
                 text="Select a chat, or start a new one."
-                chats={chats}
+                chats={viewMode === "cowork" ? chatsForCoworkPicker : chats}
                 onSelectChat={handleSelectActive}
                 onCreateChat={handleCreateChat}
                 self={selfOccupant}
@@ -1067,12 +1067,12 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               />
             )}
           </div>
-          {activeChatId && activeChat && viewMode === "cowork" && (
+          {activeChatId &&
+            activeChat &&
+            ((viewMode === "cowork" && !activeLockedForCowork) || viewMode === "solo") && (
             <ShelfPanel
               shelf={shelf}
               publishing={publishing}
-              myEmail={myEmail}
-              onToggleAgree={handleToggleAgree}
               onPublish={handlePublish}
               onRemove={handleRemoveFromShelf}
             />

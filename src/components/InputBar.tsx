@@ -38,6 +38,7 @@ export function InputBar({
   onSend,
   onStop,
   disabled,
+  placeholder = "Describe a task or ask a question, or type / for commands",
   streaming = false,
   accentColor,
   teammates = [],
@@ -47,6 +48,7 @@ export function InputBar({
   onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop?: () => void;
   disabled: boolean;
+  placeholder?: string;
   streaming?: boolean;
   accentColor?: string;
   teammates?: AssignableTeammate[];
@@ -357,7 +359,7 @@ export function InputBar({
           onFocus={() => broadcastTyping(value)}
           onBlur={releaseTyping}
           onKeyDown={handleKeyDown}
-          placeholder="Describe a task or ask a question, or type / for commands"
+          placeholder={placeholder}
           disabled={disabled || lockedByOther}
         />
         <SlashCommandMenu
