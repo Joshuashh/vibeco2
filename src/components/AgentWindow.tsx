@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChatState } from "../lib/chatStore";
 import type { SentAttachment } from "../types/message";
 import { useSelf, useOthers, useUpdateMyPresence } from "../lib/liveblocks";
-import { colorForUser } from "../lib/presenceColor";
+import { colorForUser, displayNameForUser, initialsForUser } from "../lib/presenceColor";
 import { defaultSplitPaneWidth } from "../lib/layout";
 import { MessageList } from "./MessageList";
 import { PaneResizeHandle } from "./PaneResizeHandle";
@@ -41,11 +42,159 @@ const C = {
   mint: "#7FDCBB",
 };
 
+// `all: unset` first — App.css's global `@layer base { button { padding:
+// 0.6em 1em; border: 1px solid ...; } }` reset otherwise eats almost the
+// entire 26px box (same reason .icon-button/.toolbar-icon-button use
+// `all: unset` in App.css instead of overriding each property by hand).
+const toolbarButtonStyle: CSSProperties = {
+  all: "unset",
+  color: C.sub,
+  width: 26,
+  height: 26,
+  borderRadius: 6,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 13,
+  cursor: "pointer",
+  flex: "none",
+  boxSizing: "border-box",
+};
+const toolbarDividerStyle: CSSProperties = {
+  width: 1,
+  height: 18,
+  background: C.seam,
+  margin: "0 4px",
+  flex: "none",
+};
+// Reuses the same blue "this is selected/on" language the ready/agree
+// buttons elsewhere in this file already use, rather than inventing a new
+// active-state color just for the toolbar.
+const activeToolbarButtonStyle: CSSProperties = {
+  background: C.blueBg,
+  color: C.blueInk,
+};
+
+// Built from <line>/<rect>/<circle> rather than hand-written <path> arcs —
+// a malformed path silently renders nothing, and that's exactly what
+// happened to the first version of these icons.
+function LinkIcon() {
+  return (
+    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <rect x="2" y="9.5" width="9" height="5" rx="2.5" />
+      <rect x="13" y="9.5" width="9" height="5" rx="2.5" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+    </svg>
+  );
+}
+function OrderedListIcon() {
+  return (
+    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <line x1="9" y1="6" x2="21" y2="6" />
+      <line x1="9" y1="12" x2="21" y2="12" />
+      <line x1="9" y1="18" x2="21" y2="18" />
+      <text x="2" y="8.5" fontSize="7" fill="currentColor" stroke="none">1</text>
+      <text x="2" y="14.5" fontSize="7" fill="currentColor" stroke="none">2</text>
+      <text x="2" y="20.5" fontSize="7" fill="currentColor" stroke="none">3</text>
+    </svg>
+  );
+}
+function BulletedListIcon() {
+  return (
+    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <line x1="9" y1="6" x2="21" y2="6" />
+      <line x1="9" y1="12" x2="21" y2="12" />
+      <line x1="9" y1="18" x2="21" y2="18" />
+      <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function QuoteIcon() {
+  return (
+    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+      <line x1="5" y1="5" x2="5" y2="19" />
+      <line x1="9" y1="8" x2="19" y2="8" />
+      <line x1="9" y1="13" x2="16" y2="13" />
+    </svg>
+  );
+}
+
 function initialsFor(email: string): string {
-  const local = email.split("@")[0] ?? email;
-  const parts = local.split(/[.\-_+]/).filter(Boolean);
-  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : local.slice(0, 2);
-  return letters.toUpperCase();
+  return initialsForUser(displayNameForUser(email));
+}
+
+function nicknameOrLocalPart(email: string): string {
+  const name = displayNameForUser(email);
+  const raw = name === email ? email.split("@")[0] : name;
+  return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Converts the execCommand-formatted contentEditable draft into markdown so
+// the plain-text Claude side (and MessageBlock's react-markdown renderer)
+// sees **bold**, *italic*, lists, links, and blockquotes rather than raw HTML.
+function htmlToMarkdown(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const el = node as HTMLElement;
+  const inner = Array.from(el.childNodes).map(htmlToMarkdown).join("");
+  switch (el.tagName) {
+    case "B":
+    case "STRONG":
+      return `**${inner}**`;
+    case "I":
+    case "EM":
+      return `*${inner}*`;
+    case "U":
+      return `<u>${inner}</u>`;
+    case "A":
+      return `[${inner}](${el.getAttribute("href") ?? ""})`;
+    case "BLOCKQUOTE":
+      return `${inner
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n")}\n`;
+    case "UL":
+      return `${Array.from(el.children)
+        .map((li) => `- ${htmlToMarkdown(li)}`)
+        .join("\n")}\n`;
+    case "OL":
+      return `${Array.from(el.children)
+        .map((li, i) => `${i + 1}. ${htmlToMarkdown(li)}`)
+        .join("\n")}\n`;
+    case "LI":
+      return inner;
+    case "BR":
+      return "\n";
+    case "DIV":
+    case "P":
+      return `${inner}\n`;
+    default:
+      return inner;
+  }
+}
+
+// Text length alone stayed 0 right after inserting an empty list/blockquote
+// (no characters typed yet), so the "Describe the change…" placeholder kept
+// showing on top of it. Counting element children too means any inserted
+// wrapper — even an empty one, ready to type into — counts as "has content."
+function measureDraft(el: HTMLElement): number {
+  return el.innerText.trim().length + el.childElementCount;
+}
+
+function draftToMarkdown(root: HTMLElement): string {
+  const raw = Array.from(root.childNodes)
+    .map(htmlToMarkdown)
+    .join("")
+    .replace(/​/g, "");
+  return raw
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function inkForBg(hex: string): string {
@@ -108,6 +257,20 @@ export function AgentWindow({
 
   const editorRef = useRef<HTMLDivElement>(null);
   const [draftLen, setDraftLen] = useState(0);
+  // Which formats apply at the current caret/selection, so the toolbar can
+  // show e.g. Bold as pressed while you're typing inside bold text — mirrors
+  // what every rich-text toolbar does, just computed by hand for the
+  // manually-wrapped list/quote (queryCommandState only knows about the
+  // execCommand-driven bold/italic/underline).
+  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+  // JS-driven instead of a CSS `:hover` rule — with `onMouseDown`'s
+  // `preventDefault()` (needed to keep the editor's selection alive across
+  // the click), some WebKit builds stop re-evaluating `:hover` until the
+  // pointer actually moves, so the grey hover background stuck around after
+  // clicking even once a toggle (e.g. the list button) turned back off.
+  // mouseenter/mouseleave aren't affected by that, since preventDefault only
+  // touches the mousedown/click pair.
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
   // Left/right pane split, same resizable-divider pattern the app's
   // (now-retired) multi-chat split view used.
@@ -121,10 +284,293 @@ export function AgentWindow({
     setForced((f) => ({ ...f, [email]: true }));
   }
 
+  // Clicking a toolbar button (a real, focusable <button>) can steal focus
+  // and collapse the editor's selection before exec() ever runs — worse for
+  // the link button, where window.prompt's modal reliably wipes it. Saving
+  // the Range on mousedown (before any of that happens) and restoring it in
+  // exec() makes every command apply to what was actually selected.
+  const savedRangeRef = useRef<Range | null>(null);
+  function saveSelection() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  }
+  // Recomputes which formats apply at the caret — the execCommand-backed
+  // ones via queryCommandState (the one thing it's reliably good at), the
+  // manually-wrapped list/quote by walking up from the selection to see if
+  // a <blockquote>/<ul>/<ol> is an ancestor.
+  function toolbarStyle(key: string, extra?: CSSProperties): CSSProperties {
+    if (activeFormats.has(key)) return { ...toolbarButtonStyle, ...activeToolbarButtonStyle, ...extra };
+    if (hoveredBtn === key) return { ...toolbarButtonStyle, background: "#2A2D37", color: "#EDEDF0", ...extra };
+    return { ...toolbarButtonStyle, ...extra };
+  }
+  function updateActiveFormats() {
+    const el = editorRef.current;
+    const next = new Set<string>();
+    if (el) {
+      try {
+        if (document.queryCommandState("bold")) next.add("bold");
+        if (document.queryCommandState("italic")) next.add("italic");
+        if (document.queryCommandState("underline")) next.add("underline");
+      } catch {
+        // queryCommandState can throw outside a live selection context.
+      }
+      const sel = window.getSelection();
+      let node: Node | null = sel && el.contains(sel.anchorNode) ? sel.anchorNode : null;
+      while (node && node !== el) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const tag = (node as HTMLElement).tagName;
+          if (tag === "BLOCKQUOTE") next.add("quote");
+          if (tag === "UL") next.add("bullet");
+          if (tag === "OL") next.add("numbered");
+        }
+        node = node.parentNode;
+      }
+    }
+    setActiveFormats(next);
+  }
+
+  // execCommand is deprecated but remains the only zero-dependency way to
+  // drive a contentEditable's native rich-text formatting — pulling in a
+  // whole editor library (TipTap/Slate) for bold/italic/lists/link/quote
+  // would be a lot of surface for what the browser already does.
+  function exec(command: string, value?: string) {
+    if (streaming) return;
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const sel = window.getSelection();
+    if (sel && savedRangeRef.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    document.execCommand(command, false, value);
+    setDraftLen(measureDraft(el));
+    updateActiveFormats();
+  }
+  function execLink() {
+    const url = window.prompt("Link URL");
+    if (url) exec("createLink", url);
+  }
+
+  // execCommand's list/formatBlock support is notoriously unreliable in
+  // WebKit-based webviews (unlike bold/italic/underline, which are plain
+  // CSS-backed inline commands and work fine) — silently no-ops instead of
+  // erroring. Building the wrapper element by hand via the Range API sides
+  // steps the browser's implementation entirely instead of trying to detect
+  // and work around it.
+  function wrapSelection(build: (contents: DocumentFragment) => HTMLElement) {
+    if (streaming) return;
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    if (savedRangeRef.current && el.contains(savedRangeRef.current.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    // Whatever's selected still might not actually be inside the editor —
+    // nothing was ever clicked/highlighted in here yet (a fresh draft, or a
+    // stray selection elsewhere on the page) — not just "totally empty."
+    // Checking rangeCount alone missed that case: the button appeared to do
+    // nothing unless you'd first highlighted real text. Fall back to a
+    // collapsed caret at the end of the draft so the command always runs.
+    if (sel.rangeCount === 0 || !el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      sel.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel.addRange(range);
+    }
+    const range = sel.getRangeAt(0);
+    const contents = range.extractContents();
+    const wrapper = build(contents);
+    range.insertNode(wrapper);
+    sel.removeAllRanges();
+    sel.addRange(endOfContentRange(wrapper));
+    setDraftLen(measureDraft(el));
+    updateActiveFormats();
+  }
+  function execQuote() {
+    const color = colorForUser(myEmail);
+    wrapSelection((contents) => {
+      const bq = document.createElement("blockquote");
+      bq.appendChild(contents);
+      bq.style.borderLeftColor = color;
+      bq.style.background = `${color}22`;
+      return bq;
+    });
+  }
+  // `selectNodeContents(container); collapse(false)` looks like "end of
+  // container" but actually lands at (container, container.childNodes.length)
+  // — a child-index position, not a position inside the last real text run.
+  // For a collapsed range used only as an *insertion point* that's harmless
+  // (insertNode just appends), but for a range that becomes the caret the
+  // user actually sees, it produced an invisible/degenerate caret — verified
+  // live via a standalone repro (see wrapSelection). Drilling to the real
+  // last leaf and using its actual text offset is what gives a genuine one.
+  function endOfContentRange(container: Node): Range {
+    let leaf: Node = container;
+    while (leaf.lastChild) leaf = leaf.lastChild;
+    const r = document.createRange();
+    if (leaf.nodeType === Node.TEXT_NODE) {
+      r.setStart(leaf, leaf.textContent?.length ?? 0);
+    } else {
+      r.selectNodeContents(leaf);
+    }
+    r.collapse(true);
+    return r;
+  }
+
+  function closestTag(node: Node | null, tag: string): HTMLElement | null {
+    let n = node;
+    while (n && n !== editorRef.current) {
+      if (n.nodeType === Node.ELEMENT_NODE && (n as HTMLElement).tagName === tag) return n as HTMLElement;
+      n = n.parentNode;
+    }
+    return null;
+  }
+  function closestQuote(node: Node | null): HTMLElement | null {
+    return closestTag(node, "BLOCKQUOTE");
+  }
+
+  // Flattens a <ul>/<ol> back into plain lines (each <li>'s content, joined
+  // by <br>s) in place of the list element itself — the toggle-off half of
+  // the bullet/numbered buttons.
+  function unwrapList(list: HTMLElement) {
+    const items = Array.from(list.children);
+    const frag = document.createDocumentFragment();
+    items.forEach((li, i) => {
+      while (li.firstChild) frag.appendChild(li.firstChild);
+      if (i < items.length - 1) frag.appendChild(document.createElement("br"));
+    });
+    list.replaceWith(frag);
+  }
+
+  function execList(ordered: boolean) {
+    if (streaming) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const tag = ordered ? "OL" : "UL";
+    const anchorNode = savedRangeRef.current?.startContainer ?? window.getSelection()?.anchorNode ?? null;
+    const existing = anchorNode ? closestTag(anchorNode, tag) : null;
+    if (existing) {
+      // Already a list of this kind at the caret — pressing the button again
+      // means "undo it," not "nest another one inside it."
+      el.focus();
+      unwrapList(existing);
+      const after = endOfContentRange(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(after);
+      savedRangeRef.current = after.cloneRange();
+      setDraftLen(measureDraft(el));
+      updateActiveFormats();
+      return;
+    }
+    wrapSelection((contents) => {
+      const li = document.createElement("li");
+      li.appendChild(contents);
+      // An empty li has only the ::before marker as a flex item — nothing
+      // else for the caret to occupy, so it renders stacked on/behind the
+      // marker instead of beside it. A <br> looked like the obvious
+      // placeholder, but inside a flex container it becomes a flex item
+      // rather than an inline line-break, and stopped being a valid caret
+      // anchor at all — the cursor disappeared entirely. A zero-width-space
+      // text node is a real (if invisible) inline text run, which is what
+      // the caret actually needs to sit in; stripped back out in
+      // draftToMarkdown so it never reaches the sent message.
+      if (!li.hasChildNodes()) li.appendChild(document.createTextNode("​"));
+      const list = document.createElement(ordered ? "ol" : "ul");
+      list.appendChild(li);
+      return list;
+    });
+  }
+
+  // Markdown-style auto-list: typing "1. " or "- "/"• " at the very start of
+  // a line converts it the same way the toolbar buttons do — checked on the
+  // triggering space itself. `node.previousSibling == null` is what "start of
+  // a line" resolves to here: Enter starts a fresh block/text node in every
+  // engine, so being first-child-with-nothing-before-it holds whether it's
+  // the first line in the whole draft or one after a line break.
+  function handleEditorKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    // Backspace inside an emptied-out blockquote (you deleted everything you
+    // quoted, or created one and never typed into it) otherwise has nowhere
+    // to go — it's the editor's only content, so there's no "after it" to
+    // click into. Once the quote is empty, one more Backspace drops it and
+    // hands you a caret right where it was, instead of leaving you stuck.
+    if (e.key === "Backspace") {
+      const el = editorRef.current;
+      const sel = window.getSelection();
+      if (el && sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const bq = closestQuote(sel.getRangeAt(0).startContainer);
+        if (bq && (bq.textContent ?? "").trim() === "") {
+          e.preventDefault();
+          bq.remove();
+          if (el.childNodes.length === 0) el.appendChild(document.createTextNode(""));
+          const after = endOfContentRange(el);
+          sel.removeAllRanges();
+          sel.addRange(after);
+          savedRangeRef.current = after.cloneRange();
+          setDraftLen(measureDraft(el));
+          updateActiveFormats();
+          return;
+        }
+      }
+    }
+    // Plain Enter exits the quote entirely (matches "return takes you out of
+    // it"); Shift+Enter is left to the browser's own default line-break
+    // behavior, which stays inside the current block — i.e. still quoted.
+    if (e.key === "Enter" && !e.shiftKey) {
+      const el = editorRef.current;
+      const sel = window.getSelection();
+      if (el && sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const bq = closestQuote(sel.getRangeAt(0).startContainer);
+        if (bq) {
+          e.preventDefault();
+          const line = document.createElement("div");
+          line.appendChild(document.createElement("br"));
+          if (bq.nextSibling) el.insertBefore(line, bq.nextSibling);
+          else el.appendChild(line);
+          const range = document.createRange();
+          range.setStart(line, 0);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          savedRangeRef.current = range.cloneRange();
+          setDraftLen(measureDraft(el));
+          updateActiveFormats();
+          return;
+        }
+      }
+    }
+    if (e.key !== " ") return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE || node.previousSibling) return;
+    const before = (node.textContent ?? "").slice(0, range.startOffset);
+    const ordered = before === "1.";
+    const bulleted = before === "-" || before === "•";
+    if (!ordered && !bulleted) return;
+    e.preventDefault();
+    node.textContent = (node.textContent ?? "").slice(range.startOffset);
+    const caret = document.createRange();
+    caret.setStart(node, 0);
+    caret.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(caret);
+    savedRangeRef.current = caret.cloneRange();
+    execList(ordered);
+  }
+
   function send() {
     if (!allReady || streaming) return;
     const el = editorRef.current;
-    const text = el ? el.innerText.replace(/\s+/g, " ").trim() : "";
+    const text = el ? draftToMarkdown(el) : "";
     if (!text) return;
     onSend(text);
     if (el) el.innerHTML = "";
@@ -187,19 +633,30 @@ export function AgentWindow({
         style={{ flex: paneWidth != null ? `0 0 ${paneWidth}px` : "1 1 0%", minHeight: 0 }}
       >
         <div className="chat-pane flex-1 min-w-0 min-h-0 flex flex-col bg-chat-pane-bg border border-border rounded-xl overflow-hidden">
+          <div style={{ padding: "12px 18px", borderBottom: `1px solid ${C.seam}`, fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: C.sub }}>
+            Collaborators
+          </div>
           <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "auto" }}>
             <div
               ref={editorRef}
+              className="agent-draft-editor"
               contentEditable={!streaming}
               suppressContentEditableWarning
               spellCheck={false}
-              onInput={() => setDraftLen(editorRef.current?.innerText.trim().length ?? 0)}
+              onInput={() => {
+                const el = editorRef.current;
+                if (el) setDraftLen(measureDraft(el));
+                updateActiveFormats();
+              }}
+              onKeyDown={handleEditorKeyDown}
+              onKeyUp={updateActiveFormats}
+              onMouseUp={updateActiveFormats}
               style={{
                 minHeight: "100%",
                 padding: "28px 30px",
                 fontSize: 15.5,
                 lineHeight: 2.2,
-                color: C.inkDim,
+                color: "#FFFFFF",
                 outline: "none",
                 cursor: "text",
               }}
@@ -209,6 +666,89 @@ export function AgentWindow({
                 Describe the change for Nova… everyone marks ready, then send.
               </div>
             )}
+          </div>
+          <div
+            // Belt-and-braces alongside each button's own onMouseLeave: if a
+            // button's leave event is ever missed (couldn't confirm either
+            // way inside the actual WKWebView, which this app runs in but
+            // which I have no way to sign into and test directly), the
+            // pointer still has to cross this row's boundary to get
+            // anywhere else, which clears the stuck state as a fallback.
+            onMouseLeave={() => setHoveredBtn(null)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "8px 12px",
+              borderTop: `1px solid ${C.seam}`,
+              flex: "none",
+            }}
+          >
+            {[
+              { cmd: "bold", label: "B", style: { fontWeight: 700 } },
+              { cmd: "italic", label: "I", style: { fontStyle: "italic" as const } },
+              { cmd: "underline", label: "U", style: { textDecoration: "underline" } },
+            ].map((b) => (
+              <button
+                key={b.cmd}
+                type="button"
+                title={b.cmd}
+                onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+                onMouseEnter={() => setHoveredBtn(b.cmd)}
+                onMouseLeave={() => setHoveredBtn(null)}
+                onClick={() => exec(b.cmd)}
+                style={toolbarStyle(b.cmd, b.style)}
+              >
+                {b.label}
+              </button>
+            ))}
+            <div style={toolbarDividerStyle} />
+            <button
+              type="button"
+              title="Link"
+              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseEnter={() => setHoveredBtn("link")}
+              onMouseLeave={() => setHoveredBtn(null)}
+              onClick={execLink}
+              style={toolbarStyle("link")}
+            >
+              <LinkIcon />
+            </button>
+            <div style={toolbarDividerStyle} />
+            <button
+              type="button"
+              title="Numbered list"
+              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseEnter={() => setHoveredBtn("numbered")}
+              onMouseLeave={() => setHoveredBtn(null)}
+              onClick={() => execList(true)}
+              style={toolbarStyle("numbered")}
+            >
+              <OrderedListIcon />
+            </button>
+            <button
+              type="button"
+              title="Bulleted list"
+              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseEnter={() => setHoveredBtn("bullet")}
+              onMouseLeave={() => setHoveredBtn(null)}
+              onClick={() => execList(false)}
+              style={toolbarStyle("bullet")}
+            >
+              <BulletedListIcon />
+            </button>
+            <div style={toolbarDividerStyle} />
+            <button
+              type="button"
+              title="Quote"
+              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseEnter={() => setHoveredBtn("quote")}
+              onMouseLeave={() => setHoveredBtn(null)}
+              onClick={execQuote}
+              style={toolbarStyle("quote")}
+            >
+              <QuoteIcon />
+            </button>
           </div>
           <div
             style={{
@@ -247,7 +787,7 @@ export function AgentWindow({
                     onClick={() => forceUser(o.email)}
                     style={{ flex: "none", fontSize: 12.5, fontWeight: 600, color: C.amber, cursor: "pointer", whiteSpace: "nowrap" }}
                   >
-                    force {initialsFor(o.email)}
+                    force {nicknameOrLocalPart(o.email)}
                   </div>
                 ))}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 9, flex: "none" }}>

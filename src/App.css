@@ -547,6 +547,62 @@ h1 {
   color: var(--text-primary);
 }
 
+/* Cowork's shared-draft formatting toolbar's hover feedback is JS-driven
+   (AgentWindow.tsx's `hoveredBtn` state + `toolbarStyle()`), not a CSS
+   `:hover` rule — with `onMouseDown`'s `preventDefault()` (needed to keep
+   the editor's selection alive across the click), some WebKit builds stop
+   re-evaluating `:hover` until the pointer actually moves, so a plain
+   `:hover` rule here stayed "stuck" grey after clicking a toggle (e.g. the
+   list button) even once it was switched back off. */
+
+/* Manually-wrapped blockquote/list elements (execCommand's own versions of
+   these are unreliable in WebKit — see AgentWindow.tsx's wrapSelection)
+   otherwise render with the browser's default UA margins, which look
+   cramped/unstyled against the rest of this dark, roomy draft editor. */
+.agent-draft-editor blockquote {
+  margin: 0.4em 0;
+  padding: 0.5em 0.9em;
+  border-radius: 6px;
+  border-left: 3px solid #383C48;
+  color: #FFFFFF;
+}
+/* Native ::marker boxes use their own font metrics rather than the li's
+   actual line-height, so against this editor's tall 2.2 line-height the
+   bullet/number sits noticeably off the text baseline — a well-known
+   cross-browser gap `list-style` alone can't fix. `position: absolute`
+   marker was worse for an empty li specifically: with no `top` set it falls
+   back to its *static* position, which for a li with no other content isn't
+   the line the caret actually renders on — the marker floated to the top of
+   the box, cursor blinking on a line below it. Flex makes the marker a real
+   layout sibling of the text (or of the caret's empty line box) instead of
+   an overlay, so it's always beside whatever's actually there. */
+.agent-draft-editor ul,
+.agent-draft-editor ol {
+  margin: 0.4em 0;
+  padding-left: 0.3em;
+  list-style: none;
+  counter-reset: agent-ol;
+}
+.agent-draft-editor li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+.agent-draft-editor li > * {
+  min-width: 0;
+}
+.agent-draft-editor ul > li::before {
+  content: "•";
+  flex: none;
+}
+.agent-draft-editor ol > li {
+  counter-increment: agent-ol;
+}
+.agent-draft-editor ol > li::before {
+  content: counter(agent-ol) ".";
+  flex: none;
+}
+
 .icon-button-danger {
   color: var(--conflict);
 }

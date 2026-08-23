@@ -1,5 +1,6 @@
 import { memo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import type { Attachment, ContentBlock } from "../types/message";
 import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
 import { useSmoothedText } from "../lib/useSmoothedText";
@@ -100,6 +101,7 @@ function MarkdownTextImpl({ text, className }: { text: string; className?: strin
   return (
     <div className={className}>
       <ReactMarkdown
+        rehypePlugins={[rehypeRaw]}
         components={{
           code({ className, children }) {
             const match = /language-(\w+)/.exec(className ?? "");

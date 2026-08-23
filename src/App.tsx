@@ -39,6 +39,21 @@ import {
   updateChatHandoff,
 } from "./lib/persistChat";
 import { userMessage, handoffBriefMessage, type SentAttachment, type Message } from "./types/message";
+
+// The shelf's old summary was a fixed string ("Nova's latest change from
+// this chat…") for every item — useless once more than one thing is queued.
+// Pulling the actual reply text tells you what you're about to merge without
+// having to reopen the chat.
+function summarizeReply(message: Message | undefined): string {
+  const text = (message?.blocks ?? [])
+    .filter((b): b is Extract<Message["blocks"][number], { kind: "text" }> => b.kind === "text")
+    .map((b) => b.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "Nova's latest reply (no text — check the chat for tool calls/attachments).";
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
 import { deriveChatTitle } from "./lib/chatTitle";
 import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
@@ -804,7 +819,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           {
             id: `s-${Date.now()}`,
             title: activeChat?.title ?? "Untitled change",
-            summary: "Nova's latest change from this chat, rendered into the team preview.",
+            summary: summarizeReply(lastReply),
             approvers,
             agreed: [myEmail],
             status: "held",
@@ -829,7 +844,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     } finally {
       setShelving(false);
     }
-  }, [canShelve, shelving, activeChatId, activeChat?.title, contributors, myEmail]);
+  }, [canShelve, shelving, activeChatId, activeChat?.title, contributors, myEmail, lastReply]);
+
+  const handleRemoveFromShelf = useCallback((id: string) => {
+    setShelf((s) => s.filter((it) => it.id !== id));
+  }, []);
 
   const handleToggleAgree = useCallback(
     (id: string) => {
@@ -1049,7 +1068,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             )}
           </div>
           {activeChatId && activeChat && viewMode === "cowork" && (
-            <ShelfPanel shelf={shelf} publishing={publishing} myEmail={myEmail} onToggleAgree={handleToggleAgree} onPublish={handlePublish} />
+            <ShelfPanel
+              shelf={shelf}
+              publishing={publishing}
+              myEmail={myEmail}
+              onToggleAgree={handleToggleAgree}
+              onPublish={handlePublish}
+              onRemove={handleRemoveFromShelf}
+            />
           )}
         </div>
       )}

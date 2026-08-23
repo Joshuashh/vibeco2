@@ -4,7 +4,7 @@ import { MessageBlock } from "./MessageBlock";
 import { ToolGroup } from "./ToolGroup";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { formatRelativeTimeLong } from "../lib/time";
-import { colorForUser } from "../lib/presenceColor";
+import { colorForUser, displayNameForUser } from "../lib/presenceColor";
 import type { AssignableTeammate } from "./AssignChatMenu";
 
 type ToolUseBlock = Extract<ContentBlock, { kind: "tool_use" }>;
@@ -169,13 +169,16 @@ export function MessageList({
           <div key={i} data-msg-index={i} className="flex flex-col items-end">
             {showAuthors && message.authorEmail && (
               <span
-                className="text-[11px] font-medium mb-[2px] mr-[2px]"
+                className="text-[13px] font-bold mb-[6px] mr-[2px]"
                 style={{ color: colorForUser(message.authorEmail) }}
               >
-                {message.authorEmail.split("@")[0]}
+                {displayNameForUser(message.authorEmail)}
               </span>
             )}
-            <div className="bg-user-bubble rounded-2xl px-[14px] py-[9px] max-w-[82%]">
+            <div
+              className={`rounded-2xl px-[14px] py-[9px] max-w-[82%] ${message.authorEmail ? "" : "bg-user-bubble"}`}
+              style={message.authorEmail ? { background: `${colorForUser(message.authorEmail)}26` } : undefined}
+            >
               {renderBlocks(message.blocks, false, liveTextIndex, message.createdAt, teammates)}
             </div>
             {timestamp}

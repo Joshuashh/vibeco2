@@ -1,5 +1,17 @@
 # Vibeco2 — Decisions Log
 
+## Session hand-off (2026-08-23, latest)
+
+**What shipped this session:** a long iterative session on the Plan/Chat area, ending with the tabs split into **Home / Cowork / Solo / Preview**. Chronologically: removed AgentWindow's header row → tried merging Plan+Chat into one tab with a Solo/Team sub-toggle (several redesign rounds: inline in `ViewToggle`, shelf relocated to a right rail, then a full-height pinned `ShelfPanel`, then the "add to shelf" button moved into `AgentWindow`'s reply pane) → user then asked to split back into two plain top-level tabs, renamed Cowork/Solo, which is where it landed. Also retired the top-bar "Log" panel into a new "At a glance" section on Home, and fixed two real perf bugs in the chat view (split-pane width snapping on first render; markdown re-parsing the whole history on every mount/re-render, now windowed to 40 messages + memoized). One commit, pushed: `c012754`.
+
+**Current state:** `main` matches `origin/main` at `c012754`. `npx tsc --noEmit` and `npx vitest run` (81/81) clean throughout; `cargo check` unaffected (no Rust changes). Not clicked through live in `tauri dev` this session (per the user's own stated preference to verify UI himself) — worth a pass on: the Cowork/Solo tab switch, `ShelfPanel`'s collapse/expand + tooltip, Home's new "At a glance" section, and the "Show earlier messages" reveal button on a genuinely long chat.
+
+**Open items:** none explicitly deferred — every request in this session was completed. One thing flagged mid-session but not asked for, so left alone: `AgentWindow` (Cowork) still has no rename/delete/handoff/chat-switcher header chrome that `ChatPane` (Solo) has — noted as a possible follow-up, not a gap in what was asked.
+
+**Recommendation:** safe to start fresh next session.
+
+
+
 ## Message list re-renders re-parsing markdown, memoized + windowed (2026-08-23, latest)
 
 **Bug:** switching into a chat (Cowork or Solo) took 1-2s, separate from the earlier split-pane jump fix. Root cause, found via investigation: `App.tsx`'s `home`/`cowork`/`solo`/`canvas`/`preview` view switch is a plain JS ternary chain — switching tabs fully unmounts the previous view and mounts `Sidebar` + `ChatPane`/`AgentWindow` → `ChatView`/`MessageList` from scratch. `MessageList` `.map()`s every message with no windowing, and nothing in the chain (`MessageBlock`, `MarkdownText`, `ToolGroup`, `ToolCallRow`) was memoized, so every message's markdown gets parsed through `react-markdown`'s full remark→rehype→React pipeline synchronously on that first render — for a chat with real length this is the actual multi-second cost. The same lack of memoization also meant this work re-ran on *any* ancestor re-render while a chat was already open (a teammate's cursor broadcasting position, presence updates), not just on mount — a real cost during live collaboration even without switching tabs, though not the one directly reported.
@@ -909,10 +921,56 @@ Manual handoff (`handleHandoff`) called `generate_session_brief` unconditionally
 
 **Verified:** `npx tsc --noEmit` clean, `npx vitest run` (77/77). Not exercised in the running app this session.
 
-## Log entries click-to-jump; log auto-scroll to newest (2026-08-22)
+## Markdown formatting toolbar added to Cowork's shared draft, not Solo (2026-08-23)
+
+**Where it actually belongs:** the request was "markdown text editing on the team left pane chat." The Solo tab's chat input (`InputBar.tsx`, a plain `<textarea>` shared with the Home dashboard's `ChatCard.tsx`) looked like the obvious target and got the first pass — wrong file. The real "team left pane chat" is `AgentWindow.tsx`'s `contentEditable` co-chat draft editor (Cowork mode only), a completely separate component. Reverted the `InputBar.tsx` toolbar; rebuilt it in `AgentWindow.tsx`.
+
+**Why contentEditable changes the approach:** `InputBar`'s plain textarea needed hand-rolled selection-wrapping (`**bold**` splicing). `AgentWindow`'s draft is a real `contentEditable` div, so `document.execCommand` drives native bold/italic/underline/lists/blockquote/link — no editor library (TipTap/Slate) needed for what the browser already does. Rejected pulling in a rich-text library: this is exactly the "native platform feature" rung.
+
+**The real cost was on send, not on typing:** `send()` used to read `el.innerText.replace(/\s+/g, " ").trim())` — flattening all structure to a single line, so no formatting ever survived to reach Claude regardless of what execCommand did visually. Added `htmlToMarkdown`/`draftToMarkdown` (`AgentWindow.tsx`) — a small recursive DOM walker converting the execCommand-produced HTML (`b`/`strong`, `i`/`em`, `u`, `a[href]`, `ul`/`ol`/`li`, `blockquote`) into markdown, which `MarkdownText`'s existing `react-markdown` renderer already round-trips.
+
+**Underline needed a new dependency:** CommonMark has no underline syntax, so `<u>text</u>` survives as literal HTML in the markdown string. Added `rehype-raw` (small, standard react-markdown companion) to `MessageBlock.tsx`'s renderer so that HTML actually renders instead of being stripped/escaped — the one plugin genuinely required, not adopted speculatively.
+
+**Blockquote attribution — decided not to build anything new:** the follow-up idea was blockquotes tagged so Claude can say "good idea from Josh." Every message already carries `authorEmail` (`types/message.ts`) end to end, rendered/colored per teammate in `MessageList.tsx`. A quote inside Josh's message is already unambiguously Josh's — attributing it again per-blockquote would be new plumbing for information the message already carries. Skip until multiple people's text can land inside *one* message (it can't, today — one input box per sender).
+
+**Verified:** `npx tsc --noEmit` clean. Not exercised in the running app this session — a `tauri dev`/`vite-dev` session was already running on port 1420 under the user, so the preview browser wasn't started to avoid clobbering it.
+
+## Shelf items: added delete, replaced the fixed placeholder summary with the real reply text (2026-08-23)
+
+**The bug:** every shelved item's `summary` was the literal same hardcoded string (`"Nova's latest change from this chat, rendered into the team preview."`) regardless of what actually changed — no way to tell shelved items apart, and no way to tell what you're about to merge without reopening the chat. Also no way to remove an item once added (e.g. added the same reply twice).
+
+**Fix:** `App.tsx` gained `summarizeReply(message)` — pulls the actual text blocks out of the last assistant reply (`ContentBlock` with `kind: "text"`), collapses whitespace, truncates to 160 chars. `handleShelve` now calls this instead of the fixed string. Falls back to a distinct message when the reply has no text blocks (tool-only turns) rather than silently reusing the old vague copy.
+
+**Delete:** `ShelfPanel` gained an `onRemove(id)` prop and a small × control per item (top-right, next to the title). `App.tsx`'s `handleRemoveFromShelf` just filters the local `shelf` state array — this only removes the item from the queue/UI, it does **not** undo the `render_preview` invoke that already ran when the item was shelved (that already wrote to the chat's branch/preview state server-side). Fine for the stated use case (duplicate-add cleanup before publish), but worth knowing if "delete" is ever expected to also roll back the underlying render.
+
+**Verified:** `npx tsc --noEmit` clean. Not exercised in the running app this session (same reason as above).
+
+## Live collaborative editing for Cowork's shared draft — scoped, not built (2026-08-23)
+
+User asked to scope out Google-Docs-style live collaborative typing/editing for the Cowork left-pane draft. Current state: `AgentWindow.tsx`'s draft editor is explicitly local-per-user today (the file has a standing comment flagging this as a known gap) — Liveblocks presence only carries a `readyForChatId` flag, not the draft text itself.
+
+**What real live-collab would need:** (1) move the draft from local React state into Liveblocks `Storage` (Yjs-backed), so keystrokes sync per character rather than just a ready/not-ready flag; (2) live cursors/carets per occupant — Liveblocks has this as a first-class primitive, and `LiveCursors.tsx` (used elsewhere in the app) may cover a good chunk of the same primitive; (3) conflict resolution — Yjs handles concurrent edits automatically, no hand-rolled OT needed; (4) the new formatting toolbar's execCommand state would need to live in the shared doc too, or one person's bold/italic only shows locally.
+
+**Not started.** Sized as its own separate piece of work — touches the presence/storage model and needs a cursor overlay, distinct from the toolbar/shelf fixes above.
 
 **Log entries now clickable:** the "For you" alert list already jumped to the chat on click (`onJumpToChat`, renamed from `onJumpToMention` since it now covers both surfaces). The main "Activity log" stream (persisted checkpoint/handoff summaries) didn't — added the same behavior there for any entry with a `chat_id`, with `role="button"`/keyboard support since `MarkdownText`'s block-level markdown output can't be nested inside a real `<button>`. Caught one nested-click hazard while wiring this: `CodeBlock`'s "Copy" button (`MessageBlock.tsx`) had no `stopPropagation`, so copying code inside a log entry would now also bubble up and navigate away — fixed at the source rather than only in `LogPanel`, since anywhere else that ever wraps `MarkdownText` in a clickable row would hit the same bug.
 
 **Log stream now reads oldest→newest, auto-scrolled to the bottom:** it was rendering newest-first (matching the DB fetch order) with no scroll management. Reversed for display (chat-log convention) and added a `bottomRef`/`scrollIntoView` on `filtered.length` change, same pattern `MessageList` already uses for chat turns — opening the panel, changing filters, or a new entry landing all keep the most recent one on screen without manual scrolling.
 
 **Verified:** `npx tsc --noEmit` clean, `npx vitest run` (77/77). Not exercised in the running app this session.
+
+## Cowork toolbar: caret-invisible-in-list and stuck-hover fixes did NOT work in the real app (2026-08-23)
+
+**Status: unresolved, despite two rounds of fixes that were each individually verified.** Flagging explicitly, following on from the "Markdown formatting toolbar added to Cowork's shared draft" entry above, so the next session doesn't re-trust the "verified" claims below at face value — they were true in isolation, not true end-to-end in this app.
+
+**Caret invisible next to bullet/numbered list markers:**
+- Round 1: fixed `wrapSelection`'s final caret placement, which was landing at `(ul_or_ol, childCount)` — a position in the *list's* children, not inside the `<li>`. Changed to target `wrapper.lastElementChild`.
+- Round 2 (this session): built a standalone HTML/JS reproduction of the exact same DOM logic (not the React app — couldn't sign in to test that directly) outside the project, served it locally, and used the browser tool to click the button, inspect `document.getSelection()`, and call `range.getClientRects()`. This proved `(li, 1)` is *itself* the same category of bug one level deeper — a child-index position, not a position inside the li's actual text node. Fixed by drilling to the real deepest text node and using its character offset; confirmed in the repro that `getClientRects()` then returns a real `{width:0,height:18}` caret rect and that typing lands correctly right after the marker. Applied the same fix to all three places in `AgentWindow.tsx` with the same pattern (`wrapSelection`, `execList`'s toggle-off, the blockquote-backspace-exit handler) via a shared `endOfContentRange()` helper.
+- **User confirmed after this: still broken in the real app.** The repro instrumentation (getClientRects returning a real rect, typed text landing at the right place) does not fully represent whatever's actually happening in the Tauri/WKWebView runtime this app ships in. Root cause is still open. Next session: don't trust a plain-browser repro's verdict here without also confirming it feels different from the current broken behavior described *by the user, live, in the actual app* — the DOM-position theory may be right but incomplete, or may be entirely the wrong track.
+
+**Stuck grey hover box on toolbar buttons:**
+- Replaced CSS `:hover` with JS-driven `onMouseEnter`/`onMouseLeave` state (`hoveredBtn`), reasoning that WebKit can stop re-evaluating `:hover` after a `mousedown` `preventDefault()`. Verified the JS approach itself works correctly in the same standalone repro (logged "leave" firing, background clearing).
+- Added a container-level `onMouseLeave` fallback on the whole toolbar row on top of that.
+- **User confirmed after this: still stuck.** Same caveat as above — verified correct in isolation, not fixed in the actual app. The real cause is still unknown; don't assume it's a WebKit `:hover`-after-preventDefault issue without further evidence from inside the actual running app.
+
+**Why this is hard to debug from here:** this Claude Code session has no way to sign into the Vibeco2 app itself (it's behind auth), so every fix this session has been verified either by static reasoning or by an out-of-app standalone reproduction of the same DOM/CSS logic — never by actually reproducing the bug and watching the fix land, in the real running app, the way the user sees it. That gap is almost certainly why two rounds of "verified" fixes both still failed for the user. **Next session should get the user to drive the actual repro (or use a debugging/inspection tool that can attach to the running signed-in app) rather than trusting an out-of-app standalone recreation again.**

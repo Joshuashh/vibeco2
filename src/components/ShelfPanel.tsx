@@ -39,12 +39,14 @@ export function ShelfPanel({
   myEmail,
   onToggleAgree,
   onPublish,
+  onRemove,
 }: {
   shelf: ShelfItem[];
   publishing: boolean;
   myEmail: string;
   onToggleAgree: (id: string) => void;
   onPublish: () => void;
+  onRemove: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(true);
 
@@ -132,7 +134,18 @@ export function ShelfPanel({
             const mine = it.agreed.includes(myEmail);
             return (
               <div key={it.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{it.title}</div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, flex: 1 }}>{it.title}</div>
+                  <div
+                    onClick={() => onRemove(it.id)}
+                    title="Remove from shelf"
+                    style={{ flex: "none", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.fainter }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                      <path d="M2.5 2.5l9 9M11.5 2.5l-9 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                </div>
                 <div style={{ fontSize: 12.5, lineHeight: 1.55, color: C.sub }}>{it.summary}</div>
                 <div style={{ fontSize: 11.5, color: it.status === "conflict" ? "#E2584F" : full ? C.mint : C.amber }}>
                   {it.status === "conflict"
