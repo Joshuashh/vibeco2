@@ -3,11 +3,9 @@ import { useEffect, useRef, useState } from "react";
 export function ViewToggle({
   mode,
   onChange,
-  onChatClick,
 }: {
-  mode: "home" | "chat" | "canvas" | "preview" | "plan";
-  onChange: (mode: "home" | "chat" | "canvas" | "preview" | "plan") => void;
-  onChatClick?: () => void;
+  mode: "home" | "cowork" | "solo" | "canvas" | "preview";
+  onChange: (mode: "home" | "cowork" | "solo" | "canvas" | "preview") => void;
 }) {
   // ponytail: base carries only non-color/background utilities. Tailwind
   // compiles utility classes in an internal order, not JSX order, so a
@@ -26,10 +24,10 @@ export function ViewToggle({
   // selected tab, so the *next* hover always animates out from there rather
   // than from wherever it was last hovering.
   const homeRef = useRef<HTMLButtonElement>(null);
-  const planRef = useRef<HTMLButtonElement>(null);
-  const chatRef = useRef<HTMLButtonElement>(null);
+  const coworkRef = useRef<HTMLButtonElement>(null);
+  const soloRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLButtonElement>(null);
-  const activeRef = mode === "home" ? homeRef : mode === "plan" ? planRef : mode === "chat" ? chatRef : previewRef;
+  const activeRef = mode === "home" ? homeRef : mode === "cowork" ? coworkRef : mode === "solo" ? soloRef : previewRef;
 
   const [hoverRect, setHoverRect] = useState<{ left: number; width: number } | null>(null);
   const [hovering, setHovering] = useState(false);
@@ -73,20 +71,20 @@ export function ViewToggle({
         Home
       </button>
       <button
-        ref={planRef}
-        className={mode === "plan" ? `${base} ${active}` : `${base} ${inactive}`}
+        ref={coworkRef}
+        className={mode === "cowork" ? `${base} ${active}` : `${base} ${inactive}`}
         onMouseEnter={trackHover}
-        onClick={() => onChange("plan")}
+        onClick={() => onChange("cowork")}
       >
-        Plan
+        Cowork
       </button>
       <button
-        ref={chatRef}
-        className={mode === "chat" ? `${base} ${active}` : `${base} ${inactive}`}
+        ref={soloRef}
+        className={mode === "solo" ? `${base} ${active}` : `${base} ${inactive}`}
         onMouseEnter={trackHover}
-        onClick={() => (mode === "chat" ? onChatClick?.() : onChange("chat"))}
+        onClick={() => onChange("solo")}
       >
-        Chat
+        Solo
       </button>
       {/* ponytail: Canvas tab disabled for now, not deleted — CanvasView.tsx
           is still intact, just unreachable from this toggle. */}

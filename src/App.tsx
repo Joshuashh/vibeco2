@@ -7,13 +7,13 @@ import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { AgentWindow } from "./components/AgentWindow";
+import { ShelfPanel, type ShelfItem } from "./components/ShelfPanel";
 import { HomeView } from "./components/HomeView";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
-import { PaneResizeHandle } from "./components/PaneResizeHandle";
 import { ViewToggle } from "./components/ViewToggle";
 import { CanvasView, type FlowScreenApi } from "./components/CanvasView";
 import { PreviewPage } from "./components/PreviewPage";
@@ -44,7 +44,7 @@ import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
-import { fetchMergeEvents, type MergeEvent } from "./lib/mergeEvents";
+import { fetchMergeEvents, insertMergeEvent, type MergeEvent } from "./lib/mergeEvents";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
 import {
   extractMentions,
@@ -57,28 +57,12 @@ import {
 import { notifyMention } from "./lib/notify";
 import { fetchProfiles, updateMyProfile, type Profile } from "./lib/profiles";
 import { setProfileOverrides, pickUnusedColor } from "./lib/presenceColor";
-import { LogPanel } from "./components/LogPanel";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
 import { supabase } from "./lib/supabase";
 import { isClaimedByOther, computeClaimant } from "./lib/claim";
 import { PrefsProvider, usePrefs } from "./lib/prefs";
 import type { ProjectRow } from "./types/project";
-
-// Even 50/50 split, computed from the container's live width so a freshly
-// opened split view starts balanced instead of snapping to whatever the
-// last drag left behind. clientWidth includes the container's own padding
-// (12px normally, 9px on the left when the sidebar's showing), which has to
-// come out too — otherwise the fixed-width left pane claims its share of
-// that padding as real space while the flexible right pane silently
-// shrinks to absorb the overflow, so the "50/50" split reads left-heavy.
-// 12 = .chat-panes' flex gap between the two panes.
-function defaultSplitPaneWidth(container: HTMLDivElement | null): number {
-  if (!container) return (800 - 12) / 2;
-  const style = getComputedStyle(container);
-  const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-  return (container.clientWidth - horizontalPadding - 12) / 2;
-}
 
 function AppShell({ session, project, onSelectProject }: { session: Session; project: ProjectRow; onSelectProject: (project: ProjectRow) => void }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
@@ -87,16 +71,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
   const [mentionInbox, setMentionInbox] = useState<MentionInboxEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [viewMode, setViewMode] = useState<"home" | "chat" | "canvas" | "preview" | "plan">("home");
-  const [chatLayout, setChatLayout] = useState<"single" | "split">("single");
+  const [viewMode, setViewMode] = useState<"home" | "cowork" | "solo" | "canvas" | "preview">("home");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [leftPaneWidth, setLeftPaneWidth] = useState<number | null>(null);
   const chatPanesRef = useRef<HTMLDivElement>(null);
-  const [logPanelOpen, setLogPanelOpen] = useState(false);
-  const [logPanelWidth, setLogPanelWidth] = useState(320);
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
 
   // Bumps the in-memory copy so the sidebar's relative-time/unread signal
@@ -113,15 +92,13 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     setActiveChatId(chatId);
   }, []);
 
-  const handleSelectRight = useCallback((chatId: string) => {
-    setRightChatId(chatId);
-  }, []);
-
   // Used by the mention toast/badge/inbox to snap straight to the chat that
   // was pinged — unread state itself clears via the effect below once this
-  // chat becomes the active/right pane, not here directly.
+  // chat becomes the active/right pane, not here directly. Lands in Solo
+  // (heads-down, individual) rather than Cowork — a mention/handoff is
+  // addressed to you personally, not a call to bring the room in.
   const jumpToChat = useCallback((chatId: string) => {
-    setViewMode("chat");
+    setViewMode("solo");
     setActiveChatId(chatId);
   }, []);
 
@@ -735,7 +712,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   const handleExpand = useCallback((chatId: string) => {
     setActiveChatId(chatId);
-    setViewMode("chat");
+    setViewMode("solo");
   }, []);
 
   const handleCreateChat = useCallback(() => {
@@ -784,24 +761,116 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const activeClaimant = activeChatId ? computeClaimant(activeChatId, selfOccupant, otherOccupants) : null;
   const activeClaimedByOther = activeChatId ? isClaimedByOther(activeChatId, selfOccupant, otherOccupants) : false;
 
-  // Split-view right pane: defaults to whichever teammate currently has a
-  // chat claimed (nice when you haven't picked yet), but rightChatId lets
-  // either side be chosen explicitly via the dropdown in its header.
-  const teammate = others.find((o) => o.presence.claimedChatId);
-  const effectiveRightChatId = rightChatId ?? teammate?.presence.claimedChatId ?? null;
-  const rightChat = effectiveRightChatId ? chats.find((c) => c.id === effectiveRightChatId) : undefined;
-  const rightState = effectiveRightChatId ? chatStates[effectiveRightChatId] : undefined;
-  const rightClaimant = effectiveRightChatId ? computeClaimant(effectiveRightChatId, selfOccupant, otherOccupants) : null;
-  const rightClaimedByOther = effectiveRightChatId ? isClaimedByOther(effectiveRightChatId, selfOccupant, otherOccupants) : false;
+  // Team mode's shelf/publish gate — lifted here (rather than living inside
+  // ShelfPanel or AgentWindow) since the "add to shelf" trigger sits in
+  // AgentWindow's reply pane while the queue/agree/publish UI sits in
+  // ShelfPanel, two siblings that both need this state.
+  const myEmail = self?.presence.email ?? session.user.email ?? "you";
+  const [shelf, setShelf] = useState<ShelfItem[]>([]);
+  const [shelving, setShelving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  const lastReply = useMemo(
+    () => [...(activeState?.messages ?? [])].reverse().find((m) => m.role === "assistant"),
+    [activeState?.messages]
+  );
+  const canShelve = !!lastReply && activeState?.streaming !== true;
+
+  // Approval list = whoever actually contributed a message to this chat, not
+  // whoever happens to be present in the tab right now — a chat someone
+  // stepped away from still needs their sign-off, and someone just watching
+  // shouldn't be counted as a required approver.
+  const contributors = useMemo(() => {
+    const emails = new Set<string>();
+    for (const m of activeState?.messages ?? []) {
+      if (m.role === "user" && m.authorEmail) emails.add(m.authorEmail);
+    }
+    return Array.from(emails);
+  }, [activeState?.messages]);
+
+  const handleShelve = useCallback(async () => {
+    if (!canShelve || shelving || !activeChatId) return;
+    setShelving(true);
+    try {
+      const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
+        "render_preview",
+        { chatId: activeChatId }
+      );
+      const approvers = contributors.length ? contributors : [myEmail];
+      if (result.status === "Clean") {
+        await insertMergeEvent(activeChatId, "held", null);
+        setShelf((s) => [
+          ...s,
+          {
+            id: `s-${Date.now()}`,
+            title: activeChat?.title ?? "Untitled change",
+            summary: "Nova's latest change from this chat, rendered into the team preview.",
+            approvers,
+            agreed: [myEmail],
+            status: "held",
+          },
+        ]);
+      } else {
+        await insertMergeEvent(activeChatId, "conflict", result.files.join(", "));
+        setShelf((s) => [
+          ...s,
+          {
+            id: `s-${Date.now()}`,
+            title: activeChat?.title ?? "Untitled change",
+            summary: `Conflicts with the team branch in: ${result.files.join(", ")}`,
+            approvers,
+            agreed: [],
+            status: "conflict",
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error("render_preview failed", err);
+    } finally {
+      setShelving(false);
+    }
+  }, [canShelve, shelving, activeChatId, activeChat?.title, contributors, myEmail]);
+
+  const handleToggleAgree = useCallback(
+    (id: string) => {
+      setShelf((s) =>
+        s.map((it) =>
+          it.id !== id
+            ? it
+            : {
+                ...it,
+                agreed: it.agreed.includes(myEmail) ? it.agreed.filter((a) => a !== myEmail) : [...it.agreed, myEmail],
+              }
+        )
+      );
+    },
+    [myEmail]
+  );
+
+  const publishable = shelf.filter(
+    (it) => it.status !== "conflict" && it.agreed.length >= it.approvers.length && it.approvers.length > 0
+  );
+  const handlePublish = useCallback(async () => {
+    if (!publishable.length || publishing) return;
+    setPublishing(true);
+    try {
+      await invoke("promote_to_main");
+      await insertMergeEvent(null, "merged", "promoted team → main");
+      const ids = new Set(publishable.map((it) => it.id));
+      setShelf((s) => s.filter((it) => !ids.has(it.id)));
+    } catch (err) {
+      console.error("promote_to_main failed", err);
+    } finally {
+      setPublishing(false);
+    }
+  }, [publishable, publishing]);
 
   // A mention badge counts as read once its chat is actually opened in the
   // docked view — sending into a chat (any view, see handleSend) is the
-  // other "you've seen this" signal, since canvas cards don't have a single
-  // "open" moment the way the docked pane's active/right slot does.
+  // other "you've seen this" signal.
   useEffect(() => {
     if (activeChatId) clearMentionsForChat(activeChatId);
-    if (effectiveRightChatId) clearMentionsForChat(effectiveRightChatId);
-  }, [activeChatId, effectiveRightChatId, clearMentionsForChat]);
+  }, [activeChatId, clearMentionsForChat]);
 
   const mentionedChatIds = useMemo(() => new Set(mentionInbox.map((m) => m.chatId)), [mentionInbox]);
 
@@ -816,7 +885,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar" data-tauri-drag-region>
         <div className="toolbar-side toolbar-side-traffic-lights">
-          {(viewMode === "chat" || viewMode === "plan") && (
+          {(viewMode === "cowork" || viewMode === "solo") && (
             <button
               type="button"
               className="toolbar-icon-button"
@@ -831,11 +900,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
-        <ViewToggle
-          mode={viewMode}
-          onChange={setViewMode}
-          onChatClick={() => setChatLayout((l) => (l === "single" ? "split" : "single"))}
-        />
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions">
           {viewMode === "canvas" && (
             <>
@@ -862,18 +927,6 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               </button>
             </>
           )}
-          <button
-            type="button"
-            className="toolbar-icon-button mr-[8px]"
-            style={logPanelOpen ? { color: "var(--accent)" } : undefined}
-            title="Log"
-            onClick={() => setLogPanelOpen((o) => !o)}
-          >
-            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-            </svg>
-          </button>
           <PresenceBar />
         </div>
       </div>
@@ -886,6 +939,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           otherOccupants={otherOccupants}
           onlineEmails={onlineEmails}
           onJumpToChat={jumpToChat}
+          logbookEntries={logbookEntries}
+          mentionInbox={mentionInbox}
+          selfEmail={session.user.email ?? null}
+          onClearMentions={() => {
+            markMentionsRead(mentionInbox.map((m) => m.id)).catch((err) =>
+              console.error("failed to mark mentions read", err)
+            );
+            setMentionInbox([]);
+          }}
         />
       ) : viewMode === "canvas" ? (
         <CanvasView
@@ -941,140 +1003,55 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             className="chat-panes"
             style={!sidebarCollapsed ? { paddingLeft: 9 } : undefined}
           >
-            {viewMode === "plan" ? (
-              activeChatId && activeChat ? (
+            {activeChatId && activeChat ? (
+              viewMode === "cowork" ? (
                 <AgentWindow
                   chatId={activeChatId}
-                  chat={activeChat}
                   state={activeState}
                   streaming={activeState?.streaming === true}
                   onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
                   onStop={() => handleStop(activeChatId)}
                   teammates={assignableTeammates}
+                  canShelve={canShelve}
+                  shelving={shelving}
+                  onShelve={handleShelve}
                 />
               ) : (
-                <ChatPaneEmpty
-                  text="Select a chat, or start a new one."
+                <ChatPane
+                  chat={activeChat}
                   chats={chats}
                   onSelectChat={handleSelectActive}
-                  onCreateChat={handleCreateChat}
                   self={selfOccupant}
                   others={otherOccupants}
+                  state={activeState}
+                  claimant={activeClaimant}
+                  isSelf={activeClaimant === session.user.email}
+                  disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
+                  streaming={activeState?.streaming === true}
+                  onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
+                  onStop={() => handleStop(activeChatId)}
+                  onRename={(title) => handleRename(activeChatId, title)}
+                  onDelete={() => handleDelete(activeChatId)}
+                  assignableTeammates={assignableTeammates}
+                  onHandoff={(email) => handleHandoff(activeChatId, email)}
+                  onToggleOpen={() => handleToggleOpen(activeChatId)}
                 />
               )
             ) : (
-              <>
-                <div
-                  className={`min-w-0 min-h-0 flex flex-col flex-1${chatLayout === "split" ? " relative" : ""}`}
-                  style={
-                    chatLayout === "split"
-                      ? { flex: `0 0 ${leftPaneWidth ?? defaultSplitPaneWidth(chatPanesRef.current)}px` }
-                      : undefined
-                  }
-                >
-                  {activeChatId && activeChat ? (
-                    <ChatPane
-                      chat={activeChat}
-                      chats={chats}
-                      onSelectChat={handleSelectActive}
-                      self={selfOccupant}
-                      others={otherOccupants}
-                      excludeChatId={effectiveRightChatId}
-                      state={activeState}
-                      claimant={activeClaimant}
-                      isSelf={activeClaimant === session.user.email}
-                      disabled={activeState?.streaming === true || (activeClaimedByOther && !activeChat.open)}
-                      streaming={activeState?.streaming === true}
-                      onSend={(prompt, attachments) => handleSend(activeChatId, prompt, attachments)}
-                      onStop={() => handleStop(activeChatId)}
-                      onRename={(title) => handleRename(activeChatId, title)}
-                      onDelete={() => handleDelete(activeChatId)}
-                      assignableTeammates={assignableTeammates}
-                      onHandoff={(email) => handleHandoff(activeChatId, email)}
-                      onToggleOpen={() => handleToggleOpen(activeChatId)}
-                    />
-                  ) : (
-                    <ChatPaneEmpty
-                      text="Select a chat, or start a new one."
-                      chats={chats}
-                      onSelectChat={handleSelectActive}
-                      onCreateChat={handleCreateChat}
-                      self={selfOccupant}
-                      others={otherOccupants}
-                      excludeChatId={effectiveRightChatId}
-                    />
-                  )}
-                  {chatLayout === "split" && (
-                    <PaneResizeHandle
-                      width={leftPaneWidth ?? defaultSplitPaneWidth(chatPanesRef.current)}
-                      onChange={setLeftPaneWidth}
-                      onReset={() => setLeftPaneWidth(null)}
-                      min={280}
-                      max={Math.max(280, (chatPanesRef.current?.clientWidth ?? 2000) - 280 - 12)}
-                    />
-                  )}
-                </div>
-
-                {chatLayout === "split" && (
-                  <div className="min-w-0 min-h-0 flex flex-col flex-1">
-                    {effectiveRightChatId && rightChat ? (
-                      <ChatPane
-                        chat={rightChat}
-                        chats={chats}
-                        onSelectChat={handleSelectRight}
-                        self={selfOccupant}
-                        others={otherOccupants}
-                        excludeChatId={activeChatId}
-                        state={rightState}
-                        claimant={rightClaimant}
-                        isSelf={rightClaimant === session.user.email}
-                        disabled={rightState?.streaming === true || (rightClaimedByOther && !rightChat.open)}
-                        streaming={rightState?.streaming === true}
-                        onSend={(prompt, attachments) => handleSend(effectiveRightChatId, prompt, attachments)}
-                        onStop={() => handleStop(effectiveRightChatId)}
-                        onRename={(title) => handleRename(effectiveRightChatId, title)}
-                        onDelete={() => handleDelete(effectiveRightChatId)}
-                        assignableTeammates={assignableTeammates}
-                        onHandoff={(email) => handleHandoff(effectiveRightChatId, email)}
-                        onToggleOpen={() => handleToggleOpen(effectiveRightChatId)}
-                      />
-                    ) : (
-                      <ChatPaneEmpty
-                        text={chats.length === 0 ? "No chats available" : "Choose a chat for this pane."}
-                        chats={chats}
-                        onSelectChat={handleSelectRight}
-                        self={selfOccupant}
-                        others={otherOccupants}
-                        excludeChatId={activeChatId}
-                      />
-                    )}
-                  </div>
-                )}
-              </>
+              <ChatPaneEmpty
+                text="Select a chat, or start a new one."
+                chats={chats}
+                onSelectChat={handleSelectActive}
+                onCreateChat={handleCreateChat}
+                self={selfOccupant}
+                others={otherOccupants}
+              />
             )}
           </div>
+          {activeChatId && activeChat && viewMode === "cowork" && (
+            <ShelfPanel shelf={shelf} publishing={publishing} myEmail={myEmail} onToggleAgree={handleToggleAgree} onPublish={handlePublish} />
+          )}
         </div>
-      )}
-      {logPanelOpen && (
-        <>
-          <ResizeDivider invert width={logPanelWidth} onChange={setLogPanelWidth} min={260} max={480} />
-          <div className="sidebar-panel" style={{ width: logPanelWidth }}>
-            <LogPanel
-              chats={chats}
-              entries={logbookEntries}
-              mentions={mentionInbox}
-              selfEmail={session.user.email ?? null}
-              onJumpToChat={jumpToChat}
-              onClearMentions={() => {
-                markMentionsRead(mentionInbox.map((m) => m.id)).catch((err) =>
-                  console.error("failed to mark mentions read", err)
-                );
-                setMentionInbox([]);
-              }}
-              onClose={() => setLogPanelOpen(false)}
-            />
-          </div>
-        </>
       )}
       </div>
     </div>

@@ -1,10 +1,38 @@
 import { useMemo } from "react";
 import type { ChatRow } from "../types/chat";
 import type { Profile } from "../lib/profiles";
+import type { LogbookEntry } from "../lib/logbookEntries";
+import type { MentionInboxEntry } from "../lib/mentions";
 import { computeClaimant, type Occupant } from "../lib/claim";
 import { activeChats, groupActiveChats } from "../lib/chatGroups";
 import { colorForUser, displayNameForUser, initialsForUser, textColorForBackground } from "../lib/presenceColor";
 import { formatRelativeTime } from "../lib/time";
+import { MarkdownText } from "./MessageBlock";
+
+// A handoff entry's `user_email` is whoever performed the handoff, not who
+// it's for — the person this entry is actually relevant to is the recipient
+// for a handoff, and the actor for anything else (a checkpoint has no other
+// party). Ported from LogPanel.tsx.
+function entryOwner(entry: LogbookEntry): string | null {
+  return entry.kind === "handoff" ? entry.handed_off_to ?? entry.user_email : entry.user_email;
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds == null) return "";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function entryChatTitle(chats: ChatRow[], chatId: string | null): string {
+  if (!chatId) return "a chat";
+  return chats.find((c) => c.id === chatId)?.title ?? "Untitled chat";
+}
 
 // Live claimant wins (someone's actually on it right now); otherwise fall
 // back to the persisted handoff target (assigned but not yet picked up) —
@@ -67,6 +95,10 @@ export function HomeView({
   otherOccupants,
   onlineEmails,
   onJumpToChat,
+  logbookEntries,
+  mentionInbox,
+  selfEmail,
+  onClearMentions,
 }: {
   chats: ChatRow[];
   profiles: Profile[];
@@ -74,8 +106,21 @@ export function HomeView({
   otherOccupants: Occupant[];
   onlineEmails: Set<string>;
   onJumpToChat: (chatId: string) => void;
+  logbookEntries: LogbookEntry[];
+  mentionInbox: MentionInboxEntry[];
+  selfEmail: string | null;
+  onClearMentions: () => void;
 }) {
   const active = useMemo(() => activeChats(chats), [chats]);
+
+  // Oldest first, chat-log style — `logbookEntries` arrives newest-first
+  // from the fetch (matches the DB query order). Scoped to entries relevant
+  // to you (own checkpoints, handoffs to/from you), same default LogPanel
+  // used — this is a "catch up" surface, not a full team audit log.
+  const myEntries = useMemo(
+    () => logbookEntries.filter((e) => !selfEmail || entryOwner(e) === selfEmail).slice(0, 8).reverse(),
+    [logbookEntries, selfEmail]
+  );
 
   const claimantByChat = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -140,6 +185,78 @@ export function HomeView({
             {active.length === 1 ? "" : "s"} · {completed.length} recently completed
           </div>
         </div>
+
+        {(mentionInbox.length > 0 || myEntries.length > 0) && (
+          <div className="flex flex-col gap-[0.8em]">
+            <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary">At a glance</div>
+            <div className="rounded-lg border border-border flex flex-col divide-y divide-border">
+              {mentionInbox.length > 0 && (
+                <div className="flex flex-col gap-[0.4em] px-[1em] py-[0.8em]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-text-secondary">For you</span>
+                    <button
+                      type="button"
+                      className="text-[11px] text-text-tertiary bg-transparent border-none cursor-pointer p-0 hover:text-text-secondary"
+                      onClick={onClearMentions}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {mentionInbox.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className="flex items-center gap-[0.5em] text-left text-[12.5px] px-[0.6em] py-[0.4em] rounded-md border-none cursor-pointer bg-transparent hover:bg-bg-tertiary"
+                      onClick={() => onJumpToChat(m.chatId)}
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0 bg-accent" />
+                      <span className="truncate">
+                        <span className="font-medium text-text-primary">{m.fromEmail}</span>
+                        <span className="text-text-tertiary">
+                          {m.kind === "handoff" ? " handed off " : " tagged you in "}
+                          {m.chatTitle ?? "a chat"}
+                          {m.kind === "handoff" ? " to you" : ""}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {myEntries.length > 0 && (
+                <div className="flex flex-col gap-[0.6em] px-[1em] py-[0.8em]">
+                  <span className="text-[11px] font-medium text-text-secondary">Recent activity</span>
+                  {myEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className={`rounded-md px-[0.7em] py-[0.6em] border-l-2 bg-bg-tertiary${entry.chat_id ? " cursor-pointer hover:brightness-110" : ""}`}
+                      style={{ borderLeftColor: entry.user_email ? colorForUser(entry.user_email) : "var(--border)" }}
+                      role={entry.chat_id ? "button" : undefined}
+                      tabIndex={entry.chat_id ? 0 : undefined}
+                      onClick={entry.chat_id ? () => onJumpToChat(entry.chat_id!) : undefined}
+                    >
+                      <div className="flex items-center gap-[0.4em] text-[11px] text-text-tertiary mb-[0.3em] flex-wrap">
+                        <span className="font-medium text-text-secondary">{entry.user_email ?? "Someone"}</span>
+                        <span>·</span>
+                        <span>{formatTime(entry.created_at)}</span>
+                        {entry.duration_seconds != null && (
+                          <>
+                            <span>·</span>
+                            <span>{formatDuration(entry.duration_seconds)}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-text-tertiary mb-[0.35em]">
+                        {entryChatTitle(chats, entry.chat_id)}
+                        {entry.kind === "handoff" ? ` → ${entry.handed_off_to ?? "teammate"}` : " · ⏸ auto-checkpoint"}
+                      </div>
+                      <MarkdownText text={entry.summary} className="markdown text-[13px] leading-[1.5] text-text-primary" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-[1em]">
           <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary">Task lists</div>

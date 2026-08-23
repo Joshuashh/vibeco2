@@ -49,11 +49,22 @@ function renderBlocks(
   return out;
 }
 
+// Cap on how many trailing messages mount by default. A long chat's history
+// mounting all at once means every message's markdown gets parsed by
+// react-markdown synchronously on that first render — the real cost behind
+// the multi-second delay switching into a long chat (see decisions.md
+// "Message list re-renders re-parsing markdown, memoized"). Older messages
+// are one click away via the reveal button, not lost.
+const INITIAL_MESSAGE_WINDOW = 40;
+const REVEAL_STEP = 60;
+
 export function MessageList({
+  chatId,
   messages,
   streaming,
   teammates = [],
 }: {
+  chatId: string;
   messages: Message[];
   streaming: boolean;
   teammates?: AssignableTeammate[];
@@ -65,6 +76,18 @@ export function MessageList({
   useEffect(() => {
     streamStartRef.current = streaming ? Date.now() : null;
   }, [streaming]);
+
+  // Resets per chat (not per message-count change) so switching chats within
+  // an already-mounted ChatView/AgentWindow re-caps the window instead of
+  // carrying over whatever was revealed in the previous chat.
+  const [visibleCount, setVisibleCount] = useState(INITIAL_MESSAGE_WINDOW);
+  useEffect(() => {
+    setVisibleCount(INITIAL_MESSAGE_WINDOW);
+  }, [chatId]);
+
+  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+  const indexOffset = hiddenCount;
 
   // A solo chat with Claude has one author for every user message — only
   // worth labeling bubbles once a second human's messages show up in it.
@@ -113,7 +136,17 @@ export function MessageList({
 
   return (
     <div className="message-list" ref={listRef}>
-      {messages.map((message, i) => {
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((v) => v + REVEAL_STEP)}
+          className="self-center text-[12px] text-text-tertiary bg-bg-tertiary border border-border rounded-md px-[0.9em] py-[0.4em] mb-[0.6em] cursor-pointer hover:text-text-primary"
+        >
+          Show {Math.min(hiddenCount, REVEAL_STEP)} earlier message{Math.min(hiddenCount, REVEAL_STEP) === 1 ? "" : "s"}
+        </button>
+      )}
+      {visibleMessages.map((message, vi) => {
+        const i = vi + indexOffset;
         const isLastMessage = i === messages.length - 1;
         const trailingBlock = message.blocks[message.blocks.length - 1];
         const liveTextIndex =

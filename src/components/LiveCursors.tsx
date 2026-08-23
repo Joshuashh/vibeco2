@@ -3,7 +3,7 @@ import { useOthers, useUpdateMyPresence } from "../lib/liveblocks";
 import { colorForUser, textColorForBackground, displayNameForUser } from "../lib/presenceColor";
 import type { FlowScreenApi } from "./CanvasView";
 
-type ViewMode = "home" | "chat" | "canvas" | "preview" | "plan";
+type ViewMode = "home" | "cowork" | "solo" | "canvas" | "preview";
 
 /**
  * Renders teammates' live cursor positions as an overlay, and reports the

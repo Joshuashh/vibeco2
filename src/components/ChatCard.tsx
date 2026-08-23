@@ -141,7 +141,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           list — trades away scrolling a long history via mouse wheel while
           hovering it on the canvas; open the chat for that instead. */}
       <div className="nodrag chat-card-scroll-region">
-        <MessageList messages={state.messages} streaming={state.streaming} teammates={assignableTeammates} />
+        <MessageList chatId={chat.id} messages={state.messages} streaming={state.streaming} teammates={assignableTeammates} />
       </div>
       <div className="nodrag nowheel">
         <InputBar

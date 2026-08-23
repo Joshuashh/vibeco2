@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { ContentBlock } from "../types/message";
 import { ToolCallRow, describeTool, diffStats } from "./MessageBlock";
 
@@ -23,7 +23,7 @@ function groupLabel(block: ToolUseBlock): string {
 // Groups consecutive tool_use blocks in one turn into a single collapsed
 // summary line — "Edited X, ran a command +3 -1" — matching the sibling
 // Claude apps' compact per-turn tool summary instead of one row per call.
-export function ToolGroup({ blocks }: { blocks: ToolUseBlock[] }) {
+function ToolGroupImpl({ blocks }: { blocks: ToolUseBlock[] }) {
   const [expanded, setExpanded] = useState(false);
 
   const labels = blocks.map(groupLabel);
@@ -91,3 +91,4 @@ export function ToolGroup({ blocks }: { blocks: ToolUseBlock[] }) {
     </div>
   );
 }
+export const ToolGroup = memo(ToolGroupImpl);

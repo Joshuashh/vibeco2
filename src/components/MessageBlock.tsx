@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Attachment, ContentBlock } from "../types/message";
 import { AttachmentLightbox, AttachmentFileIcon } from "./AttachmentLightbox";
@@ -92,7 +92,11 @@ function CodeBlock({ language, source }: { language: string; source: string }) {
   );
 }
 
-export function MarkdownText({ text, className }: { text: string; className?: string }) {
+// Memoized: react-markdown's remark→rehype→React pipeline is real work, and
+// without memo it re-ran for every message on every unrelated re-render of
+// an ancestor (a teammate's cursor moving, presence updates, etc) — see
+// decisions.md "Message list re-renders re-parsing markdown, memoized".
+function MarkdownTextImpl({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className}>
       <ReactMarkdown
@@ -112,6 +116,7 @@ export function MarkdownText({ text, className }: { text: string; className?: st
     </div>
   );
 }
+export const MarkdownText = memo(MarkdownTextImpl);
 
 function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
@@ -178,7 +183,7 @@ export function DiffView({ diff }: { diff: Diff }) {
 
 type ToolUseBlock = Extract<ContentBlock, { kind: "tool_use" }>;
 
-export function ToolCallRow({ block }: { block: ToolUseBlock }) {
+function ToolCallRowImpl({ block }: { block: ToolUseBlock }) {
   const [expanded, setExpanded] = useState(false);
 
   const { summary, file, fullPath, diff } = describeTool(block.name, block.input);
@@ -241,8 +246,9 @@ export function ToolCallRow({ block }: { block: ToolUseBlock }) {
     </div>
   );
 }
+export const ToolCallRow = memo(ToolCallRowImpl);
 
-export function MessageBlock({
+function MessageBlockImpl({
   block,
   markdown = false,
   live = false,
@@ -302,3 +308,4 @@ export function MessageBlock({
 
   return null;
 }
+export const MessageBlock = memo(MessageBlockImpl);
