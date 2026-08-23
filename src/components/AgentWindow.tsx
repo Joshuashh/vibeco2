@@ -65,6 +65,7 @@ interface ShelfItem {
   id: string;
   title: string;
   summary: string;
+  approvers: string[]; // who contributed a message to this chat — must agree before publish
   agreed: string[]; // emails (local-only for now)
   status: string;
 }
@@ -148,6 +149,18 @@ export function AgentWindow({
   );
   const canShelve = !!lastReply && !streaming;
 
+  // Approval list = whoever actually contributed a message to this chat, not
+  // whoever happens to be present in the tab right now — a chat someone
+  // stepped away from still needs their sign-off, and someone just watching
+  // shouldn't be counted as a required approver.
+  const contributors = useMemo(() => {
+    const emails = new Set<string>();
+    for (const m of state?.messages ?? []) {
+      if (m.role === "user" && m.authorEmail) emails.add(m.authorEmail);
+    }
+    return Array.from(emails);
+  }, [state?.messages]);
+
   async function shelve() {
     if (!canShelve || shelving) return;
     setShelving(true);
@@ -156,6 +169,7 @@ export function AgentWindow({
         "render_preview",
         { chatId }
       );
+      const approvers = contributors.length ? contributors : [myEmail];
       if (result.status === "Clean") {
         await insertMergeEvent(chatId, "held", null);
         setShelf((s) => [
@@ -164,6 +178,7 @@ export function AgentWindow({
             id: `s-${Date.now()}`,
             title: chat.title ?? "Untitled change",
             summary: "Nova's latest change from this chat, rendered into the team preview.",
+            approvers,
             agreed: [myEmail],
             status: "held",
           },
@@ -177,6 +192,7 @@ export function AgentWindow({
             id: `s-${Date.now()}`,
             title: chat.title ?? "Untitled change",
             summary: `Conflicts with the team branch in: ${result.files.join(", ")}`,
+            approvers,
             agreed: [],
             status: "conflict",
           },
@@ -205,7 +221,9 @@ export function AgentWindow({
     );
   }
 
-  const publishable = shelf.filter((it) => it.status !== "conflict" && it.agreed.length >= total && total > 0);
+  const publishable = shelf.filter(
+    (it) => it.status !== "conflict" && it.agreed.length >= it.approvers.length && it.approvers.length > 0
+  );
   const [publishing, setPublishing] = useState(false);
   async function publish() {
     if (!publishable.length || publishing) return;
@@ -303,13 +321,6 @@ export function AgentWindow({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontSize: 11.5, color: C.faint }}>{typingLabel}</div>
-            <div style={{ display: "flex", alignItems: "center" }}>
-              {occupants.map((o) => (
-                <div key={o.email} style={{ border: `2px solid ${C.panel}`, borderRadius: "50%", marginLeft: -7 }}>
-                  {avatar(o.email, 23)}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -463,7 +474,7 @@ export function AgentWindow({
             </div>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: C.fainter, writingMode: "vertical-rl", transform: "rotate(180deg)" }}>SHELF</div>
             {shelf.map((it) => (
-              <div key={it.id} style={{ width: 8, height: 8, borderRadius: "50%", background: it.status === "conflict" ? "#E2584F" : it.agreed.length >= total ? C.ready : C.amber }} />
+              <div key={it.id} style={{ width: 8, height: 8, borderRadius: "50%", background: it.status === "conflict" ? "#E2584F" : it.agreed.length >= it.approvers.length ? C.ready : C.amber }} />
             ))}
             <div style={{ flex: 1 }} />
           </div>
@@ -505,7 +516,7 @@ export function AgentWindow({
                 </div>
               ) : (
                 shelf.map((it) => {
-                  const full = it.agreed.length >= total && total > 0;
+                  const full = it.agreed.length >= it.approvers.length && it.approvers.length > 0;
                   const mine = it.agreed.includes(myEmail);
                   return (
                     <div key={it.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -516,7 +527,7 @@ export function AgentWindow({
                           ? "Conflict · resolve before publishing"
                           : full
                             ? "Everyone agreed · ready to publish"
-                            : `${it.agreed.length} of ${total} agreed`}
+                            : `${it.agreed.length} of ${it.approvers.length} agreed`}
                       </div>
                       {it.status !== "conflict" && !full && (
                         <div

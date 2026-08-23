@@ -7,6 +7,7 @@ import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { AgentWindow } from "./components/AgentWindow";
+import { HomeView } from "./components/HomeView";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
@@ -86,8 +87,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
   const [mentionInbox, setMentionInbox] = useState<MentionInboxEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [viewMode, setViewMode] = useState<"chat" | "canvas" | "preview" | "plan">("chat");
-  const [chatLayout, setChatLayout] = useState<"single" | "split">("split");
+  const [viewMode, setViewMode] = useState<"home" | "chat" | "canvas" | "preview" | "plan">("home");
+  const [chatLayout, setChatLayout] = useState<"single" | "split">("single");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [rightChatId, setRightChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -182,6 +183,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   useEffect(() => {
     fetchLogbookEntries(project.id).then(setLogbookEntries);
+  }, [project.id]);
+
+  // Switching projects should land you on that project's Home, like opening
+  // a fresh dashboard — otherwise you'd stay on whatever tab/chat happened
+  // to be open, which no longer belongs to the newly-selected project.
+  useEffect(() => {
+    setViewMode("home");
+    setActiveChatId(null);
   }, [project.id]);
 
   useEffect(() => {
@@ -869,7 +878,16 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         </div>
       </div>
       <div className="flex-1 min-h-0 flex">
-      {viewMode === "canvas" ? (
+      {viewMode === "home" ? (
+        <HomeView
+          chats={chats}
+          profiles={profiles}
+          selfOccupant={selfOccupant}
+          otherOccupants={otherOccupants}
+          onlineEmails={onlineEmails}
+          onJumpToChat={jumpToChat}
+        />
+      ) : viewMode === "canvas" ? (
         <CanvasView
           chats={chats}
           chatStates={chatStates}

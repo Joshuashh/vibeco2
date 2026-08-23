@@ -56,3 +56,11 @@ export function textColorForBackground(hex: string): "#000000" | "#ffffff" {
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   return lum > 0.6 ? "#000000" : "#ffffff";
 }
+
+/** Two-letter initials for an avatar circle, from a display name or bare email. */
+export function initialsForUser(nameOrEmail: string): string {
+  const base = nameOrEmail.includes("@") ? nameOrEmail.split("@")[0] : nameOrEmail;
+  const parts = base.split(/[\s.\-_+]/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return base.slice(0, 2).toUpperCase();
+}

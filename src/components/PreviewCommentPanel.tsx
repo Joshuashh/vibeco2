@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { PreviewPin, PreviewPinReply } from "../lib/previewComments";
 
-// Matches RenderPreviewButton.tsx's own pillBase pattern (kept local per
-// Task 7's precedent). This is the last consumer of .pill/.pill-ghost — see
-// decisions.md for the App.css cleanup this enabled.
+// pillBase pattern kept local per Task 7's precedent. This is the last
+// consumer of .pill/.pill-ghost — see decisions.md for the App.css cleanup
+// this enabled.
 const pillBase =
   "appearance-none border-0 outline-none box-border inline-flex items-center gap-[0.35em] text-[0.78em] px-[0.7em] py-[0.4em] rounded-lg cursor-default hover:bg-bg-tertiary";
 const pillPlain = `${pillBase} text-text-secondary bg-bg-secondary`;

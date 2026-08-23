@@ -2,16 +2,11 @@ import { useEffect, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MergeEvent } from "../lib/mergeEvents";
-import { countByStatus, insertMergeEvent } from "../lib/mergeEvents";
-import { RenderPreviewButton } from "./RenderPreviewButton";
+import { countByStatus } from "../lib/mergeEvents";
 
 export interface MainAgentInstrumentData {
   mergeEvents: MergeEvent[];
   refreshKey: number;
-  // Whichever chat the current user has claimed, if any — the preview box
-  // renders/merges *that* chat's work rather than needing its own per-chat
-  // picker (moved here from the chat card itself per explicit request).
-  activeChatId: string | null;
   [key: string]: unknown;
 }
 
@@ -21,17 +16,8 @@ export type MainAgentInstrumentNode = Node<MainAgentInstrumentData, "mainAgentIn
 // lifetime, always on this fixed port (see src-tauri/src/preview_server.rs).
 const TEAM_PREVIEW_URL = "http://localhost:5180";
 
-// Matches InputToolbelt.tsx's own pillBase/pillPlain pattern (kept local
-// per Task 7's precedent rather than shared across files for a short
-// string). .pill/.pill-warn/.pill-ghost stay in App.css only because
-// PreviewCommentPanel.tsx (out of this task's scope) still uses them.
-const pillBase =
-  "appearance-none border-0 outline-none box-border inline-flex items-center gap-[0.35em] text-[0.78em] px-[0.7em] py-[0.4em] rounded-lg cursor-default hover:bg-bg-tertiary";
-const pillPlain = `${pillBase} text-text-secondary bg-bg-secondary`;
-
 export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>) {
   const [logOpen, setLogOpen] = useState(false);
-  const [promoting, setPromoting] = useState(false);
   // Whether *this* process has actually started (or confirmed running) the
   // team preview server. Deliberately not derived from `mergeEvents` (shared
   // Supabase state) — that stays non-empty across app restarts and other
@@ -49,34 +35,12 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
       });
   }, []);
 
-  async function promote() {
-    setPromoting(true);
-    try {
-      await invoke("promote_to_main");
-      await insertMergeEvent(null, "merged", "promoted team → main");
-    } catch (err) {
-      console.error("promote_to_main failed", err);
-    } finally {
-      setPromoting(false);
-    }
-  }
-
   return (
     <div className="w-full h-full flex flex-col font-[SF_Mono,JetBrains_Mono,monospace]">
       <NodeResizer minWidth={360} minHeight={280} lineClassName="chat-card-resize-line" handleClassName="chat-card-resize-handle" />
       <div className="bg-canvas-bg border border-border border-b-0 rounded-t-[14px] overflow-hidden flex-1 min-h-0 flex flex-col">
         <div className="flex items-center justify-between gap-[0.75em] text-[11px] tracking-[0.08em] text-text-tertiary py-[0.7em] px-[1em] border-b border-border uppercase">
           <span>BUILD · PREVIEW</span>
-          <div className="flex items-center gap-[0.5em] nodrag">
-            {data.activeChatId ? (
-              <RenderPreviewButton chatId={data.activeChatId} />
-            ) : (
-              <span className="normal-case tracking-normal text-text-tertiary">Claim a chat to render its preview</span>
-            )}
-            <button type="button" className={pillPlain} onClick={promote} disabled={promoting}>
-              {promoting ? "Promoting…" : "Promote to main"}
-            </button>
-          </div>
         </div>
         <div className="nodrag flex-1 min-h-0 flex flex-col">
           {previewStatus === "ready" ? (

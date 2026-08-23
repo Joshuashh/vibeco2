@@ -7,7 +7,6 @@ import { ChatCardMenu } from "./ChatCardMenu";
 import { AssignChatMenu, type AssignableTeammate } from "./AssignChatMenu";
 import { ChatPicker } from "./ChatPicker";
 import { ChatPreviewPanel } from "./ChatPreviewPanel";
-import { RenderPreviewButton } from "./RenderPreviewButton";
 import { colorForUser } from "../lib/presenceColor";
 
 function ChevronDownIcon() {
@@ -121,7 +120,6 @@ export function ChatView({
           </span>
         )}
         <div className="absolute right-[1em] flex items-center gap-[0.3em]">
-          <RenderPreviewButton chatId={chat.id} />
           {onToggleOpen && (
             <button
               type="button"

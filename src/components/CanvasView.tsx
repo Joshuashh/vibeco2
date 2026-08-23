@@ -284,7 +284,6 @@ export function CanvasView({
         data: {
           mergeEvents,
           refreshKey: refreshKeyRef.current,
-          activeChatId: self?.presence.claimedChatId ?? null,
         },
       };
 

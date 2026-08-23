@@ -5,8 +5,8 @@ export function ViewToggle({
   onChange,
   onChatClick,
 }: {
-  mode: "chat" | "canvas" | "preview" | "plan";
-  onChange: (mode: "chat" | "canvas" | "preview" | "plan") => void;
+  mode: "home" | "chat" | "canvas" | "preview" | "plan";
+  onChange: (mode: "home" | "chat" | "canvas" | "preview" | "plan") => void;
   onChatClick?: () => void;
 }) {
   // ponytail: base carries only non-color/background utilities. Tailwind
@@ -25,11 +25,11 @@ export function ViewToggle({
   // the pointer leaves, the (now invisible) pill snaps back to sit under the
   // selected tab, so the *next* hover always animates out from there rather
   // than from wherever it was last hovering.
+  const homeRef = useRef<HTMLButtonElement>(null);
   const planRef = useRef<HTMLButtonElement>(null);
   const chatRef = useRef<HTMLButtonElement>(null);
-  const canvasRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLButtonElement>(null);
-  const activeRef = mode === "plan" ? planRef : mode === "chat" ? chatRef : mode === "canvas" ? canvasRef : previewRef;
+  const activeRef = mode === "home" ? homeRef : mode === "plan" ? planRef : mode === "chat" ? chatRef : previewRef;
 
   const [hoverRect, setHoverRect] = useState<{ left: number; width: number } | null>(null);
   const [hovering, setHovering] = useState(false);
@@ -65,6 +65,14 @@ export function ViewToggle({
         }}
       />
       <button
+        ref={homeRef}
+        className={mode === "home" ? `${base} ${active}` : `${base} ${inactive}`}
+        onMouseEnter={trackHover}
+        onClick={() => onChange("home")}
+      >
+        Home
+      </button>
+      <button
         ref={planRef}
         className={mode === "plan" ? `${base} ${active}` : `${base} ${inactive}`}
         onMouseEnter={trackHover}
@@ -80,14 +88,8 @@ export function ViewToggle({
       >
         Chat
       </button>
-      <button
-        ref={canvasRef}
-        className={mode === "canvas" ? `${base} ${active}` : `${base} ${inactive}`}
-        onMouseEnter={trackHover}
-        onClick={() => onChange("canvas")}
-      >
-        Canvas
-      </button>
+      {/* ponytail: Canvas tab disabled for now, not deleted — CanvasView.tsx
+          is still intact, just unreachable from this toggle. */}
       <button
         ref={previewRef}
         className={mode === "preview" ? `${base} ${active}` : `${base} ${inactive}`}

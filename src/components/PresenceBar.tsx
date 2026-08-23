@@ -1,5 +1,5 @@
 import { useOthers, useSelf } from "../lib/liveblocks";
-import { colorForUser, displayNameForUser } from "../lib/presenceColor";
+import { colorForUser, displayNameForUser, initialsForUser, textColorForBackground } from "../lib/presenceColor";
 
 export function PresenceBar() {
   const self = useSelf();
@@ -13,15 +13,16 @@ export function PresenceBar() {
   return (
     <div className="flex">
       {people.map((p) => {
-        const color = colorForUser(p.email);
+        const bg = colorForUser(p.email);
+        const name = displayNameForUser(p.email);
         return (
           <div
             key={p.email}
-            className="w-[26px] h-[26px] flex items-center justify-center rounded-full border-[1.5px] bg-bg-tertiary text-[11px] font-semibold -ml-2 first:ml-0"
-            style={{ borderColor: color, color, background: `${color}26` }}
-            title={p.isSelf ? `You (${displayNameForUser(p.email)})` : displayNameForUser(p.email)}
+            className="w-[26px] h-[26px] flex items-center justify-center rounded-full text-[11px] font-bold -ml-2 first:ml-0"
+            style={{ background: bg, color: textColorForBackground(bg), border: "2px solid var(--bg-primary)" }}
+            title={p.isSelf ? `You (${name})` : name}
           >
-            {displayNameForUser(p.email).slice(0, 1).toUpperCase()}
+            {initialsForUser(name)}
           </div>
         );
       })}

@@ -40,7 +40,7 @@ type Presence = {
   // space (content-relative, zoom-independent); chat/preview coords are
   // fractions of the container (0-1), so they scale to the viewer's own
   // window size instead of the sender's raw screen pixels.
-  cursorView: "chat" | "canvas" | "preview" | "logbook" | "plan" | null;
+  cursorView: "home" | "chat" | "canvas" | "preview" | "logbook" | "plan" | null;
   // Set the moment a user focuses a chat's input box, cleared on blur/send —
   // lets teammates see the live draft and locks them out of that same box
   // while it's "selected" (see InputBar).
