@@ -125,7 +125,7 @@ export function PreviewPage({ session }: { session: Session }) {
             <iframe
               className="w-full h-full border-none block"
               src={TEAM_PREVIEW_URL}
-              title="Live team preview"
+              aria-label="Live team preview"
             />
             <PreviewAnnotationLayer
               containerRef={containerRef}

@@ -1,3 +1,4 @@
+mod chat_usage;
 mod claude_binary;
 mod claude_process;
 mod claude_summary;
@@ -301,6 +302,17 @@ fn delete_attachment(chat_id: String, file_name: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads token usage for a chat straight from Claude Code's own transcript
+/// file on disk — no live event-stream plumbing needed, and it works even
+/// for chats resumed from a previous run.
+#[tauri::command]
+fn get_chat_usage(chat_id: String, session_id: String) -> Result<chat_usage::ChatUsage, String> {
+    let root = git_ops::repo_root()?;
+    let cwd = merge_paths::chat_worktree_path(&root, &chat_id);
+    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+    chat_usage::read_usage(&std::path::PathBuf::from(home).join(".claude"), &cwd.to_string_lossy(), &session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -332,7 +344,8 @@ pub fn run() {
             stop_chat_preview,
             list_custom_slash_commands,
             save_attachment,
-            delete_attachment
+            delete_attachment,
+            get_chat_usage
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

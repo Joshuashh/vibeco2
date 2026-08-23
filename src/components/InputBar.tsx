@@ -9,6 +9,7 @@ import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../
 import { uploadAttachment, deleteAttachment } from "../lib/attachments";
 import type { SentAttachment } from "../types/message";
 import type { AssignableTeammate } from "./AssignChatMenu";
+import { ChatUsageRing } from "./ChatUsageRing";
 
 // Only while the whole box is still just "/word" (no space yet) — a slash
 // mentioned mid-message shouldn't pop the menu.
@@ -31,6 +32,7 @@ function findMentionToken(value: string, cursor: number): { query: string; start
 
 export function InputBar({
   chatId,
+  sessionId = null,
   onSend,
   onStop,
   disabled,
@@ -39,6 +41,7 @@ export function InputBar({
   teammates = [],
 }: {
   chatId: string;
+  sessionId?: string | null;
   onSend: (prompt: string, attachments?: SentAttachment[]) => void;
   onStop?: () => void;
   disabled: boolean;
@@ -362,6 +365,7 @@ export function InputBar({
         <span className="flex-1 min-w-0" />
         <ModelPicker />
         <EffortPicker />
+        <ChatUsageRing chatId={chatId} sessionId={sessionId} />
       </div>
     </div>
   );

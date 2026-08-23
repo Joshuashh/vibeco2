@@ -84,7 +84,7 @@ export function MainAgentInstrument({ data }: NodeProps<MainAgentInstrumentNode>
               key={data.refreshKey}
               className="flex-1 border-none w-full"
               src={TEAM_PREVIEW_URL}
-              title="Live team preview"
+              aria-label="Live team preview"
             />
           ) : (
             <div className="build-preview-empty">

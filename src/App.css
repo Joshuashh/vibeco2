@@ -266,12 +266,13 @@ h1 {
 
 .toolbar {
   flex-shrink: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
-  padding: 0.7em 1em;
+  height: 44px;
+  padding: 0 1em;
 }
 
 .toolbar-side {
@@ -281,9 +282,30 @@ h1 {
   gap: 0.4em;
 }
 
+/* Clears the macOS traffic lights (x:16 y:24 per tauri.conf.json — the
+   cluster is ~54px wide) and sits icons on the same row as the dots. */
+.toolbar-side-traffic-lights {
+  padding-left: 74px;
+  gap: 0;
+}
+
 .toolbar-actions {
   justify-content: flex-end;
   gap: 0.6em;
+}
+
+/* Lighter than .view-toggle's own (already translucent) background, in
+   either theme — a fixed white-mix reads as "lighter" regardless of
+   whether the underlying tertiary token is dark or light. */
+.view-toggle-active {
+  background: color-mix(in srgb, var(--bg-tertiary) 100%, white 12%);
+}
+
+/* Hover pill: same lighten-the-background technique as .view-toggle-active,
+   just dimmer — bg-primary/50 was nearly invisible because --bg-primary is
+   darker than the wrapper it sat on, not lighter. */
+.view-toggle-hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 100%, white 6%);
 }
 
 /* ---- Chat view (docked sidebar + chat, ported from the sibling
@@ -498,6 +520,31 @@ h1 {
 
 .icon-button-active {
   color: var(--accent);
+}
+
+/* Slim variant used only in the top toolbar, sized to match ProjectMenu's
+   text button (26px tall) rather than the 34px .icon-button used elsewhere
+   (chat pane header icons etc.), which don't share this bar. */
+.toolbar-icon-button {
+  all: unset;
+  cursor: default;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  border-radius: 8px;
+}
+
+.toolbar-icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toolbar-icon-button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .icon-button-danger {

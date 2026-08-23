@@ -68,6 +68,7 @@ export function ChatPane({
       />
       <InputBar
         chatId={chat.id}
+        sessionId={chat.claude_session_id}
         onSend={onSend}
         onStop={onStop}
         disabled={disabled}

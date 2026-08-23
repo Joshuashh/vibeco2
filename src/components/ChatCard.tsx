@@ -146,6 +146,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
       <div className="nodrag nowheel">
         <InputBar
           chatId={chat.id}
+          sessionId={chat.claude_session_id}
           onSend={(prompt, attachments) => onSend(chat.id, prompt, attachments)}
           onStop={() => onStop(chat.id)}
           streaming={state.streaming}

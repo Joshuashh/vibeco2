@@ -739,7 +739,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
   const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
   const onlineEmails = new Set([...(self ? [self.presence.email] : []), ...others.map((o) => o.presence.email)]);
-  const assignableTeammates = profiles.map((p) => ({ email: p.email, online: onlineEmails.has(p.email) }));
+  const assignableTeammates = profiles.map((p) => ({
+    email: p.email,
+    displayName: p.display_name,
+    online: onlineEmails.has(p.email),
+  }));
 
   const activeState = activeChatId ? chatStates[activeChatId] : undefined;
   const activeChat = activeChatId ? chats.find((c) => c.id === activeChatId) : undefined;
@@ -776,12 +780,12 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       <ToastHost />
       <PermissionPrompt requests={permissionRequests} chats={chats} onAnswer={handleAnswerPermission} />
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
-      <div className="toolbar">
-        <div className="toolbar-side">
+      <div className="toolbar" data-tauri-drag-region>
+        <div className="toolbar-side toolbar-side-traffic-lights">
           {viewMode === "chat" && (
             <button
               type="button"
-              className="icon-button"
+              className="toolbar-icon-button"
               title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
               onClick={() => setSidebarCollapsed((c) => !c)}
             >
@@ -803,7 +807,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             <>
               <button
                 type="button"
-                className="icon-button"
+                className="toolbar-icon-button"
                 title="Reset zoom to 100%"
                 onClick={() => flowApiRef.current?.zoomTo(1, { duration: 200 })}
               >
@@ -814,7 +818,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               </button>
               <button
                 type="button"
-                className="flex items-center gap-[0.4em] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary"
+                className="flex items-center gap-[0.4em] h-[26px] text-[12px] text-text-secondary bg-bg-tertiary border-none rounded-md px-[0.8em] cursor-pointer hover:text-text-primary"
                 onClick={handleCreateChat}
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -826,15 +830,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           )}
           <button
             type="button"
-            className="flex items-center gap-[0.4em] text-[12px] bg-bg-tertiary border-none rounded-md px-[0.8em] py-[0.4em] cursor-pointer hover:text-text-primary mr-[8px]"
-            style={logPanelOpen ? { color: "var(--accent)" } : { color: "var(--text-secondary)" }}
+            className="toolbar-icon-button mr-[8px]"
+            style={logPanelOpen ? { color: "var(--accent)" } : undefined}
+            title="Log"
             onClick={() => setLogPanelOpen((o) => !o)}
           >
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             </svg>
-            Log
           </button>
           <PresenceBar />
         </div>
@@ -889,7 +893,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               <ResizeDivider width={sidebarWidth} onChange={setSidebarWidth} min={200} max={420} />
             </>
           )}
-          <div className="chat-panes">
+          <div className="chat-panes" style={!sidebarCollapsed ? { paddingLeft: 9 } : undefined}>
             {activeChatId && activeChat ? (
               <ChatPane
                 chat={activeChat}

@@ -11,6 +11,7 @@ import { colorForUser } from "../lib/presenceColor";
 
 export interface AssignableTeammate {
   email: string;
+  displayName: string | null;
   online: boolean;
 }
 
@@ -39,6 +40,9 @@ export function AssignChatMenu({
     onAssign(email).finally(() => setAssigning(false));
   }
 
+  const assignedTeammate = teammates.find((t) => t.email === assignedTo);
+  const assignedLabel = assignedTeammate?.displayName ?? assignedTo;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -46,14 +50,14 @@ export function AssignChatMenu({
           type="button"
           disabled={assigning}
           className="flex items-center gap-[0.4em] text-[12px] text-text-secondary bg-transparent border border-border rounded-md px-[0.7em] py-[0.3em] cursor-pointer max-w-[160px] transition-colors hover:bg-bg-tertiary hover:text-text-primary disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
-          title={assigning ? "Generating handoff brief…" : assignedTo ? `Assigned to ${assignedTo}` : "Assign this chat to a teammate"}
+          title={assigning ? "Generating handoff brief…" : assignedTo ? `Assigned to ${assignedLabel}` : "Assign this chat to a teammate"}
         >
           {assigning ? (
             <span className="w-2 h-2 rounded-full shrink-0 border border-text-tertiary border-t-transparent animate-spin" />
           ) : (
             assignedTo && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorForUser(assignedTo) }} />
           )}
-          <span className="truncate">{assigning ? "Generating brief…" : (assignedTo ?? "Assign…")}</span>
+          <span className="truncate">{assigning ? "Generating brief…" : (assignedLabel ?? "Assign…")}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -66,7 +70,7 @@ export function AssignChatMenu({
               className="w-2 h-2 rounded-full shrink-0 mr-[0.5em]"
               style={{ background: teammate.online ? colorForUser(teammate.email) : "var(--text-tertiary)" }}
             />
-            {teammate.email}
+            {teammate.displayName ?? teammate.email}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
