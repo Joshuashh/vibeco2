@@ -5,13 +5,13 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 // values, and every new session picks them up. Backed by localStorage so
 // they survive a restart.
 
-export type ModelOption = { label: string; cliValue: string };
+export type ModelOption = { label: string; cliValue: string; requiresCredits?: boolean };
 export type EffortOption = { label: string; cliValue: string };
 export type PermissionOption = { label: string; cliValue: string };
 
 // The four current models — CLI-recognized aliases per `claude --help`.
 export const MODELS: ModelOption[] = [
-  { label: "Fable 5", cliValue: "fable" },
+  { label: "Fable 5", cliValue: "fable", requiresCredits: true },
   { label: "Opus 5", cliValue: "opus" },
   { label: "Sonnet 5", cliValue: "sonnet" },
   { label: "Haiku 4.5", cliValue: "haiku" },
@@ -71,8 +71,37 @@ function useStoredOption<T extends { label: string }>(key: string, options: T[],
   return [value, setValue];
 }
 
+// The first model that doesn't need paid usage credits — the safe default.
+// Never auto-select a credits-gated model (e.g. Fable 5): with no credits,
+// every message fails with a 429 the chat currently doesn't surface, so it
+// just looks dead. See InputToolbelt's "Requires usage credits" badge.
+const DEFAULT_MODEL: ModelOption = MODELS.find((m) => !m.requiresCredits) ?? MODELS[0];
+
+// Model needs its own resolver (not the generic useStoredOption): a persisted
+// gated model is only honored when the user *explicitly* picked it. The old
+// silent default (Fable 5) was written to localStorage on first load without
+// any real choice, so we bump that back to DEFAULT_MODEL; an explicit pick
+// (tracked via the :explicit flag, set only from setModel) is always kept.
+function useStoredModel(): [ModelOption, (m: ModelOption) => void] {
+  const all = [...MODELS, ...MORE_MODELS];
+  const [model, setModelState] = useState<ModelOption>(() => {
+    const stored = all.find((o) => o.label === localStorage.getItem("vibeco:model"));
+    if (!stored) return DEFAULT_MODEL;
+    const explicit = localStorage.getItem("vibeco:model:explicit") === "true";
+    return stored.requiresCredits && !explicit ? DEFAULT_MODEL : stored;
+  });
+  useEffect(() => {
+    localStorage.setItem("vibeco:model", model.label);
+  }, [model]);
+  const setModel = (m: ModelOption) => {
+    localStorage.setItem("vibeco:model:explicit", "true");
+    setModelState(m);
+  };
+  return [model, setModel];
+}
+
 export function PrefsProvider({ children }: { children: ReactNode }) {
-  const [model, setModel] = useStoredOption("vibeco:model", [...MODELS, ...MORE_MODELS], MODELS[0]);
+  const [model, setModel] = useStoredModel();
   const [effort, setEffort] = useStoredOption("vibeco:effort", EFFORTS, EFFORTS[0]);
   const [permission, setPermission] = useStoredOption("vibeco:permission", PERMISSIONS, PERMISSIONS[0]);
   const [bypassPermissions, setBypassPermissions] = useState(
