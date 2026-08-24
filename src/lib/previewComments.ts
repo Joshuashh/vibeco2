@@ -9,6 +9,7 @@ export interface PreviewPin {
   resolved: boolean;
   created_by: string;
   created_at: string;
+  page_path: string | null;
 }
 
 export interface PreviewPinReply {
@@ -29,6 +30,16 @@ export interface PreviewStroke {
 /** Resolved-hide-by-default filtering for the comment panel (spec §5). */
 export function visiblePins(pins: PreviewPin[], showResolved: boolean): PreviewPin[] {
   return showResolved ? pins : pins.filter((p) => !p.resolved);
+}
+
+/** Which pins to render as on-screen markers for the page currently showing
+ * in the preview iframe. A pin with no page_path (created before this
+ * feature, or on a project that never wired up the tracking script) always
+ * shows rather than becoming invisible; `currentPath === null` means we
+ * haven't heard from the tracker at all yet, so nothing can be filtered out. */
+export function pinsOnPage(pins: PreviewPin[], currentPath: string | null): PreviewPin[] {
+  if (currentPath === null) return pins;
+  return pins.filter((p) => !p.page_path || p.page_path === currentPath);
 }
 
 /** Undo only ever removes the current user's own most recent stroke (spec §4). */
@@ -67,8 +78,10 @@ export async function fetchPreviewStrokes(): Promise<PreviewStroke[]> {
   return (data ?? []) as PreviewStroke[];
 }
 
-export async function insertPreviewPin(point: PercentPoint, text: string): Promise<void> {
-  const { error } = await supabase.from("preview_pins").insert({ x_pct: point.x_pct, y_pct: point.y_pct, text });
+export async function insertPreviewPin(point: PercentPoint, text: string, pagePath: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("preview_pins")
+    .insert({ x_pct: point.x_pct, y_pct: point.y_pct, text, page_path: pagePath });
   if (error) throw new Error(`failed to add pin: ${error.message}`);
 }
 
@@ -80,6 +93,14 @@ export async function insertPreviewPinReply(pinId: string, text: string): Promis
 export async function setPinResolved(pinId: string, resolved: boolean): Promise<void> {
   const { error } = await supabase.from("preview_pins").update({ resolved }).eq("id", pinId);
   if (error) throw new Error(`failed to update pin: ${error.message}`);
+}
+
+export async function movePreviewPin(pinId: string, point: PercentPoint): Promise<void> {
+  const { error } = await supabase
+    .from("preview_pins")
+    .update({ x_pct: point.x_pct, y_pct: point.y_pct })
+    .eq("id", pinId);
+  if (error) throw new Error(`failed to move pin: ${error.message}`);
 }
 
 export async function insertPreviewStroke(path: PercentPoint[]): Promise<void> {

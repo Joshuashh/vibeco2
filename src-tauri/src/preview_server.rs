@@ -1,19 +1,37 @@
 use std::collections::HashMap;
+use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 pub const TEAM_PREVIEW_PORT: u16 = 5180;
 const CHAT_PREVIEW_PORT_BASE: u16 = 5181;
 
-/// Resolves the path to the `npm` binary.
-/// GUI apps on macOS launch with a minimal PATH, so we check common
-/// install locations first, then fall back to the user's actual login
-/// shell (`which npm` under `<$SHELL> -lic`) which picks up
-/// nvm/homebrew/etc shims. Mirrors `claude_binary::resolve_claude_binary`.
-fn resolve_npm_binary() -> Option<std::path::PathBuf> {
-    let common_paths = ["/usr/local/bin/npm", "/opt/homebrew/bin/npm"];
+/// A spawned process succeeding just means the OS started it — the dev
+/// server (or static file server) can still take a moment to actually bind
+/// its port. Without this, the frontend flips to "ready" and the preview
+/// iframe loads immediately, often racing a server that isn't listening
+/// yet; iframes don't retry a failed load, so that shows as a permanently
+/// blank preview even though everything actually worked a moment later.
+fn wait_for_port_open(port: u16, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+/// Resolves the path to a named binary. GUI apps on macOS launch with a
+/// minimal PATH, so common install locations are checked first, then it
+/// falls back to the user's actual login shell (`which <name>` under
+/// `<$SHELL> -lic`) which picks up nvm/homebrew/pyenv/etc shims. Mirrors
+/// `claude_binary::resolve_claude_binary`.
+fn resolve_binary(name: &str, common_paths: &[&str]) -> Option<std::path::PathBuf> {
     for path in common_paths {
         let candidate = std::path::PathBuf::from(path);
         if candidate.is_file() {
@@ -22,7 +40,7 @@ fn resolve_npm_binary() -> Option<std::path::PathBuf> {
     }
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = Command::new(shell).arg("-lic").arg("which npm").output().ok()?;
+    let output = Command::new(shell).arg("-lic").arg(format!("which {name}")).output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -36,13 +54,37 @@ fn resolve_npm_binary() -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(trimmed))
 }
 
+fn resolve_npm_binary() -> Option<std::path::PathBuf> {
+    resolve_binary("npm", &["/usr/local/bin/npm", "/opt/homebrew/bin/npm"])
+}
+
+fn resolve_python_binary() -> Option<std::path::PathBuf> {
+    resolve_binary("python3", &["/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3"])
+}
+
+/// A chat isn't necessarily an npm project — plain static HTML/CSS/JS with
+/// no `package.json` has nothing for `npm run dev` to run, which previously
+/// meant the Preview tab could never show it at all (Claude would open the
+/// file directly in the system browser instead, since that was the only way
+/// to actually show its own work). Serve the worktree as static files in
+/// that case instead, via Python's stdlib server — already on every Mac, no
+/// new dependency, no need to guess at a framework.
 fn spawn_dev_server(worktree: &Path, port: u16) -> Result<Child, String> {
-    let npm_path = resolve_npm_binary().ok_or_else(|| "npm binary not found".to_string())?;
-    Command::new(npm_path)
-        .args(["run", "dev", "--", "--port", &port.to_string(), "--strictPort"])
-        .current_dir(worktree)
-        .spawn()
-        .map_err(|e| format!("failed to start preview server: {e}"))
+    if worktree.join("package.json").exists() {
+        let npm_path = resolve_npm_binary().ok_or_else(|| "npm binary not found".to_string())?;
+        Command::new(npm_path)
+            .args(["run", "dev", "--", "--port", &port.to_string(), "--strictPort"])
+            .current_dir(worktree)
+            .spawn()
+            .map_err(|e| format!("failed to start preview server: {e}"))
+    } else {
+        let python_path = resolve_python_binary().ok_or_else(|| "python3 binary not found".to_string())?;
+        Command::new(python_path)
+            .args(["-m", "http.server", &port.to_string(), "--bind", "127.0.0.1"])
+            .current_dir(worktree)
+            .spawn()
+            .map_err(|e| format!("failed to start static preview server: {e}"))
+    }
 }
 
 /// One long-lived `npm run dev` process against the team worktree, kept
@@ -67,6 +109,9 @@ impl TeamPreviewServer {
             }
         }
         *guard = Some(spawn_dev_server(team_worktree, TEAM_PREVIEW_PORT)?);
+        if !wait_for_port_open(TEAM_PREVIEW_PORT, Duration::from_secs(15)) {
+            return Err("preview server started but never opened its port".to_string());
+        }
         Ok(())
     }
 
@@ -113,6 +158,9 @@ impl ChatPreviewServers {
         let port = self.next_port.fetch_add(1, Ordering::SeqCst);
         let child = spawn_dev_server(chat_worktree, port)?;
         guard.insert(chat_id.to_string(), (child, port));
+        if !wait_for_port_open(port, Duration::from_secs(15)) {
+            return Err("preview server started but never opened its port".to_string());
+        }
         Ok(port)
     }
 

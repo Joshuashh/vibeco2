@@ -536,13 +536,13 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         (isOwner ? prompt : `${buildTranscriptPreamble(priorMessages)}\n\n${prompt}`) + attachmentNote + mentionNote;
       // Every chat gets its own git worktree so concurrent chats never edit
       // the same working directory (see docs/superpowers/specs/2026-08-18-
-      // main-agent-merge-orchestration-design.md §2). Falls back to the repo
-      // root if worktree creation fails, rather than blocking the send.
+      // main-agent-merge-orchestration-design.md §2). No fallback on failure
+      // — a relative "." working directory resolves against wherever this
+      // Tauri process itself launched from (this app's own source dir under
+      // `tauri dev`, not the project repo), so a chat that can't get its own
+      // worktree must not start a session at all rather than silently run
+      // Claude somewhere unintended.
       invoke<string>("ensure_chat_worktree", { chatId })
-        .catch((err) => {
-          console.error("ensure_chat_worktree failed, falling back to repo root", err);
-          return ".";
-        })
         .then((workingDirectory) =>
           invoke("start_session", {
             chatId,
@@ -555,7 +555,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           })
         )
         .catch((err) => {
-          console.error("start_session failed", err);
+          console.error("failed to start session", err);
           const detail = err instanceof Error ? err.message : String(err);
           setChatStates((prev) => setSessionError(prev, chatId, `Couldn't start the Claude session: ${detail}`));
         });
@@ -635,8 +635,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const handleDelete = useCallback((chatId: string) => {
     invoke<boolean>("chat_has_unmerged_work", { chatId })
       .catch((err) => {
-        console.error("failed to check for unmerged work, deleting anyway", err);
-        return false;
+        // This check exists to gate a destructive delete — if we can't tell
+        // whether there's unmerged work, assume there is rather than delete
+        // silently; the confirm dialog below is the worst case, not data loss.
+        console.error("failed to check for unmerged work, assuming there is some", err);
+        return true;
       })
       .then((hasUnmergedWork) => {
         if (
@@ -717,36 +720,33 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   }, []);
 
   const handleCreateChat = useCallback(() => {
-    setChats((prevChats) => {
-      const minSortOrder = prevChats.reduce((min, c) => Math.min(min, c.sort_order), Infinity);
-      const sortOrder = computeSortOrder(null, Number.isFinite(minSortOrder) ? minSortOrder : null);
-      createChat(null, project.id, sortOrder).then((id) => {
-        setChats((prev) => [
-          ...prev,
-          {
-            id,
-            title: null,
-            user_id: session.user.id,
-            position_x: null,
-            position_y: null,
-            claude_session_id: null,
-            claude_session_owner: null,
-            created_at: new Date().toISOString(),
-            sort_order: sortOrder,
-            group_name: null,
-            archived_at: null,
-            last_message_at: null,
-            project_id: project.id,
-            handed_off_to: null,
-            open: false,
-          },
-        ]);
-        setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
-        setActiveChatId(id);
-      });
-      return prevChats;
+    const minSortOrder = chats.reduce((min, c) => Math.min(min, c.sort_order), Infinity);
+    const sortOrder = computeSortOrder(null, Number.isFinite(minSortOrder) ? minSortOrder : null);
+    createChat(null, project.id, sortOrder).then((id) => {
+      setChats((prev) => [
+        ...prev,
+        {
+          id,
+          title: null,
+          user_id: session.user.id,
+          position_x: null,
+          position_y: null,
+          claude_session_id: null,
+          claude_session_owner: null,
+          created_at: new Date().toISOString(),
+          sort_order: sortOrder,
+          group_name: null,
+          archived_at: null,
+          last_message_at: null,
+          project_id: project.id,
+          handed_off_to: null,
+          open: true,
+        },
+      ]);
+      setChatStates((prev) => ({ ...prev, [id]: initChatState() }));
+      setActiveChatId(id);
     });
-  }, [session.user.id, project.id]);
+  }, [chats, session.user.id, project.id]);
 
   const selfOccupant = self ? { email: self.presence.email, claimedChatId: self.presence.claimedChatId } : null;
   const otherOccupants = others.map((o) => ({ email: o.presence.email, claimedChatId: o.presence.claimedChatId }));
@@ -965,7 +965,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           flowApiRef={flowApiRef}
         />
       ) : viewMode === "preview" ? (
-        <PreviewPage session={session} />
+        <PreviewPage session={session} chats={chats} activeChatId={activeChatId} />
       ) : (
         <div className="chat-workspace">
           {!sidebarCollapsed && (

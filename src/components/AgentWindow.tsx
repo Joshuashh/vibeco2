@@ -81,15 +81,6 @@ const activeToolbarButtonStyle: CSSProperties = {
 // Built from <line>/<rect>/<circle> rather than hand-written <path> arcs —
 // a malformed path silently renders nothing, and that's exactly what
 // happened to the first version of these icons.
-function LinkIcon() {
-  return (
-    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-      <rect x="2" y="9.5" width="9" height="5" rx="2.5" />
-      <rect x="13" y="9.5" width="9" height="5" rx="2.5" />
-      <line x1="9" y1="12" x2="15" y2="12" />
-    </svg>
-  );
-}
 function OrderedListIcon() {
   return (
     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -329,8 +320,7 @@ export function AgentWindow({
   }
 
   // Clicking a toolbar button (a real, focusable <button>) can steal focus
-  // and collapse the editor's selection before exec() ever runs — worse for
-  // the link button, where window.prompt's modal reliably wipes it. Saving
+  // and collapse the editor's selection before exec() ever runs. Saving
   // the Range on mousedown (before any of that happens) and restoring it in
   // exec() makes every command apply to what was actually selected.
   const savedRangeRef = useRef<Range | null>(null);
@@ -393,11 +383,6 @@ export function AgentWindow({
     setDraftLen(measureDraft(el));
     updateActiveFormats();
   }
-  function execLink() {
-    const url = window.prompt("Link URL");
-    if (url) exec("createLink", url);
-  }
-
   // execCommand's list/formatBlock support is notoriously unreliable in
   // WebKit-based webviews (unlike bold/italic/underline, which are plain
   // CSS-backed inline commands and work fine) — silently no-ops instead of
@@ -734,7 +719,7 @@ export function AgentWindow({
                 minHeight: "100%",
                 padding: "28px 30px",
                 fontSize: 15.5,
-                lineHeight: 2.2,
+                lineHeight: 1.4,
                 color: "#FFFFFF",
                 outline: "none",
                 cursor: "text",
@@ -795,18 +780,6 @@ export function AgentWindow({
                 {b.label}
               </button>
             ))}
-            <div style={toolbarDividerStyle} />
-            <button
-              type="button"
-              title="Link"
-              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
-              onMouseEnter={() => setHoveredBtn("link")}
-              onMouseLeave={() => setHoveredBtn(null)}
-              onClick={execLink}
-              style={toolbarStyle("link")}
-            >
-              <LinkIcon />
-            </button>
             <div style={toolbarDividerStyle} />
             <button
               type="button"

@@ -1,7 +1,12 @@
-import { useState, type PointerEvent, type RefObject } from "react";
+import { useRef, useState, type PointerEvent, type RefObject } from "react";
 import { clientPointToPercent, type PercentPoint } from "../lib/overlayGeometry";
 import type { PreviewPin, PreviewStroke } from "../lib/previewComments";
 import type { PreviewTool } from "./PreviewToolbar";
+
+// Below this many pixels of movement, a pin pointerdown->up is a click (open
+// the pin), not a drag (move the pin) — matches the small amount of
+// incidental movement a real click/tap always has.
+const DRAG_THRESHOLD_PX = 4;
 
 export function PreviewAnnotationLayer({
   containerRef,
@@ -17,6 +22,7 @@ export function PreviewAnnotationLayer({
   onStrokePoint,
   onStrokeEnd,
   onPinClick,
+  onMovePin,
 }: {
   containerRef: RefObject<HTMLDivElement | null>;
   tool: PreviewTool;
@@ -31,9 +37,12 @@ export function PreviewAnnotationLayer({
   onStrokePoint: (point: PercentPoint) => void;
   onStrokeEnd: () => void;
   onPinClick: (pinId: string) => void;
+  onMovePin: (pinId: string, point: PercentPoint) => void;
 }) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftText, setDraftText] = useState("");
+  const [draggingPin, setDraggingPin] = useState<{ id: string; point: PercentPoint } | null>(null);
+  const dragStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   function toPercent(e: PointerEvent): PercentPoint {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -92,24 +101,49 @@ export function PreviewAnnotationLayer({
           <polyline points={toPoints(activeStroke)} className={`${strokeClass} opacity-70`} />
         )}
       </svg>
-      {pins.map((pin) => (
-        <button
-          key={pin.id}
-          type="button"
-          className={pin.resolved ? `${pinMarkerBase} text-text-tertiary opacity-60` : `${pinMarkerBase} text-accent`}
-          style={{ left: `${pin.x_pct}%`, top: `${pin.y_pct}%` }}
-          title={pin.text}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onPinClick(pin.id);
-          }}
-        >
-          <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
-            <path d="M12 21s-7-7.58-7-12a7 7 0 0 1 14 0c0 4.42-7 12-7 12z" />
-          </svg>
-        </button>
-      ))}
+      {pins.map((pin) => {
+        const pos = draggingPin?.id === pin.id ? draggingPin.point : { x_pct: pin.x_pct, y_pct: pin.y_pct };
+        return (
+          <button
+            key={pin.id}
+            type="button"
+            className={
+              (pin.resolved ? `${pinMarkerBase} text-text-tertiary opacity-60` : `${pinMarkerBase} text-accent`) +
+              (draggingPin?.id === pin.id ? " cursor-grabbing" : " cursor-grab")
+            }
+            style={{ left: `${pos.x_pct}%`, top: `${pos.y_pct}%` }}
+            title={pin.text}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              dragStart.current = { x: e.clientX, y: e.clientY, moved: false };
+            }}
+            onPointerMove={(e) => {
+              if (!dragStart.current) return;
+              const dx = e.clientX - dragStart.current.x;
+              const dy = e.clientY - dragStart.current.y;
+              if (!dragStart.current.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+              dragStart.current.moved = true;
+              setDraggingPin({ id: pin.id, point: toPercent(e) });
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              const moved = dragStart.current?.moved ?? false;
+              dragStart.current = null;
+              if (moved) {
+                onMovePin(pin.id, toPercent(e));
+                setDraggingPin(null);
+              } else {
+                onPinClick(pin.id);
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+              <path d="M12 21s-7-7.58-7-12a7 7 0 0 1 14 0c0 4.42-7 12-7 12z" />
+            </svg>
+          </button>
+        );
+      })}
       {draftPin && (
         <div
           className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[220px] bg-bg-tertiary border border-border rounded-[10px] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto"

@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { visiblePins, lastOwnStroke, repliesByPin, type PreviewPin, type PreviewPinReply, type PreviewStroke } from "./previewComments";
+import {
+  visiblePins,
+  pinsOnPage,
+  lastOwnStroke,
+  repliesByPin,
+  type PreviewPin,
+  type PreviewPinReply,
+  type PreviewStroke,
+} from "./previewComments";
 
 function pin(overrides: Partial<PreviewPin> = {}): PreviewPin {
   return {
@@ -10,6 +18,7 @@ function pin(overrides: Partial<PreviewPin> = {}): PreviewPin {
     resolved: false,
     created_by: "u1",
     created_at: "2026-08-19T00:00:00Z",
+    page_path: null,
     ...overrides,
   };
 }
@@ -33,6 +42,22 @@ describe("visiblePins", () => {
   it("shows resolved pins when showResolved is true", () => {
     const pins = [pin({ id: "p1", resolved: false }), pin({ id: "p2", resolved: true })];
     expect(visiblePins(pins, true)).toEqual(pins);
+  });
+});
+
+describe("pinsOnPage", () => {
+  it("shows every pin when the current page isn't known yet", () => {
+    const pins = [pin({ id: "p1", page_path: "/about" }), pin({ id: "p2", page_path: "/contact" })];
+    expect(pinsOnPage(pins, null)).toEqual(pins);
+  });
+
+  it("shows only pins matching the current page, plus unscoped pins", () => {
+    const pins = [
+      pin({ id: "p1", page_path: "/about" }),
+      pin({ id: "p2", page_path: "/contact" }),
+      pin({ id: "p3", page_path: null }),
+    ];
+    expect(pinsOnPage(pins, "/about")).toEqual([pins[0], pins[2]]);
   });
 });
 

@@ -118,7 +118,18 @@ fn answer_permission_request(
 }
 
 #[tauri::command]
-fn open_project_repo(app: AppHandle, project_id: String, repo_url: String) -> Result<(), String> {
+fn open_project_repo(
+    app: AppHandle,
+    team_preview: tauri::State<preview_server::TeamPreviewServer>,
+    chat_previews: tauri::State<preview_server::ChatPreviewServers>,
+    project_id: String,
+    repo_url: String,
+) -> Result<(), String> {
+    // Switching projects (or a project's repo URL) can delete the directory
+    // a preview dev server is currently running against — stop any servers
+    // from whatever project was active before, rather than orphaning them.
+    team_preview.shutdown();
+    chat_previews.shutdown_all();
     let local_root = app
         .path()
         .app_data_dir()

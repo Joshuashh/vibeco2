@@ -79,6 +79,22 @@ const PERMISSION_TOOL_NAME: &str = "mcp__vibeco-permissions__approve_tool_use";
 /// inject the check here instead of depending on that.
 const SCOPE_GUARDRAIL_PROMPT: &str = "This chat is scoped to one project's repository. If the user's request describes building something unrelated to what this repository already is (e.g. a different app entirely), don't just proceed — say in one line that it looks out of scope for this project and suggest starting a new project for it, then ask if they want to continue here anyway.";
 
+// Without this, Claude's own instinct when it finishes a webpage is to run
+// `open file.html` or launch a browser tool to show the result — reasonable
+// in a bare terminal, but this app already serves the working directory
+// itself through its own in-app Preview tab (as a static file server if
+// there's no package.json, or `npm run dev` if there is), so an external
+// browser is redundant and the user never sees it.
+const PREVIEW_GUARDRAIL_PROMPT: &str = "Don't run `open` or any command that launches an external browser to show your work. This app automatically serves your current working directory through its own in-app Preview panel — the user views your changes there, not in a separate browser window.";
+
+// Filename must match git_ops::PREVIEW_TRACKER_FILENAME — that's the file
+// this app seeds into every new project's first commit; this just tells
+// Claude to actually reference it, since the app has no way to inject a
+// script tag into arbitrary HTML it doesn't generate itself. Without this,
+// the Preview panel's per-page comment pins can't tell which page of a
+// multi-page or client-routed app is currently on screen.
+const PREVIEW_TRACKER_GUARDRAIL_PROMPT: &str = "This project has a file called vibeco-preview-tracker.js at its root, seeded automatically — it reports page navigation back to this app's Preview panel so pinned comments can be scoped to the right page. Include `<script src=\"/vibeco-preview-tracker.js\"></script>` in the <head> of every HTML page you create or that already exists in this project (for a framework project, that means the single root HTML document — index.html or equivalent — not every route). Do this without being asked, and don't remove or rename the file.";
+
 pub fn build_args(config: &SpawnConfig) -> Vec<String> {
     let mut args = vec![
         "--print".to_string(),
@@ -94,7 +110,7 @@ pub fn build_args(config: &SpawnConfig) -> Vec<String> {
         "--effort".to_string(),
         config.effort.clone(),
         "--append-system-prompt".to_string(),
-        SCOPE_GUARDRAIL_PROMPT.to_string(),
+        format!("{SCOPE_GUARDRAIL_PROMPT}\n\n{PREVIEW_GUARDRAIL_PROMPT}\n\n{PREVIEW_TRACKER_GUARDRAIL_PROMPT}"),
     ];
     if let Some(id) = &config.resume_session_id {
         args.push("--resume".to_string());
