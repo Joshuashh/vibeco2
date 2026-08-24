@@ -57,6 +57,29 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 
 **Recommendation:** safe to start fresh next session once this is committed/pushed.
 
+## Session hand-off (2026-08-24)
+
+**What shipped:** a long debugging chain that started as "preview tab button styling" and ended up hardening the entire git worktree/queue/merge pipeline against a real fresh-GitHub-repo project, plus a preview-comments fix and two small features:
+
+- **Cowork instant-lock bug (fixed):** `chats.open` defaulted `false`; decision 12 had repurposed `false` into a hard Cowork lock with no owner exception, so every new chat locked itself out the moment its first message bumped `last_message_at`. New chats now default `open: true` (migration `0021`, plus a code default).
+- **Project repo switching (fixed):** editing a project's GitHub URL used to just `remote set-url` an already-cloned directory, silently leaving all the *old* repo's files/branches/worktrees in place. Now detects the origin mismatch and re-clones. Worktrees are also now scoped per-project (`<project-id>-worktrees`) instead of one folder shared by every project on the machine.
+- **Git pipeline self-healing (fixed):** chat/team worktrees relocate instead of erroring if their expected path changes; a brand-new empty GitHub repo gets bootstrapped with a real initial commit (seeding the preview-tracker script, see below) instead of assuming `main` exists; the repo's actual default branch is resolved instead of hardcoding `"main"`; `merge_chat_into_team` no longer hard-fails on a `team` branch that hasn't reached origin yet (first merge on a new project).
+- **Silent-failure landmines (fixed):** removed a fallback that could silently run a Claude session with the wrong working directory instead of failing loudly (this was the actual root cause of "merge produced zero files" earlier in the session); the unmerged-work check gating chat deletion now fails toward "assume unsafe" instead of "assume safe" (both the Rust and frontend layers had the same bug).
+- **Preview server (fixed):** added a static-file fallback (Python's `http.server`) for projects with no `package.json`; fixed the same PATH-resolution issue for `python3` that `npm` already had a fix for; added a port-open poll before reporting "ready" so the iframe stops racing a server that hasn't started listening yet (this was why Local previews showed a blank screen with no error).
+- **Preview comments (fixed):** `created_by` on all three preview annotation tables had no `default auth.uid()` (every other such column in this project does) — every pin/reply/stroke insert had *always* silently failed a NOT NULL constraint since the feature shipped. Migration `0022` fixes it; failures now also surface a toast instead of only logging.
+- **New: draggable pins.** Click-vs-drag distinguished by a 4px movement threshold; optimistic local update so it doesn't snap back waiting on the network.
+- **New: page-scoped comments.** `vibeco-preview-tracker.js` is now auto-seeded into every new project's first commit and Claude is told (system-prompt guardrail) to wire it into pages it builds; it `postMessage`s the current path to the app (the iframe is cross-origin, so this is the only way to know what page is showing), and pins are filtered to the current page (unscoped/legacy pins always show). Migration `0023` adds `preview_pins.page_path`.
+- **Also:** Preview tab's Team/Local toggle restyled to match the app's real tab component; chat-select sizes to content instead of a fixed width; Cowork draft editor's oversized line-height fixed; desktop/mobile viewport toggle added with an iPhone-style frame.
+
+**Current state:** everything above is committed and pushed (`f39b436`). `npx tsc --noEmit`, `npx vitest run` (91/91), and `cargo test` (29/29) all clean. Not clicked through live in `tauri dev` this session (per standing practice — user verified UI directly, iteratively, across the whole session).
+
+**Open items:**
+- Three Supabase migrations (`0021`, `0022`, `0023`) need running against the live Supabase project — the user ran `0021` mid-session but should double check `0022`/`0023` also landed.
+- Page-scoped comments only auto-apply to **new** projects (the tracker script is seeded on first commit). An existing project created before this session won't have it — explicitly flagged to the user as a follow-up if they want it retrofitted.
+- The two known bugs below (Cowork toolbar caret/hover, timestamp hover-to-fade) are untouched this session — still open.
+
+**Recommendation:** safe to start fresh next session. Suggest confirming the two remaining migrations are applied before doing more Preview-tab work.
+
 ## Known open bugs
 
 - **Cowork toolbar (`AgentWindow.tsx`): caret invisible next to list markers, and a stuck grey hover box on toolbar buttons — unresolved despite two rounds of fixes that were each individually verified.** Both fixes were validated via out-of-app standalone HTML/JS reproductions (this session can't sign into the app to test live) and the DOM-position/hover-state reasoning held up in isolation — but the user confirmed both are still broken in the real running app. Don't trust an out-of-app repro's verdict here again; next attempt needs the user driving the actual app or a debugger attached to the live signed-in session.
