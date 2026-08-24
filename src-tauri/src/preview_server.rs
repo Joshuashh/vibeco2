@@ -69,6 +69,28 @@ fn resolve_python_binary() -> Option<std::path::PathBuf> {
 /// to actually show its own work). Serve the worktree as static files in
 /// that case instead, via Python's stdlib server — already on every Mac, no
 /// new dependency, no need to guess at a framework.
+/// `http.server` only auto-serves a file named exactly `index.html` at `/` —
+/// anything else (e.g. a page named `padel.html`) makes it fall back to a
+/// raw directory listing instead of rendering the page. Finds whatever `.html`
+/// file should stand in for `index.html` so the caller can route `/` to it.
+/// `None` means no rewrite is needed (either `index.html` already exists, or
+/// there's nothing to serve at all).
+fn find_html_entry(worktree: &Path) -> Option<String> {
+    if worktree.join("index.html").exists() {
+        return None;
+    }
+    let mut htmls: Vec<String> = std::fs::read_dir(worktree)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.ends_with(".html").then_some(name)
+        })
+        .collect();
+    htmls.sort();
+    htmls.into_iter().next()
+}
+
 fn spawn_dev_server(worktree: &Path, port: u16) -> Result<Child, String> {
     if worktree.join("package.json").exists() {
         let npm_path = resolve_npm_binary().ok_or_else(|| "npm binary not found".to_string())?;
@@ -79,11 +101,40 @@ fn spawn_dev_server(worktree: &Path, port: u16) -> Result<Child, String> {
             .map_err(|e| format!("failed to start preview server: {e}"))
     } else {
         let python_path = resolve_python_binary().ok_or_else(|| "python3 binary not found".to_string())?;
-        Command::new(python_path)
-            .args(["-m", "http.server", &port.to_string(), "--bind", "127.0.0.1"])
-            .current_dir(worktree)
-            .spawn()
-            .map_err(|e| format!("failed to start static preview server: {e}"))
+        match find_html_entry(worktree) {
+            Some(entry) => {
+                // Redirect "/" to the actual entry file instead of letting
+                // http.server list the directory.
+                let script = format!(
+                    r#"
+import http.server, socketserver
+ENTRY = {entry:?}
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            self.send_response(302)
+            self.send_header("Location", "/" + ENTRY)
+            self.end_headers()
+            return
+        super().do_GET()
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+with Server(("127.0.0.1", {port}), Handler) as httpd:
+    httpd.serve_forever()
+"#
+                );
+                Command::new(python_path)
+                    .args(["-c", &script])
+                    .current_dir(worktree)
+                    .spawn()
+                    .map_err(|e| format!("failed to start static preview server: {e}"))
+            }
+            None => Command::new(python_path)
+                .args(["-m", "http.server", &port.to_string(), "--bind", "127.0.0.1"])
+                .current_dir(worktree)
+                .spawn()
+                .map_err(|e| format!("failed to start static preview server: {e}")),
+        }
     }
 }
 

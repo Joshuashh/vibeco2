@@ -95,6 +95,11 @@ export async function setPinResolved(pinId: string, resolved: boolean): Promise<
   if (error) throw new Error(`failed to update pin: ${error.message}`);
 }
 
+export async function deletePreviewPin(pinId: string): Promise<void> {
+  const { error } = await supabase.from("preview_pins").delete().eq("id", pinId);
+  if (error) throw new Error(`failed to delete pin: ${error.message}`);
+}
+
 export async function movePreviewPin(pinId: string, point: PercentPoint): Promise<void> {
   const { error } = await supabase
     .from("preview_pins")
@@ -103,9 +108,18 @@ export async function movePreviewPin(pinId: string, point: PercentPoint): Promis
   if (error) throw new Error(`failed to move pin: ${error.message}`);
 }
 
-export async function insertPreviewStroke(path: PercentPoint[]): Promise<void> {
-  const { error } = await supabase.from("preview_strokes").insert({ path });
+export async function insertPreviewStroke(path: PercentPoint[]): Promise<PreviewStroke> {
+  const { data, error } = await supabase.from("preview_strokes").insert({ path }).select().single();
   if (error) throw new Error(`failed to add stroke: ${error.message}`);
+  return data as PreviewStroke;
+}
+
+/** Deletes every stroke the given user drew (spec §4 scopes undo/clear to your own strokes). */
+export async function clearOwnPreviewStrokes(strokes: PreviewStroke[], userId: string): Promise<void> {
+  const ids = strokes.filter((s) => s.created_by === userId).map((s) => s.id);
+  if (ids.length === 0) return;
+  const { error } = await supabase.from("preview_strokes").delete().in("id", ids);
+  if (error) throw new Error(`failed to clear strokes: ${error.message}`);
 }
 
 export async function deletePreviewStroke(strokeId: string): Promise<void> {

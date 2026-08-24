@@ -7,7 +7,7 @@ import type { Session } from "@supabase/supabase-js";
 import { LiveMap, type Json } from "@liveblocks/client";
 import { ChatPane, ChatPaneEmpty } from "./components/ChatPane";
 import { AgentWindow } from "./components/AgentWindow";
-import { ShelfPanel, type ShelfItem } from "./components/ShelfPanel";
+import { ShelfPanel } from "./components/ShelfPanel";
 import { HomeView } from "./components/HomeView";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
@@ -45,6 +45,7 @@ import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, insertMergeEvent, type MergeEvent } from "./lib/mergeEvents";
+import { fetchQueueItems, insertQueueItem, markQueueItemConflict, deleteQueueItem, type QueueItem } from "./lib/queueItems";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
 import {
   extractMentions,
@@ -70,6 +71,15 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
   const [logbookEntries, setLogbookEntries] = useState<LogbookEntry[]>([]);
+  // The publish queue — lifted here (rather than living inside ShelfPanel or
+  // AgentWindow/ChatPane) since the "add to queue" trigger sits in each
+  // surface's own reply pane while the queue/publish UI sits in ShelfPanel,
+  // siblings that all need this state. App-wide, not per-chat or per-mode:
+  // Cowork and Solo both add into the same queue (see decisions.md).
+  // Durable (queue_items table, 0025_queue_items.sql) and live across
+  // teammates, not local-only state — a queued item used to vanish on
+  // restart with no way to recover it.
+  const [shelf, setShelf] = useState<QueueItem[]>([]);
   const [mentionInbox, setMentionInbox] = useState<MentionInboxEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [viewMode, setViewMode] = useState<"home" | "cowork" | "solo" | "canvas" | "preview">("home");
@@ -161,6 +171,10 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
   useEffect(() => {
     fetchLogbookEntries(project.id).then(setLogbookEntries);
+  }, [project.id]);
+
+  useEffect(() => {
+    fetchQueueItems(project.id).then(setShelf).catch((err) => console.error("failed to fetch queue items", err));
   }, [project.id]);
 
   // Switching projects should land you on that project's Home, like opening
@@ -424,6 +438,32 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           setLogbookEntries((prev) => [payload.new as LogbookEntry, ...prev]);
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "queue_items", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const row = payload.new as QueueItem;
+          // Our own inserts are already added optimistically in handleShelve
+          // below — skip the echo so it doesn't render twice.
+          setShelf((prev) => (prev.some((it) => it.id === row.id) ? prev : [...prev, row]));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "queue_items", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const row = payload.new as QueueItem;
+          setShelf((prev) => prev.map((it) => (it.id === row.id ? row : it)));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "queue_items", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const row = payload.old as { id: string };
+          setShelf((prev) => prev.filter((it) => it.id !== row.id));
+        }
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -484,8 +524,22 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       const chat = chats.find((c) => c.id === chatId);
       const isFirstMessage = (chatStates[chatId]?.messages.length ?? 0) === 0;
       if (isFirstMessage && !chat?.title) {
-        const title = deriveChatTitle(prompt);
-        if (title) handleRename(chatId, title);
+        const fallbackTitle = deriveChatTitle(prompt);
+        if (fallbackTitle) handleRename(chatId, fallbackTitle);
+        // Upgrade to a short, inferred name once Claude replies; skip if the
+        // user has already renamed the chat in the meantime.
+        invoke<string>("generate_chat_title", { prompt })
+          .then((title) => {
+            const inferred = title.trim();
+            if (!inferred) return;
+            setChats((prev) => {
+              const current = prev.find((c) => c.id === chatId);
+              if (!current || current.title !== fallbackTitle) return prev;
+              return prev.map((c) => (c.id === chatId ? { ...c, title: inferred } : c));
+            });
+            updateChatTitle(chatId, inferred).catch((err) => console.error("failed to save inferred chat title", err));
+          })
+          .catch((err) => console.error("failed to infer chat title", err));
       }
       const sentMessage = userMessage(prompt, attachments, session.user.email);
       setChatStates((prev) => appendUserMessage(prev, chatId, sentMessage));
@@ -775,12 +829,6 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   // just bounces you back to the locked-chat message.
   const chatsForCoworkPicker = chats.filter((c) => !isChatLockedForCowork(c, profiles, onlineEmails));
 
-  // The publish queue — lifted here (rather than living inside ShelfPanel or
-  // AgentWindow/ChatPane) since the "add to queue" trigger sits in each
-  // surface's own reply pane while the queue/publish UI sits in ShelfPanel,
-  // siblings that all need this state. App-wide, not per-chat or per-mode:
-  // Cowork and Solo both add into the same queue (see decisions.md).
-  const [shelf, setShelf] = useState<ShelfItem[]>([]);
   const [shelving, setShelving] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -801,26 +849,27 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       const diff = await invoke<string>("diff_since_team", { chatId: activeChatId });
       const summary = await invoke<string>("summarize_diff", { diff });
       await insertMergeEvent(activeChatId, "held", null);
-      setShelf((s) => [
-        ...s,
-        {
-          id: `s-${Date.now()}`,
-          chatId: activeChatId,
-          title: activeChat?.title ?? "Untitled change",
-          summary,
-          status: "queued",
-        },
-      ]);
+      const mine = profiles.find((p) => p.id === session.user.id);
+      const submittedBy =
+        viewMode === "cowork" ? "Cowork" : mine?.display_name || session.user.email || "Solo";
+      // Optimistic, same reasoning as the preview strokes/pins — otherwise
+      // the item only appears once the realtime INSERT round-trips back.
+      const item = await insertQueueItem({ chatId: activeChatId, projectId: project.id, summary, submittedBy });
+      setShelf((s) => (s.some((it) => it.id === item.id) ? s : [...s, item]));
     } catch (err) {
       console.error("queue_chat_branch failed", err);
       showToast("Couldn't add this chat to the queue — try again.");
     } finally {
       setShelving(false);
     }
-  }, [canShelve, shelving, activeChatId, activeChat?.title]);
+  }, [canShelve, shelving, activeChatId, viewMode, profiles, session.user.id, session.user.email, project.id]);
 
   const handleRemoveFromShelf = useCallback((id: string) => {
     setShelf((s) => s.filter((it) => it.id !== id));
+    deleteQueueItem(id).catch((err) => {
+      console.error("failed to remove queue item", err);
+      showToast("Couldn't remove that item — try again.");
+    });
   }, []);
 
   // "Publish": merge every queued chat branch into `team`, one at a time —
@@ -837,30 +886,28 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         try {
           const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
             "merge_chat_into_team",
-            { chatId: item.chatId }
+            { chatId: item.chat_id }
           );
           if (result.status === "Clean") {
-            await insertMergeEvent(item.chatId, "merged", "chat → team");
+            await insertMergeEvent(item.chat_id, "merged", "chat → team");
             setShelf((s) => s.filter((it) => it.id !== item.id));
+            await deleteQueueItem(item.id);
           } else {
-            await insertMergeEvent(item.chatId, "conflict", result.files.join(", "));
-            setShelf((s) =>
-              s.map((it) =>
-                it.id !== item.id
-                  ? it
-                  : { ...it, status: "conflict", summary: `Conflicts with the team branch in: ${result.files.join(", ")}` }
-              )
-            );
+            const conflictSummary = `Conflicts with the team branch in: ${result.files.join(", ")}`;
+            await insertMergeEvent(item.chat_id, "conflict", result.files.join(", "));
+            setShelf((s) => s.map((it) => (it.id !== item.id ? it : { ...it, status: "conflict", summary: conflictSummary })));
+            await markQueueItemConflict(item.id, conflictSummary);
           }
         } catch (err) {
-          console.error(`merge_chat_into_team failed for ${item.chatId}`, err);
-          showToast(`Couldn't publish "${item.title}" — try again.`);
+          console.error(`merge_chat_into_team failed for ${item.chat_id}`, err);
+          const chatTitle = chats.find((c) => c.id === item.chat_id)?.title ?? "that change";
+          showToast(`Couldn't publish "${chatTitle}" — try again.`);
         }
       }
     } finally {
       setPublishing(false);
     }
-  }, [shelf, publishing]);
+  }, [shelf, publishing, chats]);
 
   // A mention badge counts as read once its chat is actually opened in the
   // docked view — sending into a chat (any view, see handleSend) is the
@@ -965,7 +1012,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           flowApiRef={flowApiRef}
         />
       ) : viewMode === "preview" ? (
-        <PreviewPage session={session} chats={chats} activeChatId={activeChatId} />
+        <PreviewPage session={session} chats={chats} activeChatId={activeChatId} profiles={profiles} />
       ) : (
         <div className="chat-workspace">
           {!sidebarCollapsed && (

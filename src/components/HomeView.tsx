@@ -159,6 +159,14 @@ export function HomeView({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-[2em] py-[1.8em]">
       <div className="max-w-[880px] mx-auto flex flex-col gap-[1.8em]">
+        <div className="flex flex-col gap-[0.3em]">
+          <div className="text-[20px] font-semibold text-text-primary">Page in Progress</div>
+          <div className="text-[13px] text-text-tertiary">
+            This page is a work in progress. The goal is a full project dashboard — insights, overviews, task
+            lists, and progress tracking, all in one place.
+          </div>
+        </div>
+
         <div className="flex items-center gap-[0.5em]">
           {profiles.map((p) => (
             <div key={p.email} className="relative" style={{ width: 26, height: 26 }}>

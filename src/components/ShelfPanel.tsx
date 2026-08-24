@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { QueueItem } from "../lib/queueItems";
 
 // Full-height bar pinned to the right of the workspace — same pattern as the
 // Sidebar on the left (flush, no card chrome, collapses to an icon strip
@@ -30,12 +31,38 @@ const C = {
   mint: "#7FDCBB",
 };
 
-export interface ShelfItem {
-  id: string;
-  chatId: string;
-  title: string;
-  summary: string;
-  status: "queued" | "conflict";
+// The summary comes back as plain-ish markdown (see claude_summary.rs's
+// DIFF_INSTRUCTION): "### Header" lines for each distinct change, "- "
+// bullets under each, or just a single plain line when there's only one
+// change. No markdown library for three line shapes — just a line-by-line read.
+function SummaryText({ text }: { text: string }) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {lines.map((line, i) => {
+        if (line.startsWith("### ")) {
+          return (
+            <div key={i} style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", marginTop: i === 0 ? 0 : 4 }}>
+              {line.slice(4)}
+            </div>
+          );
+        }
+        if (line.startsWith("- ")) {
+          return (
+            <div key={i} style={{ display: "flex", gap: 6, fontSize: 13, lineHeight: 1.5, color: "#FFFFFF", paddingLeft: 2 }}>
+              <span style={{ color: C.faint }}>•</span>
+              <span>{line.slice(2)}</span>
+            </div>
+          );
+        }
+        return (
+          <div key={i} style={{ fontSize: 13, lineHeight: 1.5, color: "#FFFFFF" }}>
+            {line}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function ShelfPanel({
@@ -44,7 +71,7 @@ export function ShelfPanel({
   onPublish,
   onRemove,
 }: {
-  shelf: ShelfItem[];
+  shelf: QueueItem[];
   publishing: boolean;
   onPublish: () => void;
   onRemove: (id: string) => void;
@@ -129,9 +156,36 @@ export function ShelfPanel({
           </div>
         ) : (
           shelf.map((it) => (
-            <div key={it.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <div
+              key={it.id}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: C.idleBg,
+                border: `1px solid ${it.status === "conflict" ? "#5C2E2B" : C.idleBorder}`,
+              }}
+            >
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, flex: 1 }}>{it.title}</div>
+                <div
+                  style={{
+                    flex: "none",
+                    alignSelf: "flex-start",
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: C.blueInk,
+                    background: C.blueBg,
+                    border: `1px solid ${C.blueBorder}`,
+                    borderRadius: 5,
+                    padding: "1px 6px",
+                  }}
+                >
+                  {it.submitted_by}
+                </div>
+                <div style={{ flex: 1 }} />
                 <div
                   onClick={() => onRemove(it.id)}
                   title="Remove from queue"
@@ -142,7 +196,7 @@ export function ShelfPanel({
                   </svg>
                 </div>
               </div>
-              <div style={{ fontSize: 12.5, lineHeight: 1.55, color: C.sub }}>{it.summary}</div>
+              <SummaryText text={it.summary} />
               <div style={{ fontSize: 11.5, color: it.status === "conflict" ? "#E2584F" : C.mint }}>
                 {it.status === "conflict" ? "Conflict · resolve before merging" : "Queued · ready to merge"}
               </div>

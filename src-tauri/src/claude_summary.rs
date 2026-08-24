@@ -3,7 +3,9 @@ use std::process::Command;
 
 const BRIEF_INSTRUCTION: &str = "Summarize the following chat transcript as a short state-of-play brief for a teammate picking this up. Use three short sections: Shipped, Fixed/Changed, Next steps. Be concise — this is a handoff note, not a report.";
 
-const DIFF_INSTRUCTION: &str = "Summarize the following git diff in one short paragraph (2-3 sentences) for a teammate deciding whether to publish it. Name the actual files/behavior that changed — be concrete, not generic. Do not restate that it's a diff.";
+const DIFF_INSTRUCTION: &str = "Summarize the following git diff for a non-technical teammate deciding whether to publish it, in plain language — describe what changed for the user/app, never code details (no file names, CSS/function/property names, or implementation talk). If there is a single change, write one short line under 8 words (e.g. \"Removed steppers from score fields\"). If there are multiple distinct changes, write a short \"### Header\" (2-4 words) per change followed by one `- ` bullet under 8 words each. Do not restate that it's a diff, and do not add any preamble or closing remarks.";
+
+const TITLE_INSTRUCTION: &str = "Give this chat message a short title, 4-5 words, for a sidebar list. Plain text, no quotes, no trailing punctuation. Reply with only the title.";
 
 /// Runs a one-shot, non-streaming `claude --print` call and returns its
 /// result text. Unlike `claude_process`'s PTY pipeline (which streams into
@@ -40,6 +42,11 @@ pub fn summarize_diff(diff: String) -> Result<String, String> {
         return Ok("No file changes since this chat was last queued.".to_string());
     }
     run_claude_print(&format!("{DIFF_INSTRUCTION}\n\n---\n\n{diff}"))
+}
+
+/// Infers a short (4-5 word) sidebar title from the chat's first message.
+pub fn generate_chat_title(prompt: String) -> Result<String, String> {
+    run_claude_print(&format!("{TITLE_INSTRUCTION}\n\n---\n\n{prompt}"))
 }
 
 /// Pulls the `result` text out of `claude --print --output-format json`'s

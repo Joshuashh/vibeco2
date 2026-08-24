@@ -148,7 +148,7 @@ export function ChatView({
               title="Queue this chat's changes to merge into team"
               className="text-[12px] rounded-md px-[0.7em] py-[0.3em] cursor-pointer max-w-[160px] truncate transition-colors disabled:cursor-default disabled:opacity-60"
               style={{
-                color: myColor,
+                color: "#FFFFFF",
                 background: `color-mix(in srgb, ${myColor} 14%, transparent)`,
                 border: `1px solid color-mix(in srgb, ${myColor} 32%, transparent)`,
               }}

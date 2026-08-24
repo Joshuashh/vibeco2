@@ -422,7 +422,35 @@ export function AgentWindow({
     setDraftLen(measureDraft(el));
     updateActiveFormats();
   }
+  // Flattens a <blockquote> back into its plain contents in place of the
+  // element itself — toggle-off half of the quote button, same shape as
+  // unwrapList below.
+  function unwrapQuote(bq: HTMLElement) {
+    const frag = document.createDocumentFragment();
+    while (bq.firstChild) frag.appendChild(bq.firstChild);
+    bq.replaceWith(frag);
+  }
+
   function execQuote() {
+    if (streaming) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const anchorNode = savedRangeRef.current?.startContainer ?? window.getSelection()?.anchorNode ?? null;
+    const existing = anchorNode ? closestQuote(anchorNode) : null;
+    if (existing) {
+      // Already inside a quote at the caret — pressing the button again
+      // means "undo it," not "nest another quote inside it."
+      el.focus();
+      unwrapQuote(existing);
+      const after = endOfContentRange(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(after);
+      savedRangeRef.current = after.cloneRange();
+      setDraftLen(measureDraft(el));
+      updateActiveFormats();
+      return;
+    }
     const color = colorForUser(myEmail);
     wrapSelection((contents) => {
       const bq = document.createElement("blockquote");
@@ -726,8 +754,11 @@ export function AgentWindow({
               }}
             />
             {draftLen === 0 && (
-              <div style={{ position: "absolute", top: 28, left: 30, fontSize: 15.5, lineHeight: 2.2, color: C.fainter, pointerEvents: "none" }}>
-                Describe the change for Nova, or type / for commands… everyone marks ready, then send.
+              // Same font-size/line-height/padding as the editor itself
+              // (below) — any mismatch there is what made the placeholder
+              // sit at a different position/size than the caret typing over it.
+              <div style={{ position: "absolute", top: 28, left: 30, fontSize: 15.5, lineHeight: 1.4, color: C.fainter, pointerEvents: "none" }}>
+                Describe the change for Nova — everyone marks ready, then send.
               </div>
             )}
             {/* A slash command only ever matches while the whole draft is

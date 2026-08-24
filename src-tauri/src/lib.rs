@@ -224,6 +224,13 @@ async fn summarize_diff(diff: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn generate_chat_title(prompt: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || claude_summary::generate_chat_title(prompt))
+        .await
+        .map_err(|e| format!("title generation task panicked: {e}"))?
+}
+
+#[tauri::command]
 fn promote_to_main() -> Result<(), String> {
     let root = git_ops::repo_root()?;
     git_ops::promote_to_main(&root)
@@ -384,6 +391,7 @@ pub fn run() {
             diff_since_team,
             merge_chat_into_team,
             summarize_diff,
+            generate_chat_title,
             promote_to_main,
             check_for_app_update,
             pull_app_update,

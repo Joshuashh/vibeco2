@@ -1,12 +1,15 @@
 import { useRef, useState, type PointerEvent, type RefObject } from "react";
 import { clientPointToPercent, type PercentPoint } from "../lib/overlayGeometry";
-import type { PreviewPin, PreviewStroke } from "../lib/previewComments";
+import type { PreviewPin, PreviewPinReply, PreviewStroke } from "../lib/previewComments";
 import type { PreviewTool } from "./PreviewToolbar";
 
 // Below this many pixels of movement, a pin pointerdown->up is a click (open
 // the pin), not a drag (move the pin) — matches the small amount of
 // incidental movement a real click/tap always has.
 const DRAG_THRESHOLD_PX = 4;
+
+const popoverButtonClass =
+  "appearance-none border-0 outline-none box-border bg-transparent cursor-default text-[12px] px-2.5 py-1 rounded-md text-text-secondary hover:bg-bg-secondary hover:text-text-primary";
 
 export function PreviewAnnotationLayer({
   containerRef,
@@ -15,6 +18,9 @@ export function PreviewAnnotationLayer({
   strokes,
   activeStroke,
   draftPin,
+  openPinId,
+  repliesByPin,
+  currentUserId,
   onPlacePin,
   onSaveDraftPin,
   onCancelDraftPin,
@@ -23,6 +29,10 @@ export function PreviewAnnotationLayer({
   onStrokeEnd,
   onPinClick,
   onMovePin,
+  onClosePopover,
+  onResolvePin,
+  onDeletePin,
+  onReplyPin,
 }: {
   containerRef: RefObject<HTMLDivElement | null>;
   tool: PreviewTool;
@@ -30,6 +40,9 @@ export function PreviewAnnotationLayer({
   strokes: PreviewStroke[];
   activeStroke: PercentPoint[] | null;
   draftPin: PercentPoint | null;
+  openPinId: string | null;
+  repliesByPin: Record<string, PreviewPinReply[]>;
+  currentUserId: string;
   onPlacePin: (point: PercentPoint) => void;
   onSaveDraftPin: (text: string) => void;
   onCancelDraftPin: () => void;
@@ -38,6 +51,10 @@ export function PreviewAnnotationLayer({
   onStrokeEnd: () => void;
   onPinClick: (pinId: string) => void;
   onMovePin: (pinId: string, point: PercentPoint) => void;
+  onClosePopover: () => void;
+  onResolvePin: (pinId: string, resolved: boolean) => void;
+  onDeletePin: (pinId: string) => void;
+  onReplyPin: (pinId: string, text: string) => void;
 }) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftText, setDraftText] = useState("");
@@ -144,6 +161,20 @@ export function PreviewAnnotationLayer({
           </button>
         );
       })}
+      {pins
+        .filter((pin) => pin.id === openPinId)
+        .map((pin) => (
+          <PinPopover
+            key={pin.id}
+            pin={pin}
+            replies={repliesByPin[pin.id] ?? []}
+            currentUserId={currentUserId}
+            onClose={onClosePopover}
+            onResolve={onResolvePin}
+            onDelete={onDeletePin}
+            onReply={onReplyPin}
+          />
+        ))}
       {draftPin && (
         <div
           className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[220px] bg-bg-tertiary border border-border rounded-[10px] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto"
@@ -181,6 +212,78 @@ export function PreviewAnnotationLayer({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Figma-style in-place comment card, anchored at the pin's own position
+// instead of only showing up in the sidebar list.
+function PinPopover({
+  pin,
+  replies,
+  currentUserId,
+  onClose,
+  onResolve,
+  onDelete,
+  onReply,
+}: {
+  pin: PreviewPin;
+  replies: PreviewPinReply[];
+  currentUserId: string;
+  onClose: () => void;
+  onResolve: (pinId: string, resolved: boolean) => void;
+  onDelete: (pinId: string) => void;
+  onReply: (pinId: string, text: string) => void;
+}) {
+  const [replyText, setReplyText] = useState("");
+
+  function submitReply() {
+    if (!replyText.trim()) return;
+    onReply(pin.id, replyText.trim());
+    setReplyText("");
+  }
+
+  return (
+    <div
+      className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[240px] bg-bg-tertiary border border-border rounded-[10px] p-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto text-[13px]"
+      style={{ left: `${pin.x_pct}%`, top: `${pin.y_pct}%` }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-text-tertiary text-[11px]">{pin.created_by === currentUserId ? "You" : "Teammate"}</span>
+        <button
+          type="button"
+          aria-label="Close"
+          className="appearance-none border-0 bg-transparent leading-none text-text-tertiary hover:text-text-primary cursor-default"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <div className="text-text-primary">{pin.text}</div>
+      {replies.map((reply) => (
+        <div key={reply.id} className="text-xs text-text-secondary">
+          <strong>{reply.created_by === currentUserId ? "You" : "Teammate"}:</strong> {reply.text}
+        </div>
+      ))}
+      <input
+        type="text"
+        className="bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] px-2 py-1"
+        placeholder="Reply…"
+        value={replyText}
+        onChange={(e) => setReplyText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submitReply();
+        }}
+      />
+      <div className="flex justify-end gap-1.5">
+        <button type="button" className={popoverButtonClass} onClick={() => onResolve(pin.id, !pin.resolved)}>
+          {pin.resolved ? "Unresolve" : "Resolve"}
+        </button>
+        <button type="button" className={popoverButtonClass} onClick={() => onDelete(pin.id)}>
+          Delete
+        </button>
+      </div>
     </div>
   );
 }
