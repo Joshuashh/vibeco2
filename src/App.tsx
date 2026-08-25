@@ -83,6 +83,22 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
   const [mentionInbox, setMentionInbox] = useState<MentionInboxEntry[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [viewMode, setViewMode] = useState<"home" | "cowork" | "solo" | "canvas" | "preview">("home");
+  const isChatView = viewMode === "cowork" || viewMode === "solo";
+  // Cowork/Solo re-mount AgentWindow's Tiptap+Yjs binding (and ChatPane's
+  // realtime subscriptions) from scratch on every switch back from Home or
+  // Preview — visibly slow. Once visited, keep the pane mounted and just
+  // hide it with CSS so switching back is instant.
+  const [chatWorkspaceMounted, setChatWorkspaceMounted] = useState(isChatView);
+  useEffect(() => {
+    if (isChatView) setChatWorkspaceMounted(true);
+  }, [isChatView]);
+  // Same reasoning for Preview: it re-runs `ensure_team_preview_running`,
+  // reloads the iframe, and re-fetches pins/strokes/replies from Supabase
+  // every time you return to it. Keep it alive once visited instead.
+  const [previewMounted, setPreviewMounted] = useState(viewMode === "preview");
+  useEffect(() => {
+    if (viewMode === "preview") setPreviewMounted(true);
+  }, [viewMode]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1013,10 +1029,14 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           mentionedChatIds={mentionedChatIds}
           flowApiRef={flowApiRef}
         />
-      ) : viewMode === "preview" ? (
-        <PreviewPage session={session} activeChatId={activeChatId} profiles={profiles} />
-      ) : (
-        <div className="chat-workspace">
+      ) : null}
+      {previewMounted && (
+        <div style={{ display: viewMode === "preview" ? "contents" : "none" }}>
+          <PreviewPage session={session} activeChatId={activeChatId} profiles={profiles} />
+        </div>
+      )}
+      {chatWorkspaceMounted && (
+        <div className="chat-workspace" style={{ display: isChatView ? "flex" : "none" }}>
           {!sidebarCollapsed && (
             <>
               <div className="sidebar-panel" style={{ width: sidebarWidth }}>
