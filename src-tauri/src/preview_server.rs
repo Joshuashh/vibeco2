@@ -166,6 +166,26 @@ impl TeamPreviewServer {
         Ok(())
     }
 
+    /// Hard restart: kill the tracked dev server and spawn a fresh one, even
+    /// if the current child still looks alive (unlike ensure_running, which
+    /// no-ops in that case). For the Preview window's "hard restart" action —
+    /// forces a clean server against the latest team worktree when a stale or
+    /// wedged Vite process is showing outdated content. `wait()` after `kill`
+    /// reaps the child and lets it release TEAM_PREVIEW_PORT before the new
+    /// one tries to bind it (strictPort would otherwise fail the respawn).
+    pub fn restart(&self, team_worktree: &Path) -> Result<(), String> {
+        let mut guard = self.child.lock().map_err(|_| "preview server lock poisoned".to_string())?;
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        *guard = Some(spawn_dev_server(team_worktree, TEAM_PREVIEW_PORT)?);
+        if !wait_for_port_open(TEAM_PREVIEW_PORT, Duration::from_secs(15)) {
+            return Err("preview server restarted but never opened its port".to_string());
+        }
+        Ok(())
+    }
+
     /// Kills the tracked `npm run dev` child, if any. Called on app exit so
     /// it doesn't orphan a process holding `TEAM_PREVIEW_PORT` after the
     /// window closes (previously nothing ever stopped it).
