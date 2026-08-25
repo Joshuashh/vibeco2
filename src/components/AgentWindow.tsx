@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChatState } from "../lib/chatStore";
 import type { SentAttachment } from "../types/message";
@@ -26,8 +26,10 @@ import type { AssignableTeammate } from "./AssignChatMenu";
 // pinned to the right of the screen (App.tsx), separate from this component,
 // since it's a property of the chat rather than of either pane here.
 //
-// Not yet wired (documented follow-up): a *shared* multiplayer prompt draft
-// with live carets (the draft here is local per-user).
+// Shared draft: whoever focuses the editor first "holds" it (same
+// last-focus-wins lock InputBar.tsx uses for Solo) and their plain-text
+// draft mirrors live to everyone else via presence.typing, read-only until
+// they blur/send. Rich formatting isn't mirrored — the echo is plain text.
 
 const C = {
   seam: "#23262E",
@@ -174,6 +176,36 @@ function htmlToMarkdown(node: Node): string {
   }
 }
 
+// Allow-list for HTML mirrored in from a teammate's live presence — presence
+// is client-controlled, so another (or compromised) session could broadcast
+// arbitrary markup, not just the bold/italic/list/quote this editor actually
+// produces. Strips every attribute and unwraps (not deletes — keeps the
+// text) any tag outside the list, so nothing like an <img onerror> or a
+// <script> can ride along into someone else's DOM.
+const ALLOWED_DRAFT_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "UL", "OL", "LI", "BLOCKQUOTE", "BR", "DIV", "SPAN"]);
+function sanitizeDraftHtml(html: string): string {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  function clean(node: Node) {
+    Array.from(node.childNodes).forEach((child) => {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as HTMLElement;
+        while (el.attributes.length > 0) el.removeAttribute(el.attributes[0].name);
+        if (!ALLOWED_DRAFT_TAGS.has(el.tagName)) {
+          while (el.firstChild) node.insertBefore(el.firstChild, el);
+          node.removeChild(el);
+          return;
+        }
+        clean(el);
+      } else if (child.nodeType !== Node.TEXT_NODE) {
+        node.removeChild(child);
+      }
+    });
+  }
+  clean(template.content);
+  return template.innerHTML;
+}
+
 // Text length alone stayed 0 right after inserting an empty list/blockquote
 // (no characters typed yet), so the "Describe the change…" placeholder kept
 // showing on top of it. Counting element children too means any inserted
@@ -265,6 +297,50 @@ export function AgentWindow({
   const slashAnchorRef = useRef<HTMLDivElement>(null);
   const [draftLen, setDraftLen] = useState(0);
   const [draftText, setDraftText] = useState("");
+
+  const typingOther = others.find((o) => o.presence.typing?.chatId === chatId)?.presence;
+  const lockedByOther = typingOther != null;
+  const latestTyping = useRef("");
+  const typingFrameRef = useRef<number | null>(null);
+  function broadcastTyping(text: string) {
+    latestTyping.current = text;
+    if (typingFrameRef.current != null) return;
+    typingFrameRef.current = requestAnimationFrame(() => {
+      typingFrameRef.current = null;
+      updateMyPresence({ typing: { chatId, text: latestTyping.current } });
+    });
+  }
+  function releaseTyping() {
+    if (typingFrameRef.current != null) {
+      cancelAnimationFrame(typingFrameRef.current);
+      typingFrameRef.current = null;
+    }
+    updateMyPresence({ typing: null });
+  }
+  // Same release-on-chat-switch/unmount as InputBar.tsx, so a draft you
+  // navigated away from mid-type doesn't stay "held" for everyone else.
+  useEffect(() => {
+    return () => {
+      if (typingFrameRef.current != null) {
+        cancelAnimationFrame(typingFrameRef.current);
+        typingFrameRef.current = null;
+      }
+      updateMyPresence({ typing: null });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
+  // The editor is contentEditable, not a controlled <textarea> — its content
+  // has to be pushed in imperatively when it's mirroring someone else's live
+  // draft rather than your own. The mirrored payload is HTML (sanitized on
+  // the way in, see sanitizeDraftHtml) so formatting survives the mirror,
+  // not just plain text.
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el || !lockedByOther) return;
+    const html = sanitizeDraftHtml(typingOther.typing?.text ?? "");
+    if (el.innerHTML !== html) el.innerHTML = html;
+    setDraftLen(measureDraft(el));
+  }, [lockedByOther, typingOther?.typing?.text]);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const customCommands = useCustomSlashCommands();
@@ -656,6 +732,7 @@ export function AgentWindow({
     setDraftLen(0);
     setDraftText("");
     setForced({});
+    releaseTyping();
     // Reset own readiness for the next turn; teammates reset their own.
     updateMyPresence({ readyForChatId: null });
   }
@@ -727,7 +804,7 @@ export function AgentWindow({
             <div
               ref={editorRef}
               className="agent-draft-editor"
-              contentEditable={!streaming && !disabled}
+              contentEditable={!streaming && !disabled && !lockedByOther}
               suppressContentEditableWarning
               spellCheck={false}
               onInput={() => {
@@ -735,11 +812,14 @@ export function AgentWindow({
                 if (el) {
                   setDraftLen(measureDraft(el));
                   setDraftText(el.innerText);
+                  broadcastTyping(el.innerHTML);
                 }
                 setSlashDismissed(false);
                 setSlashIndex(0);
                 updateActiveFormats();
               }}
+              onFocus={() => broadcastTyping(editorRef.current?.innerHTML ?? "")}
+              onBlur={releaseTyping}
               onKeyDown={handleEditorKeyDown}
               onKeyUp={updateActiveFormats}
               onMouseUp={updateActiveFormats}
@@ -748,12 +828,31 @@ export function AgentWindow({
                 padding: "28px 30px",
                 fontSize: 15.5,
                 lineHeight: 1.4,
-                color: "#FFFFFF",
+                color: lockedByOther ? C.sub : "#FFFFFF",
                 outline: "none",
-                cursor: "text",
+                cursor: lockedByOther ? "default" : "text",
               }}
             />
-            {draftLen === 0 && (
+            {lockedByOther && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  color: C.sub,
+                }}
+              >
+                <span
+                  style={{ width: 8, height: 8, borderRadius: "50%", background: colorForUser(typingOther.email), flex: "none" }}
+                />
+                {displayNameForUser(typingOther.email)} is typing…
+              </div>
+            )}
+            {!lockedByOther && draftLen === 0 && (
               // Same font-size/line-height/padding as the editor itself
               // (below) — any mismatch there is what made the placeholder
               // sit at a different position/size than the caret typing over it.
