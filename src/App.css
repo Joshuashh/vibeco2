@@ -555,10 +555,62 @@ h1 {
    `:hover` rule here stayed "stuck" grey after clicking a toggle (e.g. the
    list button) even once it was switched back off. */
 
-/* Manually-wrapped blockquote/list elements (execCommand's own versions of
-   these are unreliable in WebKit — see AgentWindow.tsx's wrapSelection)
-   otherwise render with the browser's default UA margins, which look
-   cramped/unstyled against the rest of this dark, roomy draft editor. */
+/* Cowork's shared draft (AgentWindow.tsx) is a Tiptap/ProseMirror editor —
+   its actual contentEditable node is nested inside <EditorContent>, so it
+   can only be styled via this class (passed through editorProps.attributes),
+   not inline props on the React component. */
+.agent-draft-editor {
+  min-height: 100%;
+  padding: 28px 30px;
+  font-size: 15.5px;
+  line-height: 1.4;
+  color: #FFFFFF;
+  outline: none;
+  cursor: text;
+}
+.agent-draft-editor p {
+  margin: 0;
+}
+/* @tiptap/extension-placeholder's documented pattern: it tags the empty
+   first paragraph with this class + a data-placeholder attribute, rather
+   than the app manually tracking "is the draft empty" (measureDraft) and
+   rendering its own overlay like the old hand-rolled editor did. */
+.agent-draft-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #5F6270;
+  pointer-events: none;
+}
+
+/* Live collaborator carets (@tiptap/extension-collaboration-caret) — the
+   extension only sets each caret's border-color/label background inline
+   (see AgentWindow.tsx's CollaborationCaret `render`); width/shape/position
+   come from these class rules, matched to this editor's own visual style. */
+.collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid;
+  border-right: 2px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label {
+  position: absolute;
+  top: -1.35em;
+  left: -2px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: normal;
+  white-space: nowrap;
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: 4px 4px 4px 0;
+}
+
+/* Blockquote/list elements otherwise render with the browser's default UA
+   margins, which look cramped/unstyled against this dark, roomy editor. */
 .agent-draft-editor blockquote {
   margin: 0.4em 0;
   padding: 0.5em 0.9em;

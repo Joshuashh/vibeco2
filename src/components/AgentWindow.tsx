@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import * as Y from "yjs";
+import { getYjsProviderForRoom } from "@liveblocks/yjs";
+import { useEditor, useEditorState, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Placeholder from "@tiptap/extension-placeholder";
+import Collaboration from "@tiptap/extension-collaboration";
+import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import type { ChatState } from "../lib/chatStore";
 import type { SentAttachment } from "../types/message";
-import { useSelf, useOthers, useUpdateMyPresence } from "../lib/liveblocks";
+import { useSelf, useOthers, useUpdateMyPresence, useRoom } from "../lib/liveblocks";
 import { colorForUser, displayNameForUser, initialsForUser } from "../lib/presenceColor";
 import { defaultSplitPaneWidth } from "../lib/layout";
 import { MessageList } from "./MessageList";
@@ -26,10 +34,16 @@ import type { AssignableTeammate } from "./AssignChatMenu";
 // pinned to the right of the screen (App.tsx), separate from this component,
 // since it's a property of the chat rather than of either pane here.
 //
-// Shared draft: whoever focuses the editor first "holds" it (same
-// last-focus-wins lock InputBar.tsx uses for Solo) and their plain-text
-// draft mirrors live to everyone else via presence.typing, read-only until
-// they blur/send. Rich formatting isn't mirrored — the echo is plain text.
+// Shared draft: genuinely multiplayer, not a turn-taking lock. The draft is
+// a Yjs XmlFragment synced through the project's Liveblocks room (one
+// project-wide Y.Doc, one fragment per chat via the `draft-${chatId}` field
+// name — see room/provider setup below), bound into a Tiptap editor via
+// @tiptap/extension-collaboration. Everyone with the chat open edits the
+// same document at once, with live colored carets (CollaborationCaret),
+// same mechanism Google Docs uses (CRDT + awareness), not a hand-rolled one.
+// Formatting (bold/italic/underline/lists/quote) is real ProseMirror state
+// now, not execCommand — replaced ~250 lines of manual Range/execCommand
+// DOM surgery with the extensions that already do this correctly.
 
 const C = {
   seam: "#23262E",
@@ -131,9 +145,9 @@ function nicknameOrLocalPart(email: string): string {
   return raw.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// Converts the execCommand-formatted contentEditable draft into markdown so
-// the plain-text Claude side (and MessageBlock's react-markdown renderer)
-// sees **bold**, *italic*, lists, links, and blockquotes rather than raw HTML.
+// Converts the editor's ProseMirror-produced HTML into markdown so the
+// plain-text Claude side (and MessageBlock's react-markdown renderer) sees
+// **bold**, *italic*, lists, links, and blockquotes rather than raw HTML.
 function htmlToMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -176,49 +190,10 @@ function htmlToMarkdown(node: Node): string {
   }
 }
 
-// Allow-list for HTML mirrored in from a teammate's live presence — presence
-// is client-controlled, so another (or compromised) session could broadcast
-// arbitrary markup, not just the bold/italic/list/quote this editor actually
-// produces. Strips every attribute and unwraps (not deletes — keeps the
-// text) any tag outside the list, so nothing like an <img onerror> or a
-// <script> can ride along into someone else's DOM.
-const ALLOWED_DRAFT_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "UL", "OL", "LI", "BLOCKQUOTE", "BR", "DIV", "SPAN"]);
-function sanitizeDraftHtml(html: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  function clean(node: Node) {
-    Array.from(node.childNodes).forEach((child) => {
-      if (child.nodeType === Node.ELEMENT_NODE) {
-        const el = child as HTMLElement;
-        while (el.attributes.length > 0) el.removeAttribute(el.attributes[0].name);
-        if (!ALLOWED_DRAFT_TAGS.has(el.tagName)) {
-          while (el.firstChild) node.insertBefore(el.firstChild, el);
-          node.removeChild(el);
-          return;
-        }
-        clean(el);
-      } else if (child.nodeType !== Node.TEXT_NODE) {
-        node.removeChild(child);
-      }
-    });
-  }
-  clean(template.content);
-  return template.innerHTML;
-}
-
-// Text length alone stayed 0 right after inserting an empty list/blockquote
-// (no characters typed yet), so the "Describe the change…" placeholder kept
-// showing on top of it. Counting element children too means any inserted
-// wrapper — even an empty one, ready to type into — counts as "has content."
-function measureDraft(el: HTMLElement): number {
-  return el.innerText.trim().length + el.childElementCount;
-}
-
-function draftToMarkdown(root: HTMLElement): string {
-  const raw = Array.from(root.childNodes)
-    .map(htmlToMarkdown)
-    .join("")
-    .replace(/​/g, "");
+function draftToMarkdown(html: string): string {
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  const raw = Array.from(root.childNodes).map(htmlToMarkdown).join("");
   return raw
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
@@ -267,6 +242,7 @@ export function AgentWindow({
   const self = useSelf();
   const others = useOthers();
   const updateMyPresence = useUpdateMyPresence();
+  const room = useRoom();
 
   const myEmail = self?.presence.email ?? "you";
   const iAmReady = self?.presence.readyForChatId === chatId;
@@ -292,55 +268,58 @@ export function AgentWindow({
   const readyCount = occupants.filter((o) => o.ready || forced[o.email]).length;
   const allReady = total > 0 && readyCount === total;
 
-  const editorRef = useRef<HTMLDivElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   const slashAnchorRef = useRef<HTMLDivElement>(null);
-  const [draftLen, setDraftLen] = useState(0);
   const [draftText, setDraftText] = useState("");
 
-  const typingOther = others.find((o) => o.presence.typing?.chatId === chatId)?.presence;
-  const lockedByOther = typingOther != null;
-  const latestTyping = useRef("");
-  const typingFrameRef = useRef<number | null>(null);
-  function broadcastTyping(text: string) {
-    latestTyping.current = text;
-    if (typingFrameRef.current != null) return;
-    typingFrameRef.current = requestAnimationFrame(() => {
-      typingFrameRef.current = null;
-      updateMyPresence({ typing: { chatId, text: latestTyping.current } });
-    });
-  }
-  function releaseTyping() {
-    if (typingFrameRef.current != null) {
-      cancelAnimationFrame(typingFrameRef.current);
-      typingFrameRef.current = null;
-    }
-    updateMyPresence({ typing: null });
-  }
-  // Same release-on-chat-switch/unmount as InputBar.tsx, so a draft you
-  // navigated away from mid-type doesn't stay "held" for everyone else.
-  useEffect(() => {
-    return () => {
-      if (typingFrameRef.current != null) {
-        cancelAnimationFrame(typingFrameRef.current);
-        typingFrameRef.current = null;
-      }
-      updateMyPresence({ typing: null });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId]);
-  // The editor is contentEditable, not a controlled <textarea> — its content
-  // has to be pushed in imperatively when it's mirroring someone else's live
-  // draft rather than your own. The mirrored payload is HTML (sanitized on
-  // the way in, see sanitizeDraftHtml) so formatting survives the mirror,
-  // not just plain text.
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el || !lockedByOther) return;
-    const html = sanitizeDraftHtml(typingOther.typing?.text ?? "");
-    if (el.innerHTML !== html) el.innerHTML = html;
-    setDraftLen(measureDraft(el));
-  }, [lockedByOther, typingOther?.typing?.text]);
+  // One Y.Doc per project room (Liveblocks owns its lifecycle — it's a
+  // singleton keyed by room, so this doesn't need its own create/destroy
+  // effect); each chat gets its own XmlFragment inside it via `field` below,
+  // so switching chats doesn't need a new provider, just a new editor.
+  // Cast: getYjsProviderForRoom wants @liveblocks/core's internal `OpaqueRoom`
+  // brand, which the app's own strongly-typed `Room<Presence, ...>` (from
+  // createRoomContext in lib/liveblocks.ts) doesn't structurally satisfy —
+  // same concrete room object underneath, just a public vs. internal type.
+  const provider = useMemo(() => getYjsProviderForRoom(room as unknown as Parameters<typeof getYjsProviderForRoom>[0]), [room]);
+  const ydoc: Y.Doc = provider.getYDoc();
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({ undoRedo: false, heading: false }),
+        Underline,
+        Placeholder.configure({ placeholder: "Describe the change for Nova — everyone marks ready, then send." }),
+        Collaboration.configure({ document: ydoc, field: `draft-${chatId}` }),
+        CollaborationCaret.configure({
+          provider,
+          user: { name: nicknameOrLocalPart(myEmail), color: colorForUser(myEmail) },
+          render: (user: { name: string; color: string }) => {
+            const cursor = document.createElement("span");
+            cursor.classList.add("collaboration-carets__caret");
+            cursor.style.borderColor = user.color;
+            const label = document.createElement("div");
+            label.classList.add("collaboration-carets__label");
+            label.style.background = user.color;
+            label.style.color = inkForBg(user.color);
+            label.textContent = user.name;
+            cursor.appendChild(label);
+            return cursor;
+          },
+        }),
+      ],
+      editable: !streaming && !disabled,
+      editorProps: {
+        attributes: { class: "agent-draft-editor", spellcheck: "false" },
+      },
+      onUpdate: ({ editor: e }) => {
+        setDraftText(e.getText());
+        setSlashDismissed(false);
+        setSlashIndex(0);
+      },
+    },
+    [chatId, provider]
+  );
+
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const customCommands = useCustomSlashCommands();
@@ -353,27 +332,30 @@ export function AgentWindow({
       : [];
 
   function selectCommand(cmd: SlashCommand) {
-    const el = editorRef.current;
-    if (el) {
-      el.textContent = `/${cmd.name} `;
-      setDraftLen(measureDraft(el));
-      setDraftText(el.innerText);
-      el.focus();
-      const after = endOfContentRange(el);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(after);
-      savedRangeRef.current = after.cloneRange();
-    }
+    if (!editor) return;
+    editor.chain().focus().selectAll().insertContent(`/${cmd.name} `).run();
     setSlashDismissed(false);
     setSlashIndex(0);
   }
+
   // Which formats apply at the current caret/selection, so the toolbar can
-  // show e.g. Bold as pressed while you're typing inside bold text — mirrors
-  // what every rich-text toolbar does, just computed by hand for the
-  // manually-wrapped list/quote (queryCommandState only knows about the
-  // execCommand-driven bold/italic/underline).
-  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+  // show e.g. Bold as pressed while you're typing inside bold text — real
+  // ProseMirror state via editor.isActive, not the hand-rolled ancestor walk
+  // this used to be.
+  const activeFormats = useEditorState({
+    editor,
+    selector: (ctx) =>
+      ctx.editor
+        ? {
+            bold: ctx.editor.isActive("bold"),
+            italic: ctx.editor.isActive("italic"),
+            underline: ctx.editor.isActive("underline"),
+            bullet: ctx.editor.isActive("bulletList"),
+            numbered: ctx.editor.isActive("orderedList"),
+            quote: ctx.editor.isActive("blockquote"),
+          }
+        : { bold: false, italic: false, underline: false, bullet: false, numbered: false, quote: false },
+  });
   // JS-driven instead of a CSS `:hover` rule — with `onMouseDown`'s
   // `preventDefault()` (needed to keep the editor's selection alive across
   // the click), some WebKit builds stop re-evaluating `:hover` until the
@@ -395,345 +377,45 @@ export function AgentWindow({
     setForced((f) => ({ ...f, [email]: true }));
   }
 
-  // Clicking a toolbar button (a real, focusable <button>) can steal focus
-  // and collapse the editor's selection before exec() ever runs. Saving
-  // the Range on mousedown (before any of that happens) and restoring it in
-  // exec() makes every command apply to what was actually selected.
-  const savedRangeRef = useRef<Range | null>(null);
-  function saveSelection() {
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
-      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-    }
-  }
-  // Recomputes which formats apply at the caret — the execCommand-backed
-  // ones via queryCommandState (the one thing it's reliably good at), the
-  // manually-wrapped list/quote by walking up from the selection to see if
-  // a <blockquote>/<ul>/<ol> is an ancestor.
   function toolbarStyle(key: string, extra?: CSSProperties): CSSProperties {
-    if (activeFormats.has(key)) return { ...toolbarButtonStyle, ...activeToolbarButtonStyle, ...extra };
+    if (activeFormats[key as keyof typeof activeFormats]) return { ...toolbarButtonStyle, ...activeToolbarButtonStyle, ...extra };
     if (hoveredBtn === key) return { ...toolbarButtonStyle, background: "#2A2D37", color: "#EDEDF0", ...extra };
     return { ...toolbarButtonStyle, ...extra };
   }
-  function updateActiveFormats() {
-    const el = editorRef.current;
-    const next = new Set<string>();
-    if (el) {
-      try {
-        if (document.queryCommandState("bold")) next.add("bold");
-        if (document.queryCommandState("italic")) next.add("italic");
-        if (document.queryCommandState("underline")) next.add("underline");
-      } catch {
-        // queryCommandState can throw outside a live selection context.
-      }
-      const sel = window.getSelection();
-      let node: Node | null = sel && el.contains(sel.anchorNode) ? sel.anchorNode : null;
-      while (node && node !== el) {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const tag = (node as HTMLElement).tagName;
-          if (tag === "BLOCKQUOTE") next.add("quote");
-          if (tag === "UL") next.add("bullet");
-          if (tag === "OL") next.add("numbered");
-        }
-        node = node.parentNode;
-      }
-    }
-    setActiveFormats(next);
-  }
 
-  // execCommand is deprecated but remains the only zero-dependency way to
-  // drive a contentEditable's native rich-text formatting — pulling in a
-  // whole editor library (TipTap/Slate) for bold/italic/lists/link/quote
-  // would be a lot of surface for what the browser already does.
-  function exec(command: string, value?: string) {
-    if (streaming) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.focus();
-    const sel = window.getSelection();
-    if (sel && savedRangeRef.current) {
-      sel.removeAllRanges();
-      sel.addRange(savedRangeRef.current);
-    }
-    document.execCommand(command, false, value);
-    setDraftLen(measureDraft(el));
-    updateActiveFormats();
-  }
-  // execCommand's list/formatBlock support is notoriously unreliable in
-  // WebKit-based webviews (unlike bold/italic/underline, which are plain
-  // CSS-backed inline commands and work fine) — silently no-ops instead of
-  // erroring. Building the wrapper element by hand via the Range API sides
-  // steps the browser's implementation entirely instead of trying to detect
-  // and work around it.
-  function wrapSelection(build: (contents: DocumentFragment) => HTMLElement) {
-    if (streaming) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.focus();
-    const sel = window.getSelection();
-    if (!sel) return;
-    if (savedRangeRef.current && el.contains(savedRangeRef.current.startContainer)) {
-      sel.removeAllRanges();
-      sel.addRange(savedRangeRef.current);
-    }
-    // Whatever's selected still might not actually be inside the editor —
-    // nothing was ever clicked/highlighted in here yet (a fresh draft, or a
-    // stray selection elsewhere on the page) — not just "totally empty."
-    // Checking rangeCount alone missed that case: the button appeared to do
-    // nothing unless you'd first highlighted real text. Fall back to a
-    // collapsed caret at the end of the draft so the command always runs.
-    if (sel.rangeCount === 0 || !el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-      sel.removeAllRanges();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      sel.addRange(range);
-    }
-    const range = sel.getRangeAt(0);
-    const contents = range.extractContents();
-    const wrapper = build(contents);
-    range.insertNode(wrapper);
-    sel.removeAllRanges();
-    sel.addRange(endOfContentRange(wrapper));
-    setDraftLen(measureDraft(el));
-    updateActiveFormats();
-  }
-  // Flattens a <blockquote> back into its plain contents in place of the
-  // element itself — toggle-off half of the quote button, same shape as
-  // unwrapList below.
-  function unwrapQuote(bq: HTMLElement) {
-    const frag = document.createDocumentFragment();
-    while (bq.firstChild) frag.appendChild(bq.firstChild);
-    bq.replaceWith(frag);
-  }
-
-  function execQuote() {
-    if (streaming) return;
-    const el = editorRef.current;
-    if (!el) return;
-    const anchorNode = savedRangeRef.current?.startContainer ?? window.getSelection()?.anchorNode ?? null;
-    const existing = anchorNode ? closestQuote(anchorNode) : null;
-    if (existing) {
-      // Already inside a quote at the caret — pressing the button again
-      // means "undo it," not "nest another quote inside it."
-      el.focus();
-      unwrapQuote(existing);
-      const after = endOfContentRange(el);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(after);
-      savedRangeRef.current = after.cloneRange();
-      setDraftLen(measureDraft(el));
-      updateActiveFormats();
+  function handleSlashKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (slashItems.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSlashIndex((i) => (i + 1) % slashItems.length);
       return;
     }
-    const color = colorForUser(myEmail);
-    wrapSelection((contents) => {
-      const bq = document.createElement("blockquote");
-      bq.appendChild(contents);
-      bq.style.borderLeftColor = color;
-      bq.style.background = `${color}22`;
-      return bq;
-    });
-  }
-  // `selectNodeContents(container); collapse(false)` looks like "end of
-  // container" but actually lands at (container, container.childNodes.length)
-  // — a child-index position, not a position inside the last real text run.
-  // For a collapsed range used only as an *insertion point* that's harmless
-  // (insertNode just appends), but for a range that becomes the caret the
-  // user actually sees, it produced an invisible/degenerate caret — verified
-  // live via a standalone repro (see wrapSelection). Drilling to the real
-  // last leaf and using its actual text offset is what gives a genuine one.
-  function endOfContentRange(container: Node): Range {
-    let leaf: Node = container;
-    while (leaf.lastChild) leaf = leaf.lastChild;
-    const r = document.createRange();
-    if (leaf.nodeType === Node.TEXT_NODE) {
-      r.setStart(leaf, leaf.textContent?.length ?? 0);
-    } else {
-      r.selectNodeContents(leaf);
-    }
-    r.collapse(true);
-    return r;
-  }
-
-  function closestTag(node: Node | null, tag: string): HTMLElement | null {
-    let n = node;
-    while (n && n !== editorRef.current) {
-      if (n.nodeType === Node.ELEMENT_NODE && (n as HTMLElement).tagName === tag) return n as HTMLElement;
-      n = n.parentNode;
-    }
-    return null;
-  }
-  function closestQuote(node: Node | null): HTMLElement | null {
-    return closestTag(node, "BLOCKQUOTE");
-  }
-
-  // Flattens a <ul>/<ol> back into plain lines (each <li>'s content, joined
-  // by <br>s) in place of the list element itself — the toggle-off half of
-  // the bullet/numbered buttons.
-  function unwrapList(list: HTMLElement) {
-    const items = Array.from(list.children);
-    const frag = document.createDocumentFragment();
-    items.forEach((li, i) => {
-      while (li.firstChild) frag.appendChild(li.firstChild);
-      if (i < items.length - 1) frag.appendChild(document.createElement("br"));
-    });
-    list.replaceWith(frag);
-  }
-
-  function execList(ordered: boolean) {
-    if (streaming) return;
-    const el = editorRef.current;
-    if (!el) return;
-    const tag = ordered ? "OL" : "UL";
-    const anchorNode = savedRangeRef.current?.startContainer ?? window.getSelection()?.anchorNode ?? null;
-    const existing = anchorNode ? closestTag(anchorNode, tag) : null;
-    if (existing) {
-      // Already a list of this kind at the caret — pressing the button again
-      // means "undo it," not "nest another one inside it."
-      el.focus();
-      unwrapList(existing);
-      const after = endOfContentRange(el);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(after);
-      savedRangeRef.current = after.cloneRange();
-      setDraftLen(measureDraft(el));
-      updateActiveFormats();
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
       return;
     }
-    wrapSelection((contents) => {
-      const li = document.createElement("li");
-      li.appendChild(contents);
-      // An empty li has only the ::before marker as a flex item — nothing
-      // else for the caret to occupy, so it renders stacked on/behind the
-      // marker instead of beside it. A <br> looked like the obvious
-      // placeholder, but inside a flex container it becomes a flex item
-      // rather than an inline line-break, and stopped being a valid caret
-      // anchor at all — the cursor disappeared entirely. A zero-width-space
-      // text node is a real (if invisible) inline text run, which is what
-      // the caret actually needs to sit in; stripped back out in
-      // draftToMarkdown so it never reaches the sent message.
-      if (!li.hasChildNodes()) li.appendChild(document.createTextNode("​"));
-      const list = document.createElement(ordered ? "ol" : "ul");
-      list.appendChild(li);
-      return list;
-    });
-  }
-
-  // Markdown-style auto-list: typing "1. " or "- "/"• " at the very start of
-  // a line converts it the same way the toolbar buttons do — checked on the
-  // triggering space itself. `node.previousSibling == null` is what "start of
-  // a line" resolves to here: Enter starts a fresh block/text node in every
-  // engine, so being first-child-with-nothing-before-it holds whether it's
-  // the first line in the whole draft or one after a line break.
-  function handleEditorKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
-    if (slashItems.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSlashIndex((i) => (i + 1) % slashItems.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSlashIndex((i) => (i - 1 + slashItems.length) % slashItems.length);
-        return;
-      }
-      if (e.key === "Tab" || e.key === "Enter") {
-        e.preventDefault();
-        selectCommand(slashItems[Math.min(slashIndex, slashItems.length - 1)]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setSlashDismissed(true);
-        return;
-      }
+    if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      selectCommand(slashItems[Math.min(slashIndex, slashItems.length - 1)]);
+      return;
     }
-    // Backspace inside an emptied-out blockquote (you deleted everything you
-    // quoted, or created one and never typed into it) otherwise has nowhere
-    // to go — it's the editor's only content, so there's no "after it" to
-    // click into. Once the quote is empty, one more Backspace drops it and
-    // hands you a caret right where it was, instead of leaving you stuck.
-    if (e.key === "Backspace") {
-      const el = editorRef.current;
-      const sel = window.getSelection();
-      if (el && sel && sel.isCollapsed && sel.rangeCount > 0) {
-        const bq = closestQuote(sel.getRangeAt(0).startContainer);
-        if (bq && (bq.textContent ?? "").trim() === "") {
-          e.preventDefault();
-          bq.remove();
-          if (el.childNodes.length === 0) el.appendChild(document.createTextNode(""));
-          const after = endOfContentRange(el);
-          sel.removeAllRanges();
-          sel.addRange(after);
-          savedRangeRef.current = after.cloneRange();
-          setDraftLen(measureDraft(el));
-          updateActiveFormats();
-          return;
-        }
-      }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setSlashDismissed(true);
     }
-    // Plain Enter exits the quote entirely (matches "return takes you out of
-    // it"); Shift+Enter is left to the browser's own default line-break
-    // behavior, which stays inside the current block — i.e. still quoted.
-    if (e.key === "Enter" && !e.shiftKey) {
-      const el = editorRef.current;
-      const sel = window.getSelection();
-      if (el && sel && sel.isCollapsed && sel.rangeCount > 0) {
-        const bq = closestQuote(sel.getRangeAt(0).startContainer);
-        if (bq) {
-          e.preventDefault();
-          const line = document.createElement("div");
-          line.appendChild(document.createElement("br"));
-          if (bq.nextSibling) el.insertBefore(line, bq.nextSibling);
-          else el.appendChild(line);
-          const range = document.createRange();
-          range.setStart(line, 0);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-          savedRangeRef.current = range.cloneRange();
-          setDraftLen(measureDraft(el));
-          updateActiveFormats();
-          return;
-        }
-      }
-    }
-    if (e.key !== " ") return;
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
-    const range = sel.getRangeAt(0);
-    const node = range.startContainer;
-    if (node.nodeType !== Node.TEXT_NODE || node.previousSibling) return;
-    const before = (node.textContent ?? "").slice(0, range.startOffset);
-    const ordered = before === "1.";
-    const bulleted = before === "-" || before === "•";
-    if (!ordered && !bulleted) return;
-    e.preventDefault();
-    node.textContent = (node.textContent ?? "").slice(range.startOffset);
-    const caret = document.createRange();
-    caret.setStart(node, 0);
-    caret.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(caret);
-    savedRangeRef.current = caret.cloneRange();
-    execList(ordered);
   }
 
   function send() {
-    if (!allReady || streaming || disabled) return;
-    const el = editorRef.current;
-    const text = el ? draftToMarkdown(el) : "";
+    if (!allReady || streaming || disabled || !editor || editor.isEmpty) return;
+    const text = draftToMarkdown(editor.getHTML());
     if (!text) return;
     onSend(text);
-    if (el) el.innerHTML = "";
-    setDraftLen(0);
-    setDraftText("");
+    // The draft is one shared document (Yjs), so clearing it clears it for
+    // every collaborator, not just the sender — same as it disappearing for
+    // everyone once a Google Doc's content gets used up.
+    editor.commands.clearContent(true);
     setForced({});
-    releaseTyping();
-    // Reset own readiness for the next turn; teammates reset their own.
     updateMyPresence({ readyForChatId: null });
   }
 
@@ -801,65 +483,7 @@ export function AgentWindow({
             Collaborators
           </div>
           <div ref={editorWrapRef} style={{ position: "relative", flex: 1, minHeight: 0, overflow: "auto" }}>
-            <div
-              ref={editorRef}
-              className="agent-draft-editor"
-              contentEditable={!streaming && !disabled && !lockedByOther}
-              suppressContentEditableWarning
-              spellCheck={false}
-              onInput={() => {
-                const el = editorRef.current;
-                if (el) {
-                  setDraftLen(measureDraft(el));
-                  setDraftText(el.innerText);
-                  broadcastTyping(el.innerHTML);
-                }
-                setSlashDismissed(false);
-                setSlashIndex(0);
-                updateActiveFormats();
-              }}
-              onFocus={() => broadcastTyping(editorRef.current?.innerHTML ?? "")}
-              onBlur={releaseTyping}
-              onKeyDown={handleEditorKeyDown}
-              onKeyUp={updateActiveFormats}
-              onMouseUp={updateActiveFormats}
-              style={{
-                minHeight: "100%",
-                padding: "28px 30px",
-                fontSize: 15.5,
-                lineHeight: 1.4,
-                color: lockedByOther ? C.sub : "#FFFFFF",
-                outline: "none",
-                cursor: lockedByOther ? "default" : "text",
-              }}
-            />
-            {lockedByOther && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 8,
-                  right: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 12,
-                  color: C.sub,
-                }}
-              >
-                <span
-                  style={{ width: 8, height: 8, borderRadius: "50%", background: colorForUser(typingOther.email), flex: "none" }}
-                />
-                {displayNameForUser(typingOther.email)} is typing…
-              </div>
-            )}
-            {!lockedByOther && draftLen === 0 && (
-              // Same font-size/line-height/padding as the editor itself
-              // (below) — any mismatch there is what made the placeholder
-              // sit at a different position/size than the caret typing over it.
-              <div style={{ position: "absolute", top: 28, left: 30, fontSize: 15.5, lineHeight: 1.4, color: C.fainter, pointerEvents: "none" }}>
-                Describe the change for Nova — everyone marks ready, then send.
-              </div>
-            )}
+            <EditorContent editor={editor} onKeyDownCapture={handleSlashKeyDown} />
             {/* A slash command only ever matches while the whole draft is
                 still "/word" (see SLASH_TOKEN) — i.e. the first line, right
                 at the editor's top-left padding — so an anchor pinned there
@@ -893,18 +517,18 @@ export function AgentWindow({
             }}
           >
             {[
-              { cmd: "bold", label: "B", style: { fontWeight: 700 } },
-              { cmd: "italic", label: "I", style: { fontStyle: "italic" as const } },
-              { cmd: "underline", label: "U", style: { textDecoration: "underline" } },
+              { cmd: "bold", label: "B", style: { fontWeight: 700 }, run: () => editor?.chain().focus().toggleBold().run() },
+              { cmd: "italic", label: "I", style: { fontStyle: "italic" as const }, run: () => editor?.chain().focus().toggleItalic().run() },
+              { cmd: "underline", label: "U", style: { textDecoration: "underline" }, run: () => editor?.chain().focus().toggleUnderline().run() },
             ].map((b) => (
               <button
                 key={b.cmd}
                 type="button"
                 title={b.cmd}
-                onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+                onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setHoveredBtn(b.cmd)}
                 onMouseLeave={() => setHoveredBtn(null)}
-                onClick={() => exec(b.cmd)}
+                onClick={b.run}
                 style={toolbarStyle(b.cmd, b.style)}
               >
                 {b.label}
@@ -914,10 +538,10 @@ export function AgentWindow({
             <button
               type="button"
               title="Numbered list"
-              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setHoveredBtn("numbered")}
               onMouseLeave={() => setHoveredBtn(null)}
-              onClick={() => execList(true)}
+              onClick={() => editor?.chain().focus().toggleOrderedList().run()}
               style={toolbarStyle("numbered")}
             >
               <OrderedListIcon />
@@ -925,10 +549,10 @@ export function AgentWindow({
             <button
               type="button"
               title="Bulleted list"
-              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setHoveredBtn("bullet")}
               onMouseLeave={() => setHoveredBtn(null)}
-              onClick={() => execList(false)}
+              onClick={() => editor?.chain().focus().toggleBulletList().run()}
               style={toolbarStyle("bullet")}
             >
               <BulletedListIcon />
@@ -937,10 +561,10 @@ export function AgentWindow({
             <button
               type="button"
               title="Quote"
-              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
+              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setHoveredBtn("quote")}
               onMouseLeave={() => setHoveredBtn(null)}
-              onClick={execQuote}
+              onClick={() => editor?.chain().focus().toggleBlockquote().run()}
               style={toolbarStyle("quote")}
             >
               <QuoteIcon />

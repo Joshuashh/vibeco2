@@ -64,6 +64,7 @@ type Storage = {
 // events must satisfy Json — callers cast at the boundary.
 export const {
   RoomProvider,
+  useRoom,
   useOthers,
   useSelf,
   useUpdateMyPresence,
