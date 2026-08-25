@@ -254,6 +254,18 @@ fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewSe
 }
 
 #[tauri::command]
+fn team_preview_has_update() -> Result<bool, String> {
+    let root = git_ops::repo_root()?;
+    git_ops::team_preview_has_update(&root)
+}
+
+#[tauri::command]
+fn pull_team_preview_update() -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    git_ops::pull_team_preview_update(&root)
+}
+
+#[tauri::command]
 fn ensure_chat_preview_running(
     state: tauri::State<preview_server::ChatPreviewServers>,
     chat_id: String,
@@ -397,6 +409,8 @@ pub fn run() {
             pull_app_update,
             generate_session_brief,
             ensure_team_preview_running,
+            team_preview_has_update,
+            pull_team_preview_update,
             ensure_chat_preview_running,
             stop_chat_preview,
             list_custom_slash_commands,

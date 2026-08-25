@@ -64,6 +64,13 @@ export function PreviewPage({
   // Bumped to force the iframe to remount — a plain reload() call would need
   // cross-origin access to the iframe's window, which the browser blocks.
   const [reloadKey, setReloadKey] = useState(0);
+  // Team preview is a local dev server per machine, not something a
+  // teammate's merge pushes to automatically — this tracks whether
+  // origin/team has commits this machine hasn't pulled into its own team
+  // worktree yet, so the Update button can show that there's something to
+  // get rather than silently doing nothing when clicked out of habit.
+  const [teamHasUpdate, setTeamHasUpdate] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -112,6 +119,49 @@ export function PreviewPage({
       );
     };
   }, [target, localChatId]);
+
+  // Polls rather than pushing this over realtime — it's cheap (a bare `git
+  // fetch`, no data transfer beyond refs) and every teammate needs to know
+  // independently anyway, since "there's an update" is relative to each
+  // person's own local team worktree, not a single shared value.
+  useEffect(() => {
+    if (target !== "team") {
+      setTeamHasUpdate(false);
+      return;
+    }
+    let cancelled = false;
+    function check() {
+      invoke<boolean>("team_preview_has_update")
+        .then((has) => {
+          if (!cancelled) setTeamHasUpdate(has);
+        })
+        .catch((err) => console.error("team_preview_has_update failed", err));
+    }
+    check();
+    const id = setInterval(check, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [target]);
+
+  function handleUpdateClick() {
+    if (target !== "team" || !teamHasUpdate) {
+      setReloadKey((k) => k + 1);
+      return;
+    }
+    setPulling(true);
+    invoke("pull_team_preview_update")
+      .then(() => {
+        setTeamHasUpdate(false);
+        setReloadKey((k) => k + 1);
+      })
+      .catch((err) => {
+        console.error("pull_team_preview_update failed", err);
+        showToast("Couldn't pull the latest team preview — try again.");
+      })
+      .finally(() => setPulling(false));
+  }
 
   useEffect(() => {
     fetchPreviewPins().then(setPins).catch((err) => console.error("failed to fetch preview pins", err));
@@ -263,13 +313,18 @@ export function PreviewPage({
         <div className="absolute top-3 left-3 z-10 flex items-center gap-[0.2em] bg-bg-tertiary rounded-lg p-[0.2em]">
           <button
             type="button"
-            onClick={() => setReloadKey((k) => k + 1)}
-            disabled={previewStatus !== "ready"}
-            title="Reload preview"
-            className="relative flex items-center gap-[0.4em] border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors bg-transparent text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:pointer-events-none"
+            onClick={handleUpdateClick}
+            disabled={previewStatus !== "ready" || pulling}
+            title={teamHasUpdate ? "A teammate merged changes — click to pull them in" : "Reload preview"}
+            className={`relative flex items-center gap-[0.4em] border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors hover:text-text-primary disabled:opacity-40 disabled:pointer-events-none ${
+              teamHasUpdate ? "bg-accent/15 text-accent" : "bg-transparent text-text-secondary"
+            }`}
           >
-            <RefreshCw className="w-[1em] h-[1em]" />
+            <RefreshCw className={`w-[1em] h-[1em] ${pulling ? "animate-spin" : ""}`} />
             Update
+            {teamHasUpdate && !pulling && (
+              <span className="w-[6px] h-[6px] rounded-full bg-accent" aria-hidden="true" />
+            )}
           </button>
         </div>
         {previewStatus === "ready" ? (

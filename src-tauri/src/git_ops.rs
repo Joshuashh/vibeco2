@@ -507,6 +507,47 @@ pub fn merge_chat_into_team(root: &Path, chat_id: &str) -> Result<MergeOutcome, 
     unreachable!("loop above always returns by the final attempt")
 }
 
+/// True if `origin/team` has commits this machine's local team worktree
+/// doesn't have yet — e.g. a teammate merged on their machine and pushed.
+/// `git fetch` alone doesn't touch the worktree's files, so this is safe to
+/// poll from the Preview tab without disturbing whatever's currently
+/// rendering there.
+pub fn team_preview_has_update(root: &Path) -> Result<bool, String> {
+    let team_path = ensure_team_worktree(root)?;
+    if !remote_branch_exists(&team_path, TEAM_BRANCH) {
+        return Ok(false);
+    }
+    let fetch = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH])?;
+    if !fetch.status.success() {
+        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+    }
+    let local = run_git(&team_path, &["rev-parse", TEAM_BRANCH])?;
+    let remote = run_git(&team_path, &["rev-parse", &format!("origin/{TEAM_BRANCH}")])?;
+    Ok(String::from_utf8_lossy(&local.stdout).trim() != String::from_utf8_lossy(&remote.stdout).trim())
+}
+
+/// Fast-forwards this machine's local team worktree to match `origin/team`.
+/// Safe as a hard reset (not a merge) for the same reason merge_chat_into_team's
+/// own resync is: this worktree only ever holds merges that already made it
+/// to origin, never independent local work. The already-running team preview
+/// server (see preview_server.rs) is a long-lived `npm run dev` watching this
+/// directory — Vite's own file watcher picks up the changed files and
+/// hot-reloads on its own; the frontend still bumps the iframe's key for a
+/// hard reload afterward since HMR doesn't always re-render everything a
+/// fresh load would.
+pub fn pull_team_preview_update(root: &Path) -> Result<(), String> {
+    let team_path = ensure_team_worktree(root)?;
+    let fetch = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH])?;
+    if !fetch.status.success() {
+        return Err(format!("git fetch failed: {}", String::from_utf8_lossy(&fetch.stderr)));
+    }
+    let sync = run_git(&team_path, &["reset", "--hard", &format!("origin/{TEAM_BRANCH}")])?;
+    if !sync.status.success() {
+        return Err(format!("failed to sync team branch: {}", String::from_utf8_lossy(&sync.stderr)));
+    }
+    Ok(())
+}
+
 pub fn promote_to_main(root: &Path) -> Result<(), String> {
     let fetch = run_git(root, &["fetch", "origin", TEAM_BRANCH])?;
     if !fetch.status.success() {
