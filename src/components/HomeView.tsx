@@ -4,49 +4,72 @@ import type { Profile } from "../lib/profiles";
 import type { LogbookEntry } from "../lib/logbookEntries";
 import type { MentionInboxEntry } from "../lib/mentions";
 import { computeClaimant, type Occupant } from "../lib/claim";
-import { activeChats, groupActiveChats } from "../lib/chatGroups";
+import { activeChats } from "../lib/chatGroups";
 import { colorForUser, displayNameForUser, initialsForUser, textColorForBackground } from "../lib/presenceColor";
 import { formatRelativeTime } from "../lib/time";
-import { MarkdownText } from "./MessageBlock";
 
-// A handoff entry's `user_email` is whoever performed the handoff, not who
-// it's for — the person this entry is actually relevant to is the recipient
-// for a handoff, and the actor for anything else (a checkpoint has no other
-// party). Ported from LogPanel.tsx.
-function entryOwner(entry: LogbookEntry): string | null {
-  return entry.kind === "handoff" ? entry.handed_off_to ?? entry.user_email : entry.user_email;
-}
+// ── "Catch-up Dashboard" (design 5a) ────────────────────────────────────────
+// Ported from the Claude Design project "Multiplayer AI Chat Component"
+// (Catch-up Dashboard.dc.html, artboard 5a — "Return band + tiles + needs-you")
+// into the Home tab: a header band with a welcome + three headline figures and
+// an activity ribbon, a tile mosaic of what happened, and a right-hand "Needs
+// you" column. Wired to the real data Home already receives — teammate avatars
+// from presence/profiles, "Needs you" from the mention inbox and chats assigned
+// to you, "Finished" from the logbook, recent chats for the agent-window tile.
+// The design's palette is kept verbatim (inline styles) for fidelity.
+//
+// The per-hour activity ribbon is illustrative: Vibeco doesn't record per-hour
+// counts yet, so the bars are a fixed decorative shape rather than real data
+// (a follow-up once activity is tracked). Everything else is live.
 
-function formatDuration(seconds: number | null): string {
-  if (seconds == null) return "";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  if (h === 0) return `${m}m`;
-  return `${h}h ${m}m`;
-}
+const C = {
+  cardBg: "#1B1E24",
+  cardBorder: "#2E323C",
+  bandBg: "#15171B",
+  seam: "#23262E",
+  border: "#2B2D36",
+  ink: "#EDEDF0",
+  inkDim: "#DCDDE3",
+  sub: "#9698A4",
+  faint: "#787A88",
+  fainter: "#5F6270",
+  micro: "#6E7080",
+  blueInk: "#DCE5FF",
+  blueSub: "#7E8DAE",
+  blueBg: "#25406B",
+  blueBorder: "#35578C",
+  needBg: "#1B1F27",
+  reply: "#A8C0FF",
+  green: "#7FDCBB",
+  bar: "#7C9CFF",
+};
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+// The design's activity-ribbon colors, cycled per bar.
+const RIBBON = ["#4FD1A5", "#B084F5", "#7C9CFF"];
+// Fixed illustrative ribbon: [heightPct, opacity] grouped into "days", quiet at
+// first then building — matches the mock's "quiet days grey, busy days colour
+// up" shape. Real per-hour data would replace this.
+const RIBBON_DAYS: Array<Array<[number, number]>> = [
+  [[6, 0], [17, 0], [7, 0], [13, 0], [11, 0], [12, 0], [14, 0], [8, 0]],
+  [[17, 0], [21, 0], [29, 0], [27, 0], [14, 0], [30, 0], [26, 0], [19, 0]],
+  [[31, 0.7], [36, 0.7], [28, 0.7], [42, 0.7], [57, 0.7], [55, 0.7], [38, 0.7], [49, 0.7]],
+  [[59, 0.85], [77, 0.85], [52, 0.85], [39, 0.85], [64, 0.85], [69, 0.85], [43, 0.85], [55, 0.85]],
+  [[44, 1], [42, 1], [55, 1], [43, 1], [88, 1], [71, 1], [61, 1], [92, 1]],
+];
 
-function entryChatTitle(chats: ChatRow[], chatId: string | null): string {
-  if (!chatId) return "a chat";
-  return chats.find((c) => c.id === chatId)?.title ?? "Untitled chat";
-}
-
-// Live claimant wins (someone's actually on it right now); otherwise fall
-// back to the persisted handoff target (assigned but not yet picked up) —
-// same reconciliation ChatCard.tsx already does per-card, just aggregated.
-function assigneeFor(chat: ChatRow, claimant: string | null): string | null {
-  return claimant ?? chat.handed_off_to ?? null;
-}
-
-function Avatar({ email, size = 22 }: { email: string; size?: number }) {
+function Avatar({ email, size = 24, ring = true }: { email: string; size?: number; ring?: boolean }) {
   const bg = colorForUser(email);
   return (
     <div
       className="rounded-full flex items-center justify-center font-bold shrink-0"
-      style={{ width: size, height: size, background: bg, color: textColorForBackground(bg), fontSize: size * 0.42 }}
+      style={{
+        width: size,
+        height: size,
+        background: bg,
+        color: textColorForBackground(bg),
+        fontSize: size * 0.42,
+        border: ring ? `2px solid ${C.bandBg}` : undefined,
+      }}
       title={displayNameForUser(email)}
     >
       {initialsForUser(displayNameForUser(email))}
@@ -54,37 +77,33 @@ function Avatar({ email, size = 22 }: { email: string; size?: number }) {
   );
 }
 
-function UnassignedDot({ size = 20 }: { size?: number }) {
+function assigneeFor(chat: ChatRow, claimant: string | null): string | null {
+  return claimant ?? chat.handed_off_to ?? null;
+}
+
+function Card({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="rounded-full border border-dashed border-border shrink-0"
-      style={{ width: size, height: size }}
-      title="Unassigned"
-    />
+      style={{
+        background: C.cardBg,
+        border: `1px solid ${C.cardBorder}`,
+        borderRadius: 12,
+        padding: "20px 21px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 13,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
-function ChatRowButton({
-  chat,
-  assignee,
-  timestamp,
-  onClick,
-}: {
-  chat: ChatRow;
-  assignee: string | null;
-  timestamp: string | null;
-  onClick: () => void;
-}) {
+function Check() {
   return (
-    <button
-      type="button"
-      className="flex items-center gap-[0.6em] w-full text-left px-[0.7em] py-[0.5em] rounded-md border-none bg-transparent hover:bg-bg-tertiary cursor-pointer"
-      onClick={onClick}
-    >
-      {assignee ? <Avatar email={assignee} size={20} /> : <UnassignedDot />}
-      <span className="flex-1 min-w-0 truncate text-[13px] text-text-primary">{chat.title ?? "Untitled chat"}</span>
-      {timestamp && <span className="text-[11px] text-text-tertiary shrink-0">{formatRelativeTime(timestamp)}</span>}
-    </button>
+    <svg width="12" height="12" viewBox="0 0 13 13" fill="none" style={{ flex: "none" }}>
+      <path d="M2.8 6.8l2.6 2.6L10.4 4" stroke="#4FD1A5" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -112,236 +131,311 @@ export function HomeView({
   onClearMentions: () => void;
 }) {
   const active = useMemo(() => activeChats(chats), [chats]);
-
-  // Oldest first, chat-log style — `logbookEntries` arrives newest-first
-  // from the fetch (matches the DB query order). Scoped to entries relevant
-  // to you (own checkpoints, handoffs to/from you), same default LogPanel
-  // used — this is a "catch up" surface, not a full team audit log.
-  const myEntries = useMemo(
-    () => logbookEntries.filter((e) => !selfEmail || entryOwner(e) === selfEmail).slice(0, 8).reverse(),
-    [logbookEntries, selfEmail]
-  );
-
   const claimantByChat = useMemo(() => {
     const map = new Map<string, string | null>();
     for (const c of active) map.set(c.id, computeClaimant(c.id, selfOccupant, otherOccupants));
     return map;
   }, [active, selfOccupant, otherOccupants]);
 
-  const sections = useMemo(() => groupActiveChats(active), [active]);
+  const name = selfEmail ? displayNameForUser(selfEmail) : "there";
 
-  const unassigned = useMemo(
-    () => active.filter((c) => !assigneeFor(c, claimantByChat.get(c.id) ?? null)),
-    [active, claimantByChat]
+  const teammates = useMemo(() => {
+    const others = profiles.map((p) => p.email).filter((e) => e !== selfEmail);
+    if (others.length) return others;
+    return otherOccupants.map((o) => o.email);
+  }, [profiles, otherOccupants, selfEmail]);
+
+  const myTasks = useMemo(
+    () => active.filter((c) => assigneeFor(c, claimantByChat.get(c.id) ?? null) === selfEmail),
+    [active, claimantByChat, selfEmail]
   );
 
-  const byPerson = useMemo(() => {
-    const map = new Map<string, ChatRow[]>();
-    for (const c of active) {
-      const who = assigneeFor(c, claimantByChat.get(c.id) ?? null);
-      if (!who) continue;
-      const list = map.get(who) ?? [];
-      list.push(c);
-      map.set(who, list);
-    }
-    return map;
-  }, [active, claimantByChat]);
-
-  const completed = useMemo(
+  const recentChats = useMemo(
     () =>
-      chats
-        .filter((c) => c.archived_at)
-        .sort((a, b) => (b.archived_at ?? "").localeCompare(a.archived_at ?? ""))
-        .slice(0, 8),
-    [chats]
+      [...active]
+        .sort((a, b) => (b.last_message_at ?? b.created_at).localeCompare(a.last_message_at ?? a.created_at))
+        .slice(0, 4),
+    [active]
   );
+
+  const finished = useMemo(
+    () =>
+      logbookEntries
+        .filter((e) => !selfEmail || (e.kind === "handoff" ? e.handed_off_to === selfEmail : e.user_email === selfEmail))
+        .slice(0, 4),
+    [logbookEntries, selfEmail]
+  );
+
+  const lastActivity = useMemo(() => {
+    const times = active.map((c) => c.last_message_at).filter(Boolean) as string[];
+    if (!times.length) return null;
+    const sorted = times.sort();
+    return sorted[sorted.length - 1] ?? null;
+  }, [active]);
+
+  const waitingOnYou = mentionInbox.length + myTasks.length;
+  const changesLive = logbookEntries.length;
+  const activeCount = active.length;
+  const caughtUp = waitingOnYou === 0;
+
+  const headline = caughtUp
+    ? "You're all caught up."
+    : `${waitingOnYou} ${waitingOnYou === 1 ? "thing needs" : "things need"} you.`;
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-[2em] py-[1.8em]">
-      <div className="max-w-[880px] mx-auto flex flex-col gap-[1.8em]">
-        <div className="flex flex-col gap-[0.3em]">
-          <div className="text-[20px] font-semibold text-text-primary">Page in Progress</div>
-          <div className="text-[13px] text-text-tertiary">
-            This page is a work in progress. The goal is a full project dashboard — insights, overviews, task
-            lists, and progress tracking, all in one place.
-          </div>
-        </div>
+    <div className="flex-1 min-w-0 min-h-0 overflow-auto" style={{ fontFamily: "'Instrument Sans', system-ui, sans-serif" }}>
+      <div className="mx-auto" style={{ maxWidth: 1180, padding: "22px 24px 40px" }}>
+        <div
+          style={{
+            background: "#181A1F",
+            border: `1px solid ${C.border}`,
+            borderRadius: 14,
+            overflow: "hidden",
+            boxShadow: "0 24px 60px -20px rgba(0,0,0,0.7)",
+          }}
+        >
+          {/* ── return band ── */}
+          <div style={{ position: "relative", padding: "34px 32px 26px", borderBottom: `1px solid ${C.seam}`, background: C.bandBg, overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#2B2F39 0%,#3C5C93 46%,#7C9CFF 72%,#B084F5 100%)" }} />
 
-        <div className="flex items-center gap-[0.5em]">
-          {profiles.map((p) => (
-            <div key={p.email} className="relative" style={{ width: 26, height: 26 }}>
-              <Avatar email={p.email} size={26} />
-              <span
-                className="absolute -bottom-px -right-px w-2 h-2 rounded-full border-2"
-                style={{
-                  background: onlineEmails.has(p.email) ? "var(--merged)" : "var(--text-tertiary)",
-                  borderColor: "var(--bg-primary)",
-                }}
-              />
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-lg border border-border bg-bg-secondary px-[1.2em] py-[1em]">
-          <div className="text-[15px] font-semibold text-text-primary mb-[0.2em]">
-            {unassigned.length === 0
-              ? "You're all caught up"
-              : `${unassigned.length} chat${unassigned.length === 1 ? "" : "s"} need${unassigned.length === 1 ? "s" : ""} an owner`}
-          </div>
-          <div className="text-[12.5px] text-text-tertiary">
-            {sections.length} task list{sections.length === 1 ? "" : "s"} · {active.length} active chat
-            {active.length === 1 ? "" : "s"} · {completed.length} recently completed
-          </div>
-        </div>
-
-        {(mentionInbox.length > 0 || myEntries.length > 0) && (
-          <div className="flex flex-col gap-[0.8em]">
-            <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary">At a glance</div>
-            <div className="rounded-lg border border-border flex flex-col divide-y divide-border">
-              {mentionInbox.length > 0 && (
-                <div className="flex flex-col gap-[0.4em] px-[1em] py-[0.8em]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-text-secondary">For you</span>
-                    <button
-                      type="button"
-                      className="text-[11px] text-text-tertiary bg-transparent border-none cursor-pointer p-0 hover:text-text-secondary"
-                      onClick={onClearMentions}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  {mentionInbox.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className="flex items-center gap-[0.5em] text-left text-[12.5px] px-[0.6em] py-[0.4em] rounded-md border-none cursor-pointer bg-transparent hover:bg-bg-tertiary"
-                      onClick={() => onJumpToChat(m.chatId)}
-                    >
-                      <span className="w-2 h-2 rounded-full shrink-0 bg-accent" />
-                      <span className="truncate">
-                        <span className="font-medium text-text-primary">{m.fromEmail}</span>
-                        <span className="text-text-tertiary">
-                          {m.kind === "handoff" ? " handed off " : " tagged you in "}
-                          {m.chatTitle ?? "a chat"}
-                          {m.kind === "handoff" ? " to you" : ""}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 48, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 620 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: C.micro }}>
+                  Welcome back, {name}
                 </div>
-              )}
-              {myEntries.length > 0 && (
-                <div className="flex flex-col gap-[0.6em] px-[1em] py-[0.8em]">
-                  <span className="text-[11px] font-medium text-text-secondary">Recent activity</span>
-                  {myEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className={`rounded-md px-[0.7em] py-[0.6em] border-l-2 bg-bg-tertiary${entry.chat_id ? " cursor-pointer hover:brightness-110" : ""}`}
-                      style={{ borderLeftColor: entry.user_email ? colorForUser(entry.user_email) : "var(--border)" }}
-                      role={entry.chat_id ? "button" : undefined}
-                      tabIndex={entry.chat_id ? 0 : undefined}
-                      onClick={entry.chat_id ? () => onJumpToChat(entry.chat_id!) : undefined}
-                    >
-                      <div className="flex items-center gap-[0.4em] text-[11px] text-text-tertiary mb-[0.3em] flex-wrap">
-                        <span className="font-medium text-text-secondary">{entry.user_email ?? "Someone"}</span>
-                        <span>·</span>
-                        <span>{formatTime(entry.created_at)}</span>
-                        {entry.duration_seconds != null && (
-                          <>
-                            <span>·</span>
-                            <span>{formatDuration(entry.duration_seconds)}</span>
-                          </>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-text-tertiary mb-[0.35em]">
-                        {entryChatTitle(chats, entry.chat_id)}
-                        {entry.kind === "handoff" ? ` → ${entry.handed_off_to ?? "teammate"}` : " · ⏸ auto-checkpoint"}
-                      </div>
-                      <MarkdownText text={entry.summary} className="markdown text-[13px] leading-[1.5] text-text-primary" />
-                    </div>
-                  ))}
+                <div style={{ fontSize: 48, fontWeight: 600, color: C.ink, letterSpacing: "-0.025em", lineHeight: 1.05 }}>{headline}</div>
+                <div style={{ fontSize: 15, lineHeight: 1.6, color: C.sub }}>
+                  {(teammates.length > 0 ? teammates.map(displayNameForUser).join(" and ") : "Your team") + " "}
+                  {caughtUp
+                    ? "have been busy — nothing is blocked on you right now."
+                    : `left ${mentionInbox.length} note${mentionInbox.length === 1 ? "" : "s"} and ${myTasks.length} task${myTasks.length === 1 ? "" : "s"} for you across ${activeCount} chat${activeCount === 1 ? "" : "s"}.`}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-[1em]">
-          <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary">Task lists</div>
-          {sections.map((section) => (
-            <div key={section.title} className="flex flex-col gap-[0.15em]">
-              <div className="text-[11px] font-medium tracking-[0.05em] uppercase text-text-tertiary px-[0.7em]">
-                {section.title} · {section.chats.length}
               </div>
-              {section.chats.length === 0 ? (
-                <div className="px-[0.7em] py-[0.4em] text-[12.5px] text-text-tertiary">Nothing here.</div>
-              ) : (
-                section.chats.map((chat) => (
-                  <ChatRowButton
-                    key={chat.id}
-                    chat={chat}
-                    assignee={assigneeFor(chat, claimantByChat.get(chat.id) ?? null)}
-                    timestamp={chat.last_message_at}
-                    onClick={() => onJumpToChat(chat.id)}
-                  />
-                ))
+
+              <div style={{ flex: "none", display: "flex", gap: 34, paddingTop: 6 }}>
+                <Figure value={waitingOnYou} label="waiting on you" color={C.blueInk} labelColor={C.blueSub} />
+                <div style={{ width: 1, background: C.seam }} />
+                <Figure value={changesLive} label="updates logged" color={C.green} labelColor={C.faint} />
+                <div style={{ width: 1, background: C.seam }} />
+                <Figure value={activeCount} label="active chats" color={C.ink} labelColor={C.faint} />
+              </div>
+            </div>
+
+            {/* activity ribbon (illustrative) */}
+            <div style={{ marginTop: 30, display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 2, height: 78 }}>
+                {RIBBON_DAYS.map((day, di) => (
+                  <div key={di} style={{ display: "flex", alignItems: "flex-end", gap: 2, flex: `${day.length} 1 0`, minWidth: 0, marginRight: di < RIBBON_DAYS.length - 1 ? 10 : 0 }}>
+                    {day.map(([h, op], bi) => (
+                      <div
+                        key={bi}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: `${h}%`,
+                          borderRadius: 2,
+                          background: op === 0 ? "#2B2F39" : RIBBON[(di * 8 + bi) % RIBBON.length],
+                          opacity: op === 0 ? 0.9 : op,
+                        }}
+                      />
+                    ))}
+                  </div>
+                ))}
+                <div style={{ position: "absolute", top: -6, bottom: -6, right: -1, width: 1, background: C.bar }} />
+              </div>
+              <div style={{ height: 1, background: C.seam }} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
+                <div style={{ fontSize: 11.5, color: C.fainter }}>Activity since your last visit</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <Legend color="#7C9CFF" label="prompts" />
+                  <Legend color="#4FD1A5" label="published" />
+                  <Legend color="#B084F5" label="comments" />
+                </div>
+                <div style={{ fontSize: 11.5, color: "#8FA9FF", fontWeight: 600 }}>
+                  {lastActivity ? `Last activity ${formatRelativeTime(lastActivity)}` : "No activity yet"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── body: tiles + needs-you ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 380px" }}>
+            {/* tile mosaic */}
+            <div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 14, alignContent: "start" }}>
+              {/* who's here */}
+              <Card>
+                <TileHead title="Who's here" meta={`${teammates.length + 1} on the project`} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                  {[selfEmail, ...teammates].filter(Boolean).slice(0, 5).map((email) => (
+                    <div key={email!} style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                      <Avatar email={email!} size={22} ring={false} />
+                      <div style={{ flex: 1, fontSize: 12.5, color: C.inkDim }}>
+                        {displayNameForUser(email!)}
+                        {email === selfEmail ? " (you)" : ""}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: onlineEmails.has(email!) ? C.green : C.fainter }}>
+                        {onlineEmails.has(email!) ? "online" : "away"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* your tasks */}
+              <Card>
+                <TileHead title="Your tasks" meta={`${myTasks.length} assigned to you`} />
+                {myTasks.length === 0 ? (
+                  <Empty text="Nothing assigned to you right now." />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {myTasks.slice(0, 4).map((c) => (
+                      <Row key={c.id} onClick={() => onJumpToChat(c.id)}>
+                        <div style={{ flex: "none", width: 14, height: 14, borderRadius: 4, border: "1.5px solid #454956" }} />
+                        <div style={{ flex: 1, fontSize: 12.5, color: C.inkDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "Untitled chat"}</div>
+                        <div style={{ flex: "none", fontSize: 11.5, color: C.fainter }}>open</div>
+                      </Row>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              {/* agent windows / recent chats */}
+              <Card>
+                <TileHead title="Agent windows" meta={`${active.length} open`} />
+                {recentChats.length === 0 ? (
+                  <Empty text="No chats yet — start one in Cowork or Solo." />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {recentChats.map((c) => {
+                      const who = assigneeFor(c, claimantByChat.get(c.id) ?? null);
+                      return (
+                        <Row key={c.id} onClick={() => onJumpToChat(c.id)}>
+                          <div style={{ flex: "none", width: 18, height: 18, borderRadius: 5, background: "linear-gradient(140deg,#7C9CFF,#B084F5)" }} />
+                          <div style={{ flex: 1, fontSize: 12.5, color: C.inkDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "Untitled chat"}</div>
+                          <div style={{ flex: "none", fontSize: 11.5, color: C.fainter }}>{who ? displayNameForUser(who) : "—"}</div>
+                        </Row>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+
+              {/* recently finished */}
+              <Card>
+                <TileHead title="Recently finished" meta={`${finished.length} update${finished.length === 1 ? "" : "s"}`} />
+                {finished.length === 0 ? (
+                  <Empty text="Nothing logged yet." />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {finished.map((e) => (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <Check />
+                        <div style={{ flex: 1, fontSize: 12.5, color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.summary}</div>
+                        <div style={{ flex: "none", fontSize: 11.5, color: C.fainter }}>{e.user_email ? displayNameForUser(e.user_email) : ""}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* needs-you column */}
+            <div style={{ background: C.bandBg, borderLeft: `1px solid ${C.seam}`, padding: "22px 22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600, color: C.ink }}>Needs you</div>
+                <div style={{ fontSize: 12.5, color: C.faint }}>{waitingOnYou} thing{waitingOnYou === 1 ? "" : "s"}</div>
+              </div>
+
+              {caughtUp && <Empty text="You're all caught up — nothing is waiting on your OK." />}
+
+              {myTasks.slice(0, 3).map((c) => (
+                <div key={c.id} style={{ background: C.needBg, border: `1px solid ${C.blueBorder}`, borderRadius: 11, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.blueInk }}>{c.title ?? "Untitled chat"}</div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "#9AAAD0" }}>Assigned to you — pick it up when you're ready.</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <button
+                      type="button"
+                      onClick={() => onJumpToChat(c.id)}
+                      style={{ border: `1px solid ${C.blueBorder}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: C.blueInk, background: C.blueBg, padding: "8px 13px", borderRadius: 8 }}
+                    >
+                      Open chat
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {mentionInbox.length > 0 && myTasks.length > 0 && <div style={{ height: 1, background: C.seam }} />}
+
+              {mentionInbox.slice(0, 4).map((m) => (
+                <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <Avatar email={m.fromEmail} size={20} ring={false} />
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{displayNameForUser(m.fromEmail)} mentioned you</div>
+                  </div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "#8A8C99" }}>in {m.chatTitle ?? "a chat"}</div>
+                  <button
+                    type="button"
+                    onClick={() => onJumpToChat(m.chatId)}
+                    style={{ alignSelf: "flex-start", border: "none", background: "transparent", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: C.reply, padding: 0 }}
+                  >
+                    Reply
+                  </button>
+                </div>
+              ))}
+
+              <div style={{ flex: 1 }} />
+              {(mentionInbox.length > 0 || myTasks.length > 0) && (
+                <button
+                  type="button"
+                  onClick={onClearMentions}
+                  style={{ alignSelf: "flex-start", border: "none", background: "transparent", cursor: "pointer", fontSize: 12.5, color: C.faint, padding: 0 }}
+                >
+                  Mark everything as seen
+                </button>
               )}
             </div>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-[0.8em]">
-          <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary">Assigned to</div>
-          <div className="grid grid-cols-2 gap-[0.8em]">
-            {profiles.map((p) => {
-              const mine = byPerson.get(p.email) ?? [];
-              return (
-                <div key={p.email} className="rounded-lg border border-border px-[0.9em] py-[0.7em]">
-                  <div className="flex items-center gap-[0.5em] mb-[0.4em]">
-                    <Avatar email={p.email} size={20} />
-                    <span className="text-[12.5px] font-medium text-text-primary">{displayNameForUser(p.email)}</span>
-                    <span className="text-[11px] text-text-tertiary ml-auto">{mine.length}</span>
-                  </div>
-                  {mine.length === 0 ? (
-                    <div className="text-[12px] text-text-tertiary">Nothing assigned.</div>
-                  ) : (
-                    <div className="flex flex-col gap-[0.05em]">
-                      {mine.map((chat) => (
-                        <ChatRowButton
-                          key={chat.id}
-                          chat={chat}
-                          assignee={assigneeFor(chat, claimantByChat.get(chat.id) ?? null)}
-                          timestamp={chat.last_message_at}
-                          onClick={() => onJumpToChat(chat.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
-        </div>
-
-        <div className="flex flex-col gap-[0.15em]">
-          <div className="text-[12px] font-semibold tracking-[0.06em] uppercase text-text-tertiary px-[0.7em] mb-[0.2em]">
-            Recently completed
-          </div>
-          {completed.length === 0 ? (
-            <div className="px-[0.7em] text-[12.5px] text-text-tertiary">Nothing archived yet.</div>
-          ) : (
-            completed.map((chat) => (
-              <ChatRowButton
-                key={chat.id}
-                chat={chat}
-                assignee={null}
-                timestamp={chat.archived_at}
-                onClick={() => onJumpToChat(chat.id)}
-              />
-            ))
-          )}
         </div>
       </div>
     </div>
   );
+}
+
+function Figure({ value, label, color, labelColor }: { value: number; label: string; color: string; labelColor: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <div style={{ fontSize: 38, fontWeight: 600, color, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12.5, color: labelColor, maxWidth: 96, lineHeight: 1.4 }}>{label}</div>
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+      <div style={{ fontSize: 11.5, color: "#787A88" }}>{label}</div>
+    </div>
+  );
+}
+
+function TileHead({ title, meta }: { title: string; meta: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 600, color: C.inkDim }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.faint }}>{meta}</div>
+    </div>
+  );
+}
+
+function Row({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, cursor: onClick ? "pointer" : "default" }}>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.fainter }}>{text}</div>;
 }
