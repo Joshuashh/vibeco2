@@ -257,6 +257,10 @@ fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewSe
 fn restart_team_preview(state: tauri::State<preview_server::TeamPreviewServer>) -> Result<(), String> {
     let root = git_ops::repo_root()?;
     let team_path = git_ops::ensure_team_worktree(&root)?;
+    // Refresh the served preview-tracker so an existing project (whose
+    // committed copy predates the reset-storage handler) can still honor the
+    // "brand new" storage wipe the Preview window posts after restarting.
+    let _ = git_ops::write_preview_tracker(&team_path);
     state.restart(&team_path)
 }
 

@@ -119,8 +119,29 @@ const PREVIEW_TRACKER_SCRIPT: &str = r#"(function () {
     origReplaceState.apply(this, arguments);
     report();
   };
+  // "Hard reset" from the Preview window: the app is cross-origin from this
+  // page so it can't clear our storage directly, but it can postMessage us to
+  // do it. Wiping localStorage/sessionStorage and reloading makes the page
+  // behave like a brand-new first visit (e.g. a one-time onboarding modal
+  // gated on a localStorage flag shows again), which a dev-server restart
+  // alone never does.
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.type !== "vibeco-reset-storage") return;
+    try { localStorage.clear(); } catch (err) {}
+    try { sessionStorage.clear(); } catch (err) {}
+    location.reload();
+  });
 })();
 "#;
+
+/// Writes the current preview-tracker script into `dir`, overwriting any
+/// older copy. Used both when bootstrapping a fresh repo and by the Preview
+/// window's hard reset — an existing project whose committed tracker predates
+/// a script change (e.g. before the reset-storage handler existed) still gets
+/// the latest served once the dev server restarts against the refreshed file.
+pub fn write_preview_tracker(dir: &Path) -> Result<(), String> {
+    std::fs::write(dir.join(PREVIEW_TRACKER_FILENAME), PREVIEW_TRACKER_SCRIPT).map_err(|e| e.to_string())
+}
 
 /// Creates and pushes the initial commit on whatever branch a fresh clone's
 /// HEAD already points to (git decides that name via the remote's reported
@@ -136,7 +157,7 @@ fn bootstrap_empty_repo(root: &Path) -> Result<(), String> {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "main".to_string());
 
-    std::fs::write(root.join(PREVIEW_TRACKER_FILENAME), PREVIEW_TRACKER_SCRIPT).map_err(|e| e.to_string())?;
+    write_preview_tracker(root)?;
     let add = run_git(root, &["add", PREVIEW_TRACKER_FILENAME])?;
     if !add.status.success() {
         return Err(format!("git add failed: {}", String::from_utf8_lossy(&add.stderr)));
