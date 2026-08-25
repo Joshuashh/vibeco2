@@ -133,6 +133,24 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 
 **Recommendation:** safe to start fresh next session. Worth opening with a quick check-in on Ben's queue-sync issue and whether the caret-lag fix actually closed the gap for him, since neither got a confirmed resolution this session.
 
+## Session hand-off (2026-08-25, later)
+
+**What shipped** (all committed and pushed individually, `f564243..cf24053`):
+
+- **Mouse-pointer badge (`LiveCursors.tsx`) no longer sits frozen over text after you click into the shared draft editor** — `AgentWindow.tsx`'s Tiptap `onFocus` now clears `cursor`/`cursorView` presence on focus, and it naturally reappears on the next `pointermove` (already broadcast by `LiveCursors`). Went through two rounds of clarification with the user before landing on the actual complaint (their own badge parking over text they'd just clicked into on a *teammate's* screen, not a self-render bug as first assumed).
+- **Confirmed, did not change: queue-summary scoping already works as designed.** `diff_since_team` (`git_ops.rs`) diffs the chat branch against `team`'s current state (three-dot diff), so once a queued item is actually merged to `team`, the next "Add to Queue" summary naturally excludes it — documented already in decision at line 10. User is going to test this live; no confirmation came back this session.
+- **Tab-switch performance: Cowork/Solo and Preview now stay mounted once visited, hidden via CSS instead of unmounted** (`App.tsx`). Both were re-running expensive setup on every return visit — Cowork/Solo rebuilt the Tiptap+Yjs collaboration binding and realtime subscriptions from scratch; Preview re-ran `ensure_team_preview_running`/`ensure_chat_preview_running`, reloaded the iframe, and re-fetched pins/strokes/replies. User confirmed both fixes felt instant.
+  - **Real side effect, not just a rendering change:** the Local (chat-specific) preview's dev server used to stop itself (`stop_chat_preview`) on unmount whenever you left the tab; now it keeps running in the background while you're elsewhere in the app, since Preview no longer unmounts on tab switch. Only stops now if you switch chats or target. Consistent with Team preview's existing self-healing background-server behavior — flagged to the user as a real tradeoff, not hidden.
+
+**Current state:** `main` pushed through `cf24053`, `git status` clean, nothing unpushed. `npx tsc --noEmit` clean after each change.
+
+**Open items:**
+- User is going to verify the queue-summary scoping live (queue → merge to team → new task → queue again) — unconfirmed.
+- Ben's "Add to Queue" sync issue (from the prior hand-off) is still unconfirmed/unresolved — untouched this session.
+- The two "Known open bugs" below are untouched this session.
+
+**Recommendation:** safe to start fresh next session.
+
 ## Known open bugs
 
 - **Cowork toolbar (`AgentWindow.tsx`): caret invisible next to list markers, and a stuck grey hover box on toolbar buttons — unresolved despite two rounds of fixes that were each individually verified.** Both fixes were validated via out-of-app standalone HTML/JS reproductions (this session can't sign into the app to test live) and the DOM-position/hover-state reasoning held up in isolation — but the user confirmed both are still broken in the real running app. Don't trust an out-of-app repro's verdict here again; next attempt needs the user driving the actual app or a debugger attached to the live signed-in session.
