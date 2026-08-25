@@ -530,9 +530,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         // user has already renamed the chat in the meantime.
         invoke<string>("generate_chat_title", { prompt })
           .then((title) => {
-            // The AI is asked for 4-5 words (claude_summary.rs) but nothing
+            // The AI is asked for 5-6 words (claude_summary.rs) but nothing
             // enforces that on its output — this is the actual backstop.
-            const inferred = capWords(title.trim(), 5);
+            const inferred = capWords(title.trim(), 6);
             if (!inferred) return;
             setChats((prev) => {
               const current = prev.find((c) => c.id === chatId);

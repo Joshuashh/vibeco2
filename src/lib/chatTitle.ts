@@ -1,9 +1,9 @@
-const MAX_WORDS = 5;
+const MAX_WORDS = 6;
 
 // Caps any title-like string to `max` words, appending an ellipsis if
 // anything was cut. Shared by deriveChatTitle below and App.tsx's
 // post-processing of the AI-generated title (claude_summary.rs's prompt
-// asks for "4-5 words," but nothing enforces that on the model's output —
+// asks for "5-6 words," but nothing enforces that on the model's output —
 // this is the actual backstop).
 export function capWords(text: string, max: number): string {
   const words = text.split(/\s+/).filter(Boolean);

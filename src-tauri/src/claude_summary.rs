@@ -5,7 +5,7 @@ const BRIEF_INSTRUCTION: &str = "Summarize the following chat transcript as a sh
 
 const DIFF_INSTRUCTION: &str = "Summarize the following git diff for a non-technical teammate deciding whether to publish it, in plain language — describe what changed for the user/app, never code details (no file names, CSS/function/property names, or implementation talk). If there is a single change, write one short line under 8 words (e.g. \"Removed steppers from score fields\"). If there are multiple distinct changes, write a short \"### Header\" (2-4 words) per change followed by one `- ` bullet under 8 words each. Do not restate that it's a diff, and do not add any preamble or closing remarks.";
 
-const TITLE_INSTRUCTION: &str = "Give this chat message a short title, 4-5 words, for a sidebar list. Plain text, no quotes, no trailing punctuation. Reply with only the title.";
+const TITLE_INSTRUCTION: &str = "Give this chat message a short title, 5-6 words, for a sidebar list. Plain text, no quotes, no trailing punctuation. Reply with only the title.";
 
 /// Runs a one-shot, non-streaming `claude --print` call and returns its
 /// result text. Unlike `claude_process`'s PTY pipeline (which streams into
@@ -44,7 +44,7 @@ pub fn summarize_diff(diff: String) -> Result<String, String> {
     run_claude_print(&format!("{DIFF_INSTRUCTION}\n\n---\n\n{diff}"))
 }
 
-/// Infers a short (4-5 word) sidebar title from the chat's first message.
+/// Infers a short (5-6 word) sidebar title from the chat's first message.
 pub fn generate_chat_title(prompt: String) -> Result<String, String> {
     run_claude_print(&format!("{TITLE_INSTRUCTION}\n\n---\n\n{prompt}"))
 }

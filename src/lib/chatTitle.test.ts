@@ -2,18 +2,18 @@ import { describe, it, expect } from "vitest";
 import { deriveChatTitle, capWords } from "./chatTitle";
 
 describe("deriveChatTitle", () => {
-  it("returns the prompt as-is when 5 words or fewer", () => {
-    expect(deriveChatTitle("build the login form")).toBe("build the login form");
+  it("returns the prompt as-is when 6 words or fewer", () => {
+    expect(deriveChatTitle("build the login form now")).toBe("build the login form now");
   });
 
   it("collapses newlines and repeated whitespace", () => {
     expect(deriveChatTitle("build   the\nlogin\n\nform")).toBe("build the login form");
   });
 
-  it("caps long prompts at 5 words with an ellipsis", () => {
+  it("caps long prompts at 6 words with an ellipsis", () => {
     const prompt = "build a fully featured login form with email, password, and social auth buttons";
     const title = deriveChatTitle(prompt);
-    expect(title).toBe("build a fully featured login…");
+    expect(title).toBe("build a fully featured login form…");
     expect(title.endsWith(" …")).toBe(false);
   });
 

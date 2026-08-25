@@ -25,14 +25,14 @@ This mirrors why: a chat that keeps growing past one coherent chunk of work
 is both harder to hand off cleanly and more exposed to the deletion risk
 above — the fix is rendering early and often, not one giant chat at the end.
 
-## Chat titles stay short — 5 words max
+## Chat titles stay short — 6 words max
 
 A chat's sidebar title (auto-generated from its first message) must stay to
-**5 words or fewer**. It's enforced in two places, both capped by
+**6 words or fewer**. It's enforced in two places, both capped by
 `capWords()` in `src/lib/chatTitle.ts`: the instant fallback title
 (`deriveChatTitle`, shown immediately) and the AI-inferred upgrade
 (`generate_chat_title` in `src-tauri/src/claude_summary.rs`, which prompts
-for "4-5 words" but isn't reliable enough on its own — `capWords` is the
+for "5-6 words" but isn't reliable enough on its own — `capWords` is the
 actual backstop). If you're touching either of those files, keep the cap;
 if you're adding a third place that sets a chat's title, route it through
 `capWords` too rather than re-deriving the rule.
