@@ -1014,7 +1014,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           flowApiRef={flowApiRef}
         />
       ) : viewMode === "preview" ? (
-        <PreviewPage session={session} chats={chats} activeChatId={activeChatId} profiles={profiles} />
+        <PreviewPage session={session} activeChatId={activeChatId} profiles={profiles} />
       ) : (
         <div className="chat-workspace">
           {!sidebarCollapsed && (

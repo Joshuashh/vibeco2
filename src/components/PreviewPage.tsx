@@ -3,7 +3,6 @@ import { RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import type { ChatRow } from "../types/chat";
 import type { Profile } from "../lib/profiles";
 import {
   fetchPreviewPins,
@@ -37,18 +36,15 @@ const TEAM_PREVIEW_URL = "http://localhost:5180";
 
 export function PreviewPage({
   session,
-  chats,
   activeChatId,
   profiles,
 }: {
   session: Session;
-  chats: ChatRow[];
   activeChatId: string | null;
   profiles: Profile[];
 }) {
   const [target, setTarget] = useState<"team" | "local">("team");
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
-  const [localChatId, setLocalChatId] = useState<string | null>(activeChatId);
   const [previewStatus, setPreviewStatus] = useState<"starting" | "ready" | "error">("starting");
   const [localPort, setLocalPort] = useState<number | null>(null);
   const [tool, setTool] = useState<PreviewTool>("cursor");
@@ -94,14 +90,14 @@ export function PreviewPage({
       };
     }
 
-    if (!localChatId) {
+    if (!activeChatId) {
       setPreviewStatus("error");
       return () => {
         cancelled = true;
       };
     }
 
-    invoke<number>("ensure_chat_preview_running", { chatId: localChatId })
+    invoke<number>("ensure_chat_preview_running", { chatId: activeChatId })
       .then((port) => {
         if (!cancelled) {
           setLocalPort(port);
@@ -114,11 +110,16 @@ export function PreviewPage({
       });
     return () => {
       cancelled = true;
-      invoke("stop_chat_preview", { chatId: localChatId }).catch((err) =>
+      invoke("stop_chat_preview", { chatId: activeChatId }).catch((err) =>
         console.error("stop_chat_preview failed", err),
       );
     };
-  }, [target, localChatId]);
+    // Local preview always tracks whichever chat is currently active app-wide
+    // (there's only ever one — Cowork/Solo are two views of the same
+    // activeChatId, not independent selections) rather than offering a
+    // separate picker, so switching chats elsewhere in the app no longer
+    // leaves Local preview pointed at a stale one.
+  }, [target, activeChatId]);
 
   // Polls rather than pushing this over realtime — it's cheap (a bare `git
   // fetch`, no data transfer beyond refs) and every teammate needs to know
@@ -411,8 +412,8 @@ export function PreviewPage({
           <div className="flex-1 flex items-center justify-center text-[12px] tracking-[0.05em] text-text-tertiary">
             {previewStatus === "starting"
               ? "Starting preview…"
-              : target === "local" && !localChatId
-                ? "Pick a chat to preview."
+              : target === "local" && !activeChatId
+                ? "Select a chat to preview its local changes."
                 : "Couldn't start the preview server."}
           </div>
         )}
@@ -424,26 +425,6 @@ export function PreviewPage({
             ]}
             active={target}
             onChange={setTarget}
-            trailing={
-              target === "local" && (
-                <select
-                  value={localChatId ?? ""}
-                  onChange={(e) => setLocalChatId(e.target.value || null)}
-                  className="ml-1 bg-transparent text-[12px] text-text-primary border-none outline-none w-auto"
-                >
-                  <option value="" disabled>
-                    Select a chat…
-                  </option>
-                  {chats
-                    .filter((c) => !c.archived_at)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title ?? "Untitled chat"}
-                      </option>
-                    ))}
-                </select>
-              )
-            }
           />
         </div>
         <div className="absolute bottom-3 right-3">
