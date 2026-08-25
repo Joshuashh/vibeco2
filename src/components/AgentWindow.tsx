@@ -8,6 +8,7 @@ import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import Collaboration from "@tiptap/extension-collaboration";
 import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
+import Blockquote from "@tiptap/extension-blockquote";
 import type { ChatState } from "../lib/chatStore";
 import type { SentAttachment } from "../types/message";
 import { useSelf, useOthers, useUpdateMyPresence, useRoom } from "../lib/liveblocks";
@@ -211,6 +212,44 @@ function inkForBg(hex: string): string {
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#12141A" : "#EDEDF0";
 }
 
+// A blockquote carries who created it — color (their real presence color,
+// personalization override included, same colorForUser everything else in
+// the app uses) and name — baked into node attributes at creation time (see
+// the toolbar's quote button below), not looked up live, so it stays
+// attributed to whoever actually wrote it even if the doc gets edited by
+// someone else afterward. Colors/label ink are computed once into a single
+// `style` attribute (CSS custom properties) rather than relying on
+// CSS `attr()` for anything but the name text itself, which is the only
+// part `attr()` is reliably supported for.
+const AuthoredBlockquote = Blockquote.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      authorEmail: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-author-email"),
+        renderHTML: (attrs: Record<string, unknown>) =>
+          attrs.authorEmail ? { "data-author-email": attrs.authorEmail } : {},
+      },
+      authorName: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-author-name"),
+        renderHTML: (attrs: Record<string, unknown>) =>
+          attrs.authorName ? { "data-author-name": attrs.authorName } : {},
+      },
+      authorColor: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.style.getPropertyValue("--author-color") || null,
+        renderHTML: (attrs: Record<string, unknown>) => {
+          const color = attrs.authorColor as string | null;
+          if (!color) return {};
+          return { style: `--author-color:${color};--author-bg:${color}22;--author-ink:${inkForBg(color)}` };
+        },
+      },
+    };
+  },
+});
+
 export function AgentWindow({
   chatId,
   state,
@@ -295,7 +334,8 @@ export function AgentWindow({
   const editor = useEditor(
     {
       extensions: [
-        StarterKit.configure({ undoRedo: false, heading: false }),
+        StarterKit.configure({ undoRedo: false, heading: false, blockquote: false }),
+        AuthoredBlockquote,
         Underline,
         Placeholder.configure({ placeholder: "Describe the change for Nova — everyone marks ready, then send." }),
         Collaboration.configure({ document: ydoc, field: `draft-${chatId}` }),
@@ -343,6 +383,23 @@ export function AgentWindow({
     editor.chain().focus().selectAll().insertContent(`/${cmd.name} `).run();
     setSlashDismissed(false);
     setSlashIndex(0);
+  }
+
+  // Stamps who's creating a quote (color + name) at the moment they create
+  // it — not toggling it off, and not on every keystroke — same one-shot
+  // timing the old hand-rolled execQuote used.
+  function toggleQuote() {
+    if (!editor) return;
+    const creating = !editor.isActive("blockquote");
+    const chain = editor.chain().focus().toggleBlockquote();
+    if (creating) {
+      chain.updateAttributes("blockquote", {
+        authorEmail: myEmail,
+        authorName: nicknameOrLocalPart(myEmail),
+        authorColor: colorForUser(myEmail),
+      });
+    }
+    chain.run();
   }
 
   // Which formats apply at the current caret/selection, so the toolbar can
@@ -571,7 +628,7 @@ export function AgentWindow({
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setHoveredBtn("quote")}
               onMouseLeave={() => setHoveredBtn(null)}
-              onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+              onClick={toggleQuote}
               style={toolbarStyle("quote")}
             >
               <QuoteIcon />

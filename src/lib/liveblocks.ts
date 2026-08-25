@@ -9,6 +9,15 @@ if (!authUrl) {
 }
 
 const client = createClient({
+  // Default is 100ms. @liveblocks/yjs routes Tiptap's collaborative caret
+  // position through Liveblocks presence/awareness (same channel as the
+  // mouse cursor and typing indicators — see the yjs package's own Awareness
+  // class, which stores it under presence's "__yjs" key), so this throttle
+  // is also the caret's real update rate, not just the mouse pointer's. At
+  // the default, a fast typist's caret visibly lags behind their own text a
+  // beat; lower for a small, fixed-size team where the extra socket traffic
+  // is negligible.
+  throttle: 30,
   authEndpoint: async (room) => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token ?? "";

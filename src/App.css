@@ -612,11 +612,34 @@ h1 {
 /* Blockquote/list elements otherwise render with the browser's default UA
    margins, which look cramped/unstyled against this dark, roomy editor. */
 .agent-draft-editor blockquote {
+  position: relative;
   margin: 0.4em 0;
   padding: 0.5em 0.9em;
   border-radius: 6px;
-  border-left: 3px solid #383C48;
+  border-left: 3px solid var(--author-color, #383C48);
+  background: var(--author-bg, transparent);
   color: #FFFFFF;
+}
+/* Who created this quote (see AgentWindow.tsx's AuthoredBlockquote) — a
+   small name pill matching the color/ink already baked into the block's own
+   --author-* custom properties, so it stays attributed to whoever wrote it
+   even once others are editing the same shared draft. */
+.agent-draft-editor blockquote[data-author-name]{
+  padding-top: 1.5em;
+}
+.agent-draft-editor blockquote[data-author-name]::before {
+  content: attr(data-author-name);
+  position: absolute;
+  top: 0.4em;
+  left: 0.9em;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--author-color, #383C48);
+  color: var(--author-ink, #12141A);
+  pointer-events: none;
 }
 /* Native ::marker boxes use their own font metrics rather than the li's
    actual line-height, so against this editor's tall 2.2 line-height the
