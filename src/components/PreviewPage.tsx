@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, MoreHorizontal } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
@@ -67,8 +67,18 @@ export function PreviewPage({
   // get rather than silently doing nothing when clicked out of habit.
   const [teamHasUpdate, setTeamHasUpdate] = useState(false);
   const [pulling, setPulling] = useState(false);
+  // The Preview window's overflow (⋯) menu, and the in-flight state of its
+  // "Hard restart preview" action — a full kill+respawn of the dev server
+  // (not just an iframe reload) for when the preview is showing stale content.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Set true by a hard reset so the next iframe load posts the storage-wipe
+  // message to the (cross-origin) preview via its injected tracker script.
+  // One-shot: cleared as soon as it fires, so the tracker's own reload after
+  // clearing doesn't loop.
+  const pendingResetRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +180,54 @@ export function PreviewPage({
         showToast("Couldn't update the team preview — try again.");
       })
       .finally(() => setPulling(false));
+  }
+
+  // Hard restart: fully kill and respawn the dev server, then remount the
+  // iframe — for when the normal Update (reload) still shows stale content
+  // because the Vite process itself is wedged or missed new files. Team
+  // preview goes through the dedicated restart_team_preview command; a local
+  // (per-chat) preview is torn down and re-created for its chat.
+  function handleHardRestart() {
+    setMenuOpen(false);
+    setRestarting(true);
+    setPreviewStatus("starting");
+    // Arm the storage wipe: the injected tracker clears localStorage/session
+    // and reloads once the freshly-restarted iframe loads and we post to it —
+    // so the previewed app behaves like a brand-new first visit (onboarding
+    // and other first-run state reappear), not just a code/server refresh.
+    pendingResetRef.current = true;
+    const work =
+      target === "team"
+        ? invoke("restart_team_preview")
+        : activeChatId
+          ? invoke("stop_chat_preview", { chatId: activeChatId }).then(() =>
+              invoke("ensure_chat_preview_running", { chatId: activeChatId })
+            )
+          : Promise.reject(new Error("no active chat to restart"));
+    work
+      .then(() => {
+        setTeamHasUpdate(false);
+        setPreviewStatus("ready");
+        setReloadKey((k) => k + 1);
+        showToast("Preview restarted.");
+      })
+      .catch((err) => {
+        console.error("hard restart failed", err);
+        pendingResetRef.current = false;
+        setPreviewStatus("error");
+        showToast("Couldn't restart the preview — try again.");
+      })
+      .finally(() => setRestarting(false));
+  }
+
+  // When a hard reset is pending, the first load of the restarted iframe gets
+  // the storage-wipe message; the injected tracker clears storage and reloads
+  // itself, so by the second load the previewed app sees a clean first-visit
+  // state. One-shot via the ref so that self-triggered reload doesn't recurse.
+  function handleIframeLoad() {
+    if (!pendingResetRef.current) return;
+    pendingResetRef.current = false;
+    iframeRef.current?.contentWindow?.postMessage({ type: "vibeco-reset-storage" }, "*");
   }
 
   useEffect(() => {
@@ -335,6 +393,37 @@ export function PreviewPage({
               <span className="w-[6px] h-[6px] rounded-full bg-accent" aria-hidden="true" />
             )}
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              disabled={restarting}
+              title="More preview options"
+              className="flex items-center border-none bg-transparent text-text-secondary px-[0.55em] py-[calc(0.2em+2px)] rounded-md transition-colors hover:text-text-primary disabled:opacity-40"
+            >
+              <MoreHorizontal className="w-[1em] h-[1em]" />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-0" onClick={() => setMenuOpen(false)} />
+                <div className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[190px] bg-bg-tertiary border border-border rounded-lg py-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+                  <button
+                    type="button"
+                    onClick={handleHardRestart}
+                    disabled={restarting}
+                    className="w-full flex items-center gap-[0.5em] border-none bg-transparent text-left text-[0.85em] text-text-primary px-3 py-2 cursor-pointer hover:bg-bg-secondary disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-[1em] h-[1em] ${restarting ? "animate-spin" : ""}`} />
+                    {restarting ? "Resetting…" : "Hard reset preview"}
+                  </button>
+                  <div className="px-3 pt-1 pb-1.5 text-[0.72em] leading-snug text-text-tertiary">
+                    Restarts the server and clears the app's saved state, so it
+                    loads like a brand-new first visit (onboarding shows again).
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
         {previewStatus === "ready" ? (
           <>
@@ -348,6 +437,7 @@ export function PreviewPage({
                   <iframe
                     key={reloadKey}
                     ref={iframeRef}
+                    onLoad={handleIframeLoad}
                     className="w-full h-full border-none block rounded-[30px] bg-white"
                     src={target === "team" ? TEAM_PREVIEW_URL : `http://localhost:${localPort}`}
                     aria-label={target === "team" ? "Live team preview (mobile)" : "Live local chat preview (mobile)"}
@@ -358,6 +448,7 @@ export function PreviewPage({
               <iframe
                 key={reloadKey}
                 ref={iframeRef}
+                onLoad={handleIframeLoad}
                 className="w-full h-full border-none block"
                 src={target === "team" ? TEAM_PREVIEW_URL : `http://localhost:${localPort}`}
                 aria-label={target === "team" ? "Live team preview" : "Live local chat preview"}

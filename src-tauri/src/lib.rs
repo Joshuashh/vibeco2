@@ -254,6 +254,17 @@ fn ensure_team_preview_running(state: tauri::State<preview_server::TeamPreviewSe
 }
 
 #[tauri::command]
+fn restart_team_preview(state: tauri::State<preview_server::TeamPreviewServer>) -> Result<(), String> {
+    let root = git_ops::repo_root()?;
+    let team_path = git_ops::ensure_team_worktree(&root)?;
+    // Refresh the served preview-tracker so an existing project (whose
+    // committed copy predates the reset-storage handler) can still honor the
+    // "brand new" storage wipe the Preview window posts after restarting.
+    let _ = git_ops::write_preview_tracker(&team_path);
+    state.restart(&team_path)
+}
+
+#[tauri::command]
 fn team_preview_has_update() -> Result<bool, String> {
     let root = git_ops::repo_root()?;
     git_ops::team_preview_has_update(&root)
@@ -409,6 +420,7 @@ pub fn run() {
             pull_app_update,
             generate_session_brief,
             ensure_team_preview_running,
+            restart_team_preview,
             team_preview_has_update,
             pull_team_preview_update,
             ensure_chat_preview_running,
