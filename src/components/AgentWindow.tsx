@@ -283,6 +283,15 @@ export function AgentWindow({
   const provider = useMemo(() => getYjsProviderForRoom(room as unknown as Parameters<typeof getYjsProviderForRoom>[0]), [room]);
   const ydoc: Y.Doc = provider.getYDoc();
 
+  // Declared before useEditor (not just for readability): Tiptap's
+  // Collaboration extension can fire onUpdate synchronously during editor
+  // construction itself (the initial sync from the Yjs doc counts as an
+  // update) — if these setters were declared after the useEditor call, that
+  // synchronous fire would read them before their `const` initializer had
+  // run, throwing "Cannot access 'setSlashDismissed' before initialization."
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+
   const editor = useEditor(
     {
       extensions: [
@@ -320,8 +329,6 @@ export function AgentWindow({
     [chatId, provider]
   );
 
-  const [slashDismissed, setSlashDismissed] = useState(false);
-  const [slashIndex, setSlashIndex] = useState(0);
   const customCommands = useCustomSlashCommands();
   const allCommands = useMemo(() => [...BUILTIN_COMMANDS, ...customCommands], [customCommands]);
   const slashMatch = SLASH_TOKEN.exec(draftText);
