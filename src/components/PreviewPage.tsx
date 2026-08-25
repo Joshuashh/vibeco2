@@ -146,19 +146,27 @@ export function PreviewPage({
   }, [target]);
 
   function handleUpdateClick() {
-    if (target !== "team" || !teamHasUpdate) {
+    if (target !== "team") {
       setReloadKey((k) => k + 1);
       return;
     }
+    // Re-ensuring the server here (not just on tab mount) means a dev-only
+    // restart of the Rust binary — which kills its tracked `npm run dev`
+    // child along with it — doesn't leave Team preview dead until someone
+    // happens to leave and re-enter the tab. ensure_team_preview_running is
+    // a no-op if a live child is already tracked, so this costs nothing on
+    // the common path.
     setPulling(true);
-    invoke("pull_team_preview_update")
+    invoke("ensure_team_preview_running")
+      .then(() => (teamHasUpdate ? invoke("pull_team_preview_update") : Promise.resolve()))
       .then(() => {
         setTeamHasUpdate(false);
+        setPreviewStatus("ready");
         setReloadKey((k) => k + 1);
       })
       .catch((err) => {
-        console.error("pull_team_preview_update failed", err);
-        showToast("Couldn't pull the latest team preview — try again.");
+        console.error("team preview update failed", err);
+        showToast("Couldn't update the team preview — try again.");
       })
       .finally(() => setPulling(false));
   }
@@ -314,7 +322,7 @@ export function PreviewPage({
           <button
             type="button"
             onClick={handleUpdateClick}
-            disabled={previewStatus !== "ready" || pulling}
+            disabled={(previewStatus === "starting" && target !== "team") || pulling}
             title={teamHasUpdate ? "A teammate merged changes — click to pull them in" : "Reload preview"}
             className={`relative flex items-center gap-[0.4em] border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors hover:text-text-primary disabled:opacity-40 disabled:pointer-events-none ${
               teamHasUpdate ? "bg-accent/15 text-accent" : "bg-transparent text-text-secondary"

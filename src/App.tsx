@@ -39,7 +39,7 @@ import {
   updateChatHandoff,
 } from "./lib/persistChat";
 import { userMessage, handoffBriefMessage, type SentAttachment, type Message } from "./types/message";
-import { deriveChatTitle } from "./lib/chatTitle";
+import { deriveChatTitle, capWords } from "./lib/chatTitle";
 import { computeSortOrder } from "./lib/reorder";
 import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
@@ -530,7 +530,9 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
         // user has already renamed the chat in the meantime.
         invoke<string>("generate_chat_title", { prompt })
           .then((title) => {
-            const inferred = title.trim();
+            // The AI is asked for 4-5 words (claude_summary.rs) but nothing
+            // enforces that on its output — this is the actual backstop.
+            const inferred = capWords(title.trim(), 5);
             if (!inferred) return;
             setChats((prev) => {
               const current = prev.find((c) => c.id === chatId);
