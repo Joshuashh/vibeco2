@@ -107,6 +107,32 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 
 **Recommendation:** safe to start fresh next session — all migrations through `0025` are confirmed live, nothing pending.
 
+## Session hand-off (2026-08-25)
+
+**What shipped** (all committed and pushed individually, `c4f7f98..7123228`):
+
+- **Cowork's shared draft went from local-per-user → single-typer lock → real concurrent multiplayer editing**, in that order, each a distinct requested step (see decision 13). Final shape: Tiptap bound to a Yjs document synced via `@liveblocks/yjs`, one Y.Doc per project room with one XmlFragment per chat, live colored carets via `@tiptap/extension-collaboration-caret`. Replaced ~250 lines of hand-rolled `contentEditable`/execCommand formatting — net deletion despite adding real concurrent editing.
+- **Two crashes from that migration, both fixed same-session:** a `@liveblocks/core` version mismatch (`@liveblocks/yjs` pulled 3.24.1 while `client`/`react` were still on 3.23.1 — two copies loaded, which Liveblocks treats as fatal) blanked the whole app on startup; a temporal-dead-zone bug (`useEditor`'s `onUpdate` can fire synchronously during construction, before later `useState` calls in the same component had run) threw "Cannot access 'setSlashDismissed' before initialization." Also added a top-level `ErrorBoundary` (there was none anywhere in the app) so the *next* crash shows the real error instead of a blank screen.
+- **Team preview cross-machine sync (decision 14):** was structurally local-only per machine and never re-fetched after first worktree creation — a teammate's merge never reached anyone else's Preview tab. Landed on manual-pull-with-indicator (not autoupdate — explicitly rejected as "tiresome"): the Update button polls for staleness every 20s, lights up when there's something to pull, and now also re-ensures the preview server is alive on click (a dev-only Rust hot-rebuild kills the tracked `npm run dev` child with it, which happened repeatedly this session and blanked Josh's own preview each time).
+- **Local preview simplified:** its chat picker was sticky (set once, never followed you) — removed entirely; Local preview now just tracks `activeChatId` directly, since there's only ever one app-wide (Cowork/Solo are two views of the same active chat, confirmed this session, not independent selections).
+- **Chat titles capped at 6 words** (`capWords()` in `chatTitle.ts`, used as a hard backstop on both the instant fallback and the AI-inferred title — the AI was only ever *prompted* for a word count, never enforced), documented in `CLAUDE.md` so future sessions keep the cap.
+- **Cowork quote blocks re-colored per author** (lost in the Tiptap migration, restored via a custom `AuthoredBlockquote` extension stamping color/name at creation time) plus a small name-pill label, since multiple people can now genuinely quote in the same shared draft.
+- **Liveblocks client throttle lowered 100ms → 30ms** — the collaborative caret's position rides the same presence/awareness channel as the mouse cursor and typing indicators, so the default throttle was also the caret's update rate. Real fix for the caret visibly trailing a fast typist's own text; flagged to the user as *not* necessarily the whole story for the specific "Ben's caret lags on Josh's screen but not vice versa" report, since the code path is symmetric — an asymmetric result likely also has an environmental (network/machine) component on Ben's side.
+
+**Diagnosed, not code-fixed (user-side or unconfirmed):**
+- Ben's "no GitHub repo found" + no Liveblocks cursor — root-caused to a local git clone/access failure on his machine (no SSH/HTTPS credentials or repo access), which also blocks the whole `RoomProvider` from ever mounting. Told the user what to have Ben check; no code change, nothing to verify from this side.
+- "JWT issued at future" persisting after the clock was fixed — a stale cached Supabase session token minted while the clock was wrong; fix is a full sign-out, not a code change.
+- **Still open:** Ben's "Add to Queue" never syncing to Josh. Diagnosed via a research agent as most likely a silent `git push` failure on Ben's machine (caught, shown only as an auto-dismissing toast) rather than a realtime/DB sync bug — the queue's DB/realtime wiring itself looks correct. Asked the user to have Ben check for a toast or console error on click; **no confirmation came back this session** — next session should follow up on this before assuming it's fixed.
+
+**Current state:** `main` is pushed through `7123228`, `git status` clean, nothing unpushed. `npx tsc --noEmit`, `npx vitest run` (93/93), `npx vite build`, and `cargo check`/`cargo test` (29/29) all clean as of the last check this session.
+
+**Open items:**
+- Ben's queue-sync report above — unconfirmed fix, needs a follow-up.
+- The caret-lag throttle fix — real and shipped, but whether it fully closes the gap Josh described (vs. an environmental component on Ben's side) is unconfirmed.
+- The two pre-existing "Known open bugs" below (Cowork toolbar caret/hover, timestamp hover-to-fade) are untouched this session.
+
+**Recommendation:** safe to start fresh next session. Worth opening with a quick check-in on Ben's queue-sync issue and whether the caret-lag fix actually closed the gap for him, since neither got a confirmed resolution this session.
+
 ## Known open bugs
 
 - **Cowork toolbar (`AgentWindow.tsx`): caret invisible next to list markers, and a stuck grey hover box on toolbar buttons — unresolved despite two rounds of fixes that were each individually verified.** Both fixes were validated via out-of-app standalone HTML/JS reproductions (this session can't sign into the app to test live) and the DOM-position/hover-state reasoning held up in isolation — but the user confirmed both are still broken in the real running app. Don't trust an out-of-app repro's verdict here again; next attempt needs the user driving the actual app or a debugger attached to the live signed-in session.
@@ -115,6 +141,5 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 ## Deliberately out of scope (raised, not built)
 
 - GitHub OAuth / browsing a teammate's repos in a dropdown for project selection.
-- Live collaborative (Google-Docs-style) editing of Cowork's shared draft — would need the draft moved into Liveblocks `Storage` (Yjs), live cursors, and shared toolbar/formatting state. Scoped but not started; a separate piece of work from anything else here.
 - Windows support for the permission-approval bridge — it's a Unix domain socket (`permission_bridge.rs`), matching this codebase's existing macOS-only assumptions elsewhere.
 - Real auto-update for a packaged `.app` build — the self-update button only works under `tauri dev` (relies on its own file watcher for the "recompile" step).
