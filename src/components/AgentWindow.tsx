@@ -342,8 +342,12 @@ export function AgentWindow({
         CollaborationCaret.configure({
           provider,
           user: { name: nicknameOrLocalPart(myEmail), color: colorForUser(myEmail) },
-          render: (user: { name: string; color: string }) => {
+          render: (user: { name: string; color: string }, clientId?: number) => {
             const cursor = document.createElement("span");
+            // yCursorPlugin's own self-filter compares Yjs doc clientID to the
+            // awareness map key, which don't always agree through Liveblocks'
+            // provider — filter here directly against the awareness clientId instead.
+            if (clientId === provider.awareness.doc.clientID) return cursor;
             cursor.classList.add("collaboration-carets__caret");
             cursor.style.borderColor = user.color;
             const label = document.createElement("div");
@@ -365,6 +369,10 @@ export function AgentWindow({
         setSlashDismissed(false);
         setSlashIndex(0);
       },
+      // Clicking into text parks the mouse-pointer badge over whatever word
+      // you clicked, blocking it until you move the mouse again — so hide it
+      // on focus; the next pointermove (in LiveCursors) brings it back.
+      onFocus: () => updateMyPresence({ cursor: null, cursorView: null }),
     },
     [chatId, provider]
   );
