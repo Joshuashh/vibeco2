@@ -183,9 +183,10 @@ export function HomeView({
     : `${waitingOnYou} ${waitingOnYou === 1 ? "thing needs" : "things need"} you.`;
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-auto" style={{ fontFamily: "'Instrument Sans', system-ui, sans-serif" }}>
-      <div className="mx-auto" style={{ maxWidth: 1180, padding: "22px 24px 40px" }}>
+    <div className="flex-1 min-w-0 min-h-0 overflow-auto flex flex-col" style={{ fontFamily: "'Instrument Sans', system-ui, sans-serif", padding: 12 }}>
+      <div className="flex-1 flex flex-col" style={{ width: "100%" }}>
         <div
+          className="flex-1"
           style={{
             background: "#181A1F",
             border: `1px solid ${C.border}`,
