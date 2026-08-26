@@ -16,7 +16,16 @@ const SCRIPT_SOURCE: &str = include_str!("../permission-server/mcp-server.mjs");
 /// hang the underlying `claude` process forever.
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 
+// camelCase to match the exact keys mcp-server.mjs writes over the socket
+// (`{ requestId, chatId, toolName, input }`). Without this, every request
+// failed to deserialize, handle_connection bailed silently, no
+// `permission-request` event was ever emitted, and `claude` hung forever
+// waiting on an approval that never came — i.e. the whole Manual-mode
+// permission flow was dead. The socket round-trip test missed it because it
+// serialized SocketRequest with serde on both ends instead of feeding the
+// real JS camelCase payload.
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SocketRequest {
     request_id: String,
     chat_id: String,
@@ -138,6 +147,22 @@ mod tests {
     #[test]
     fn embedded_script_is_nonempty() {
         assert!(SCRIPT_SOURCE.contains("approve_tool_use"));
+    }
+
+    /// Regression: the socket payload the node MCP server actually writes is
+    /// camelCase (`{ requestId, chatId, toolName, input }` — see
+    /// mcp-server.mjs). This deserializes that literal shape, catching the
+    /// snake/camel mismatch that silently killed every approval request. Uses
+    /// a hand-written JSON string, not serde's own Serialize output, so it
+    /// tests the real JS→Rust boundary rather than a Rust round trip.
+    #[test]
+    fn deserializes_the_mcp_servers_camelcase_payload() {
+        let payload = r#"{"requestId":"abc-1","chatId":"chat-xyz","toolName":"Write","input":{"file_path":"/tmp/x"}}"#;
+        let req: SocketRequest = serde_json::from_str(payload).expect("must parse the MCP server's camelCase payload");
+        assert_eq!(req.request_id, "abc-1");
+        assert_eq!(req.chat_id, "chat-xyz");
+        assert_eq!(req.tool_name, "Write");
+        assert_eq!(req.input["file_path"], "/tmp/x");
     }
 
     /// End-to-end test of the actual socket protocol, without needing a
