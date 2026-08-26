@@ -68,13 +68,19 @@ function SummaryText({ text }: { text: string }) {
 export function ShelfPanel({
   shelf,
   publishing,
+  resolvingIds,
   onPublish,
   onRemove,
+  onResolve,
+  onCheckResolved,
 }: {
   shelf: QueueItem[];
   publishing: boolean;
+  resolvingIds: Set<string>;
   onPublish: () => void;
   onRemove: (id: string) => void;
+  onResolve: (item: QueueItem) => void;
+  onCheckResolved: (item: QueueItem) => void;
 }) {
   const [collapsed, setCollapsed] = useState(true);
 
@@ -200,6 +206,47 @@ export function ShelfPanel({
               <div style={{ fontSize: 11.5, color: it.status === "conflict" ? "#E2584F" : C.mint }}>
                 {it.status === "conflict" ? "Conflict · resolve before merging" : "Queued · ready to merge"}
               </div>
+              {it.status === "conflict" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    disabled={resolvingIds.has(it.id)}
+                    onClick={() => onResolve(it)}
+                    style={{
+                      flex: 1,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      cursor: resolvingIds.has(it.id) ? "default" : "pointer",
+                      color: C.blueInk,
+                      background: C.blueBg,
+                      border: `1px solid ${C.blueBorder}`,
+                    }}
+                  >
+                    Resolve in chat
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resolvingIds.has(it.id)}
+                    onClick={() => onCheckResolved(it)}
+                    title="After fixing the conflicted files in the chat, check here to finish the merge"
+                    style={{
+                      flex: 1,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      cursor: resolvingIds.has(it.id) ? "default" : "pointer",
+                      color: C.mint,
+                      background: "transparent",
+                      border: `1px solid ${C.idleBorder}`,
+                    }}
+                  >
+                    {resolvingIds.has(it.id) ? "Checking…" : "Check if resolved"}
+                  </button>
+                </div>
+              )}
             </div>
           ))
         )}

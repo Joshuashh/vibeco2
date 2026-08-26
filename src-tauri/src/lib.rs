@@ -204,6 +204,31 @@ fn merge_chat_into_team(
     })
 }
 
+// "Resolve": pulls `team` into the conflicted chat's own branch/worktree so
+// the conflict markers land in that chat's files. Called when the user
+// clicks "Resolve" on a conflicted queue item.
+#[tauri::command]
+fn start_conflict_resolution(chat_id: String) -> Result<MergeResult, String> {
+    let root = git_ops::repo_root()?;
+    let outcome = git_ops::start_conflict_resolution(&root, &chat_id)?;
+    Ok(match outcome {
+        git_ops::MergeOutcome::Clean => MergeResult::Clean,
+        git_ops::MergeOutcome::Conflict { files } => MergeResult::Conflict { files },
+    })
+}
+
+// "Check": re-checks a chat's conflict resolution after the user has fixed
+// the conflicted files. Finishes and pushes the merge commit if clean.
+#[tauri::command]
+fn check_conflict_resolution(chat_id: String) -> Result<MergeResult, String> {
+    let root = git_ops::repo_root()?;
+    let outcome = git_ops::check_conflict_resolution(&root, &chat_id)?;
+    Ok(match outcome {
+        git_ops::MergeOutcome::Clean => MergeResult::Clean,
+        git_ops::MergeOutcome::Conflict { files } => MergeResult::Conflict { files },
+    })
+}
+
 // Runs the (multi-second, real LLM call) blocking subprocess work on a
 // dedicated blocking thread via spawn_blocking, rather than as a plain sync
 // #[tauri::command] — this is the pattern Tauri itself recommends for
@@ -413,6 +438,8 @@ pub fn run() {
             queue_chat_branch,
             diff_since_team,
             merge_chat_into_team,
+            start_conflict_resolution,
+            check_conflict_resolution,
             summarize_diff,
             generate_chat_title,
             promote_to_main,

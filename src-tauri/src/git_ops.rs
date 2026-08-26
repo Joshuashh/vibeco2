@@ -528,6 +528,69 @@ pub fn merge_chat_into_team(root: &Path, chat_id: &str) -> Result<MergeOutcome, 
     unreachable!("loop above always returns by the final attempt")
 }
 
+/// "Resolve" step for a conflicted queue item: merges `team`'s current state
+/// into the chat's own branch, in its own worktree, so any real conflict
+/// lands as ordinary conflict markers in that chat's files — the same place
+/// the chat's agent (or the user) already edits — instead of just being
+/// reported. If `team` has moved on since the conflict was first reported
+/// and now merges cleanly, commits and pushes immediately: nothing further
+/// to fix.
+pub fn start_conflict_resolution(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
+    let chat_path = ensure_chat_worktree(root, chat_id)?;
+    let team = team_ref(&chat_path);
+    if remote_branch_exists(&chat_path, TEAM_BRANCH) {
+        let _ = run_git(&chat_path, &["fetch", "origin", TEAM_BRANCH]);
+    }
+    let merge = run_git(&chat_path, &["merge", "--no-edit", &team])?;
+    if merge.status.success() {
+        let branch = merge_paths::chat_branch_name(chat_id);
+        let push = run_git(&chat_path, &["push", "-u", "origin", &branch])?;
+        if !push.status.success() {
+            return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr)));
+        }
+        return Ok(MergeOutcome::Clean);
+    }
+    let conflicted = run_git(&chat_path, &["diff", "--name-only", "--diff-filter=U"])?;
+    let files: Vec<String> = String::from_utf8_lossy(&conflicted.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
+    Ok(MergeOutcome::Conflict { files })
+}
+
+/// "Check" step: called after the user (or the chat's agent) has fixed the
+/// conflict markers left by `start_conflict_resolution` and saved the
+/// files. Still-unmerged paths are reported the same way as before;
+/// otherwise the in-progress merge commit is finished and pushed, so the
+/// queue item can go back to "queued" and the normal publish button takes
+/// over from there.
+pub fn check_conflict_resolution(root: &Path, chat_id: &str) -> Result<MergeOutcome, String> {
+    let chat_path = ensure_chat_worktree(root, chat_id)?;
+    let merge_head = run_git(&chat_path, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])?;
+    if !merge_head.status.success() {
+        return Err("No resolution in progress for this chat — click Resolve first.".to_string());
+    }
+    let conflicted = run_git(&chat_path, &["diff", "--name-only", "--diff-filter=U"])?;
+    let files: Vec<String> = String::from_utf8_lossy(&conflicted.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
+    if !files.is_empty() {
+        return Ok(MergeOutcome::Conflict { files });
+    }
+    run_git(&chat_path, &["add", "-A"])?;
+    let commit = run_git(&chat_path, &["commit", "--no-edit"])?;
+    if !commit.status.success() {
+        return Err(format!("git commit failed: {}", String::from_utf8_lossy(&commit.stderr)));
+    }
+    let branch = merge_paths::chat_branch_name(chat_id);
+    let push = run_git(&chat_path, &["push", "-u", "origin", &branch])?;
+    if !push.status.success() {
+        return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr)));
+    }
+    Ok(MergeOutcome::Clean)
+}
+
 /// True if `origin/team` has commits this machine's local team worktree
 /// doesn't have yet — e.g. a teammate merged on their machine and pushed.
 /// `git fetch` alone doesn't touch the worktree's files, so this is safe to

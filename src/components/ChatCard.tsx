@@ -23,6 +23,7 @@ export interface ChatCardData {
   onRename: (chatId: string, title: string) => void;
   assignableTeammates: AssignableTeammate[];
   onHandoff: (teammateEmail: string) => Promise<void>;
+  onUnassign: () => Promise<void>;
   onToggleOpen: () => void;
   mentioned: boolean;
   [key: string]: unknown;
@@ -85,6 +86,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
     onRename,
     assignableTeammates,
     onHandoff,
+    onUnassign,
     onToggleOpen,
     mentioned,
   } = data;
@@ -115,7 +117,7 @@ export function ChatCard({ data }: NodeProps<ChatCardNode>) {
           >
             {chat.open ? <UnlockIcon /> : <LockIcon />}
           </button>
-          <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
+          <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} onUnassign={onUnassign} />
           <ChatCardMenu
             title={chat.title ?? "Untitled chat"}
             onRename={(title) => onRename(chat.id, title)}

@@ -27,6 +27,7 @@ export function ChatPane({
   onDelete,
   assignableTeammates,
   onHandoff,
+  onUnassign,
   onToggleOpen,
   canShelve,
   shelving,
@@ -50,6 +51,7 @@ export function ChatPane({
   onDelete: () => void;
   assignableTeammates?: AssignableTeammate[];
   onHandoff?: (teammateEmail: string) => Promise<void>;
+  onUnassign?: () => Promise<void>;
   onToggleOpen?: () => void;
   canShelve?: boolean;
   shelving?: boolean;
@@ -72,6 +74,7 @@ export function ChatPane({
         onDelete={onDelete}
         assignableTeammates={assignableTeammates}
         onHandoff={onHandoff}
+        onUnassign={onUnassign}
         onToggleOpen={onToggleOpen}
         canShelve={canShelve}
         shelving={shelving}

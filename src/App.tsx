@@ -45,7 +45,7 @@ import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, insertMergeEvent, type MergeEvent } from "./lib/mergeEvents";
-import { fetchQueueItems, insertQueueItem, markQueueItemConflict, deleteQueueItem, type QueueItem } from "./lib/queueItems";
+import { fetchQueueItems, insertQueueItem, markQueueItemConflict, markQueueItemQueued, deleteQueueItem, type QueueItem } from "./lib/queueItems";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
 import {
   extractMentions,
@@ -704,6 +704,17 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     [chatStates, chats, project.id, session.user.id, session.user.email, updateMyPresence]
   );
 
+  // Plain unassign: clears handed_off_to only. Deliberately doesn't go
+  // through handleHandoff's flow — no brief, no logbook entry, no mention —
+  // since unassigning isn't handing the chat to anyone.
+  const handleUnassign = useCallback((chatId: string) => {
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, handed_off_to: null } : c)));
+    return updateChatHandoff(chatId, null).catch((err) => {
+      console.error("failed to clear handoff assignment", err);
+      showToast("Couldn't unassign that chat — try again.");
+    });
+  }, []);
+
   const handleDelete = useCallback((chatId: string) => {
     invoke<boolean>("chat_has_unmerged_work", { chatId })
       .catch((err) => {
@@ -890,6 +901,68 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
     });
   }, []);
 
+  // "Resolve": pulls team into the conflicted chat's own branch, so the
+  // conflict lands as ordinary markers in that chat's files, then jumps the
+  // user straight to that chat to fix them (same place its agent already
+  // works). If team's moved on since the conflict was reported, this can
+  // resolve cleanly on its own — same outcome as the Check step below.
+  const [resolvingIds, setResolvingIds] = useState<Set<string>>(new Set());
+  const handleResolveConflict = useCallback(async (item: QueueItem) => {
+    setResolvingIds((s) => new Set(s).add(item.id));
+    try {
+      const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
+        "start_conflict_resolution",
+        { chatId: item.chat_id }
+      );
+      if (result.status === "Clean") {
+        await markQueueItemQueued(item.id, "Resolved — ready to merge");
+        setShelf((s) => s.map((it) => (it.id !== item.id ? it : { ...it, status: "queued", summary: "Resolved — ready to merge" })));
+      }
+      jumpToChat(item.chat_id);
+    } catch (err) {
+      console.error("start_conflict_resolution failed", err);
+      showToast(typeof err === "string" ? err : "Couldn't start resolving that conflict — try again.");
+    } finally {
+      setResolvingIds((s) => {
+        const next = new Set(s);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }, [jumpToChat]);
+
+  // "Check": re-checks a chat's conflict after the user has edited the
+  // marked files there. Still-conflicted files come back the same way as
+  // the original merge attempt; a clean result finishes the merge commit
+  // and flips the item back to "queued" so the normal publish button picks
+  // it up again.
+  const handleCheckResolved = useCallback(async (item: QueueItem) => {
+    setResolvingIds((s) => new Set(s).add(item.id));
+    try {
+      const result = await invoke<{ status: "Clean" } | { status: "Conflict"; files: string[] }>(
+        "check_conflict_resolution",
+        { chatId: item.chat_id }
+      );
+      if (result.status === "Clean") {
+        await markQueueItemQueued(item.id, "Resolved — ready to merge");
+        setShelf((s) => s.map((it) => (it.id !== item.id ? it : { ...it, status: "queued", summary: "Resolved — ready to merge" })));
+      } else {
+        const conflictSummary = `Still conflicts with the team branch in: ${result.files.join(", ")}`;
+        await markQueueItemConflict(item.id, conflictSummary);
+        setShelf((s) => s.map((it) => (it.id !== item.id ? it : { ...it, status: "conflict", summary: conflictSummary })));
+      }
+    } catch (err) {
+      console.error("check_conflict_resolution failed", err);
+      showToast(typeof err === "string" ? err : "Couldn't check that conflict — try again.");
+    } finally {
+      setResolvingIds((s) => {
+        const next = new Set(s);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }, []);
+
   // "Publish": merge every queued chat branch into `team`, one at a time —
   // unconditional, no approval gate (that's a separate, not-yet-built step
   // meant to live in the Preview tab, gating team -> main instead; see
@@ -1024,6 +1097,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           onExpand={handleExpand}
           onRename={handleRename}
           onHandoff={handleHandoff}
+          onUnassign={handleUnassign}
           onToggleOpen={handleToggleOpen}
           assignableTeammates={assignableTeammates}
           mentionedChatIds={mentionedChatIds}
@@ -1119,6 +1193,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
                   onDelete={() => handleDelete(activeChatId)}
                   assignableTeammates={assignableTeammates}
                   onHandoff={(email) => handleHandoff(activeChatId, email)}
+                  onUnassign={() => handleUnassign(activeChatId)}
                   onToggleOpen={() => handleToggleOpen(activeChatId)}
                   canShelve={canShelve}
                   shelving={shelving}
@@ -1142,8 +1217,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             <ShelfPanel
               shelf={shelf}
               publishing={publishing}
+              resolvingIds={resolvingIds}
               onPublish={handlePublish}
               onRemove={handleRemoveFromShelf}
+              onResolve={handleResolveConflict}
+              onCheckResolved={handleCheckResolved}
             />
           )}
         </div>

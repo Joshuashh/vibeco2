@@ -110,6 +110,7 @@ interface CanvasViewProps {
   onExpand: (chatId: string) => void;
   onRename: (chatId: string, title: string) => void;
   onHandoff: (chatId: string, teammateEmail: string) => Promise<void>;
+  onUnassign: (chatId: string) => Promise<void>;
   onToggleOpen: (chatId: string) => void;
   assignableTeammates: AssignableTeammate[];
   mentionedChatIds: Set<string>;
@@ -128,6 +129,7 @@ export function CanvasView({
   onExpand,
   onRename,
   onHandoff,
+  onUnassign,
   onToggleOpen,
   assignableTeammates,
   mentionedChatIds,
@@ -244,6 +246,7 @@ export function CanvasView({
             onRename,
             assignableTeammates,
             onHandoff: (email: string) => onHandoff(chat.id, email),
+            onUnassign: () => onUnassign(chat.id),
             onToggleOpen: () => onToggleOpen(chat.id),
             mentioned: mentionedChatIds.has(chat.id),
           },
@@ -309,6 +312,7 @@ export function CanvasView({
     onExpand,
     onRename,
     onHandoff,
+    onUnassign,
     onToggleOpen,
     assignableTeammates,
     mentionedChatIds,

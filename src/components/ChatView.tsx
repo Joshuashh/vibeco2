@@ -59,6 +59,7 @@ export function ChatView({
   onDelete,
   assignableTeammates,
   onHandoff,
+  onUnassign,
   onToggleOpen,
   canShelve,
   shelving,
@@ -78,6 +79,7 @@ export function ChatView({
   onDelete: () => void;
   assignableTeammates?: AssignableTeammate[];
   onHandoff?: (teammateEmail: string) => Promise<void>;
+  onUnassign?: () => Promise<void>;
   onToggleOpen?: () => void;
   canShelve?: boolean;
   shelving?: boolean;
@@ -91,7 +93,7 @@ export function ChatView({
         {(onHandoff && assignableTeammates) || onToggleOpen ? (
           <div className="absolute left-[1em] flex items-center gap-[0.3em]">
             {onHandoff && assignableTeammates && (
-              <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} />
+              <AssignChatMenu assignedTo={chat.handed_off_to} teammates={assignableTeammates} onAssign={onHandoff} onUnassign={onUnassign} />
             )}
             {onToggleOpen && (
               <button

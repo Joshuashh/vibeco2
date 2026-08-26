@@ -40,6 +40,11 @@ export async function markQueueItemConflict(id: string, summary: string): Promis
   if (error) throw new Error(`failed to update queue item: ${error.message}`);
 }
 
+export async function markQueueItemQueued(id: string, summary: string): Promise<void> {
+  const { error } = await supabase.from("queue_items").update({ status: "queued", summary }).eq("id", id);
+  if (error) throw new Error(`failed to update queue item: ${error.message}`);
+}
+
 export async function deleteQueueItem(id: string): Promise<void> {
   const { error } = await supabase.from("queue_items").delete().eq("id", id);
   if (error) throw new Error(`failed to remove queue item: ${error.message}`);

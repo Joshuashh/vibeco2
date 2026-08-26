@@ -25,10 +25,12 @@ export function AssignChatMenu({
   assignedTo,
   teammates,
   onAssign,
+  onUnassign,
 }: {
   assignedTo: string | null;
   teammates: AssignableTeammate[];
   onAssign: (email: string) => Promise<void>;
+  onUnassign?: () => Promise<void>;
 }) {
   // Brief generation is a real LLM call — a few seconds is normal, not
   // broken. Without this the button just sat there looking unresponsive
@@ -38,6 +40,15 @@ export function AssignChatMenu({
   function handleAssign(email: string) {
     setAssigning(true);
     onAssign(email).finally(() => setAssigning(false));
+  }
+
+  // Unassigning is a plain DB write, not a handoff — no brief, no logbook
+  // entry, no notification to anyone. Deliberately not routed through
+  // handleAssign/onAssign.
+  function handleUnassign() {
+    if (!onUnassign) return;
+    setAssigning(true);
+    onUnassign().finally(() => setAssigning(false));
   }
 
   const assignedTeammate = teammates.find((t) => t.email === assignedTo);
@@ -63,6 +74,12 @@ export function AssignChatMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Assign to</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {assignedTo && onUnassign && (
+          <>
+            <DropdownMenuItem onSelect={handleUnassign}>Unassign</DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         {teammates.length === 0 && <DropdownMenuItem disabled>No teammates yet</DropdownMenuItem>}
         {teammates.map((teammate) => (
           <DropdownMenuItem key={teammate.email} onSelect={() => handleAssign(teammate.email)}>
