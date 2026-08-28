@@ -1,93 +1,68 @@
 # Hand-off — Vibeco2
 
-## What happened this session
+## This session
 
-A long multi-topic session (Josh + Ben cross-machine testing). All work is
-committed and pushed to `main` (commits `431bf24`, `23ba30d`, `56d04f9`).
-Start a fresh session for the next round — this one has drifted well past
-"one session ≈ one task."
+Two pieces of work — both should be rendered to `team`, then start a fresh
+chat for the comments/markup redesign.
 
-### 1. Multiplayer sync fixes (the original ask: "we can't see each other's
-   cursors/messages properly")
+### 1. Light mode (done, verified by Josh)
 
-- **Live cursors** (`LiveCursors.tsx`, `CanvasView.tsx`): were positioned in
-  raw screen pixels, so they were wrong across different zoom levels/window
-  sizes and bled across tabs. Now canvas cursors use React Flow's
-  screen↔flow coordinate conversion (content-relative, zoom-independent);
-  chat/preview cursors are stored as fractions of the container; a cursor
-  only renders when the viewer is on the same tab as the sender.
-- **Chat messages never synced at all** — root cause: `saveChatMessages` in
-  `persistChat.ts` was defined but never called anywhere. Nothing was ever
-  written to the `messages` table, so the realtime subscription had nothing
-  to broadcast. Fixed by calling it on send and on `turn_complete`.
-- **Root blocker during testing:** the `josh@josh.com` test account had
-  never successfully signed in (checked directly via the Supabase MCP
-  against project `febfuemspzwslaujdtwc` — `messages` table had 0 rows
-  ever). If this happens again, check `auth.users.last_sign_in_at` before
-  assuming a code bug.
-- **Live streaming**: assistant turns now broadcast over a Liveblocks room-
-  event channel (`useBroadcastEvent`/`useEventListener` in `lib/liveblocks.ts`)
-  as they generate, not just once saved. This introduced a duplicate-message
-  bug (two channels — Liveblocks broadcast + Postgres realtime echo — could
-  race and both append the same message) — fixed by removing the redundant
-  Postgres `messages` INSERT subscription entirely; the broadcast is now the
-  only live-sync channel, reload still backfills from Postgres.
-- **Split view** had no way to pick the right pane's chat (auto-followed
-  whichever teammate had a chat claimed). Both panes now have a dropdown in
-  their header (`ChatView.tsx`/`ChatPane.tsx`) to pick any chat directly.
-- **Commit-hash footer** (bottom-left, `App.tsx` + `vite.config.ts`) so both
-  people can eyeball whether they're on the same build — `package.json`'s
-  version never changes per-commit so wasn't useful for this.
+- Retuned `:root[data-theme="light"]` in `src/App.css` — off-white instead of
+  pure white, softened text, darkened status hues.
+- `HomeView.tsx`, `AgentWindow.tsx`, `ShelfPanel.tsx` each had a hardcoded
+  dark `const C = {…}` palette → now `var(--…)` strings resolving against
+  App.css tokens that flip on `[data-theme]`. Added a `--cw-*` token group
+  (`:root` + light block). Scattered inline hex literals repointed too;
+  chart/gradient/badge colors deliberately left literal.
 
-### 2. Feature requests (all in commit `56d04f9`)
+### 2. team → main promotion gate (code done, MIGRATION NOT APPLIED)
 
-- Input box: starts at 50px, grows to 10 lines, then scrolls (`InputBar.tsx`).
-- Model/effort/permission-mode pickers are wired to the real `claude` CLI now
-  (`lib/prefs.tsx` — localStorage-backed shared preference; Rust side:
-  `start_session` in `lib.rs` / `build_args` in `claude_process.rs` take
-  `model`/`permission_mode`/`effort` instead of hardcoded `sonnet`/
-  `acceptEdits`). The "more models" legacy list (Opus 4.7 etc.) has **no
-  verified CLI model ID** — it sends a best-effort slug and will surface as a
-  normal "couldn't start session" error if wrong. Worth checking with Josh
-  before relying on those.
-- New chats auto-title from the first message (`lib/chatTitle.ts`).
-- Fixed a Tailwind v4 gotcha: bare `border` utility has no default color (v3
-  behavior changed), so it was inheriting the light popover-foreground text
-  color → white stroke around the chat dropdown/delete dialog. Fixed in
-  `components/ui/dropdown-menu.tsx` and `alert-dialog.tsx` by adding explicit
-  `border-border`. **Grep for other bare `border` in `ui/*.tsx` before adding
-  new shadcn components** — same bug will recur.
-- Sidebar: drag-and-drop reorder, named groups, and a real Archive section
-  replacing the disabled "Skills" placeholder (`0008_chat_organization.sql`
-  — `sort_order`/`group_name`/`archived_at` columns, applied directly via
-  Supabase MCP to `febfuemspzwslaujdtwc`). Canvas chat cards can archive too.
-  Drag-and-drop reordering uses fractional `sort_order` (`lib/reorder.ts`),
-  not full renumbering.
-- Canvas: two-finger scroll pans, pinch zooms, both work even with the
-  pointer over a chat card (`nowheel` removed from the message-list/log
-  panels — **trade-off**: can no longer scroll those with a plain mouse
-  wheel while hovering them on the canvas; open the chat to scroll history).
-  Reset-zoom-to-100% button added next to the canvas toolbar.
+Fills the last gap in the queue pipeline (decisions.md #3): `team` → `main`,
+gated in the Preview tab (Team mode).
 
-## Current state
+- **`supabase/migrations/0026_promotion_approvals.sql` is written but NOT
+  applied** — the Supabase MCP apply was blocked by the sandbox classifier.
+  Apply it (SQL editor or MCP) before the feature works. It: adds `'merged'`
+  to the `queue_items` status check, creates `promotion_approvals`
+  (project_id, team_sha, approved_by, approver_name, unique triple), enables
+  RLS (open-to-authenticated, same as everything else), adds it to the
+  realtime publication.
+- **Behaviour:** "Merge to Team" now flips queue items to `status='merged'`
+  instead of deleting them (they stay until a successful promote so the gate
+  can show what's pending). A "Promote" button + popover in the Preview
+  toolbar (Team mode only) shows: the merged changes, comment-resolution
+  status, and an approval row per `profiles` row. Enabled only when **all
+  `preview_pins` are resolved AND every profile has approved the current
+  `team` sha**. On promote: `invoke("promote_to_main")` (unchanged, ff-only),
+  then delete the merged queue items + clear the project's approvals.
+- **Approvals are sha-bound** — `team_and_main_shas` (new Rust command)
+  gives the current `origin/team` / `origin/main` SHAs; a later merge into
+  `team` moves the sha and silently invalidates earlier approvals.
+- **"Everyone" = every `profiles` row** (currently 2 = Josh + Ben). No roles
+  table. Josh wants a real permissions/access-rights feature later — that
+  supersedes this. Known limit: `profiles` isn't project-scoped.
+- Files: `git_ops.rs` + `lib.rs` (`team_and_main_shas`), `src/lib/promotion.ts`
+  (new), `src/lib/queueItems.ts` (`markQueueItemMerged`, `'merged'`),
+  `src/components/PreviewPage.tsx` (gate UI, takes a new `project` prop),
+  `src/App.tsx` (mark-merged not delete; pass `project`; filter `shelf` for
+  ShelfPanel).
 
-- `main` is pushed and clean; `npx tsc --noEmit`, `npx vitest run` (65/65),
-  and `cargo test`/`cargo build` all pass as of this commit.
-- Dev app was last verified running via `npm run tauri dev` — no console
-  errors on load. Feature testing (drag-drop, groups, archive, gestures,
-  model picker actually reaching Claude) has **not** been manually verified
-  in a live signed-in session this round — worth a pass next session.
+## State
 
-## Next steps / open threads
+- `npx tsc --noEmit` clean, `npx vitest run` 93/93, `cargo check` clean
+  (pre-existing `open_pty` dead-code warning only).
+- Nothing committed yet this session. Not clicked through live (Josh
+  verifies UI himself).
+- **Migration `0026` still needs applying to `febfuemspzwslaujdtwc`.**
 
-1. Verify the new sidebar features (reorder/groups/archive) and canvas
-   gestures with a real signed-in session.
-2. Verify model/effort/permission selection actually changes Claude's
-   behavior end-to-end (the CLI flags are real and tested at the
-   `build_args` level, but not exercised through a live `claude` process
-   this session).
-3. Decide whether the "more models" legacy list needs real CLI model IDs
-   or should be trimmed to just the four current models.
-4. `Button`'s `variant="outline"` (`ui/button.tsx`) has the same
-   bare-`border` bug but is currently unused anywhere — leave as-is unless
-   someone adds a caller, then fix it the same way.
+## Next
+
+1. Apply migration `0026`.
+2. Live-check the promote gate: merge something to team, confirm it shows as
+   pending, leave a comment → gate blocks, resolve it + both approve → gate
+   unlocks, promote → `main` moves and the queue/approvals clear.
+3. Fresh chat: **comments + markup redesign** — Josh: "really clunky at the
+   moment and look pretty ugly." Independent of the gate (which only reads
+   `preview_pins.resolved`).
+4. Small leftover: trim the "more models" legacy list to the 4 real CLI
+   model IDs (decisions.md / prior hand-off).

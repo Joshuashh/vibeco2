@@ -161,3 +161,70 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 - GitHub OAuth / browsing a teammate's repos in a dropdown for project selection.
 - Windows support for the permission-approval bridge — it's a Unix domain socket (`permission_bridge.rs`), matching this codebase's existing macOS-only assumptions elsewhere.
 - Real auto-update for a packaged `.app` build — the self-update button only works under `tauri dev` (relies on its own file watcher for the "recompile" step).
+
+## Light mode softening (2026-08-27)
+
+- Retuned `:root[data-theme="light"]` in `src/App.css`: backgrounds off pure
+  white to a gently warm off-white (`--bg-primary` #ffffff → #f7f6f4), text
+  softened from near-black (#1a1b1e → #26251f), status hues (merged/held/
+  conflict/danger) darkened for contrast on a light surface. Rejected pure
+  neutral greys — the accent is orange, so a hair of warmth reads better.
+- Fixed `ChatView.tsx` "Add to Queue" button: hardcoded `#FFFFFF` text was
+  invisible on its light tinted background in light mode → `var(--text-primary)`.
+- NOT done (still dark-only): `HomeView.tsx`, `AgentWindow.tsx`,
+  `ShelfPanel.tsx` each carry a full hardcoded dark `C = {…}` palette object
+  and don't respond to `data-theme` at all. Making those theme-aware is a
+  separate task (needs a light variant of each palette object).
+
+## Light mode round 2 — Home + Cowork made theme-aware (2026-08-28)
+
+- `HomeView.tsx`, `AgentWindow.tsx`, `ShelfPanel.tsx` each had a hardcoded
+  dark `const C = {…}` palette. Rather than plumb theme state through, the
+  `C` fields now hold `var(--…)` strings that resolve against App.css custom
+  properties (which flip on `[data-theme="light"]`). Call sites unchanged.
+- Added a `--cw-*` token group to App.css (`:root` + light block): surface,
+  surface-raised, band, border-strong, blue-{ink,sub,bg,border},
+  ready-chip-{bg,border}, danger-border. The rest of `C` maps onto existing
+  app tokens (--border, --text-*, --merged, --held, --conflict).
+- Scattered inline hex literals in those files repointed to the same vars.
+  Left as literal hex on purpose: chart series colors (RIBBON/Legend/bar),
+  decorative gradients, the queue count badge, and `inkForBg`'s
+  luminance-picked text colour — all read fine in both themes.
+
+## team → main promotion gate (2026-08-28)
+
+Built the missing last step of the pipeline (decision 3): `team` → `main`,
+gated in the Preview tab (Team mode). `promote_to_main` (Rust) already
+existed and is unchanged — it's a fast-forward-only push of `origin/team`
+to `main`, so promotion needs no merge judgment, only human sign-off.
+
+- **"Merge to Team" no longer deletes** its queue items — they flip to
+  `status = 'merged'` (new value, migration `0026`) and stay until a
+  successful promote, so the gate can show what's pending. ShelfPanel is
+  fed `shelf.filter(status !== 'merged')` so its list is unchanged.
+- **Gate = all comments resolved + every profile has approved the current
+  team sha.** `preview_pins.resolved` must be all-true; `promotion_approvals`
+  rows are bound to a specific `team` sha (from the new `team_and_main_shas`
+  Rust command) so any later merge into `team` silently invalidates prior
+  approvals. On success: delete the merged queue items + clear the project's
+  approvals.
+- **"Everyone" = every row in `profiles`** (2 rows = Josh + Ben). No roles
+  table — a real permissions/access-rights feature is wanted later and
+  supersedes this (decision 4's "approvers = contributors" idea can fold in
+  then). Known limit: `profiles` isn't project-scoped, so a stray profile
+  would over-gate; visible in the approvals list, fix is to remove the row.
+- **Markup strokes are not gated** — only pins (comments) have a resolved
+  state. A leftover scribble won't block a promote.
+- Migration `0026_promotion_approvals.sql` is **written but NOT applied** —
+  the MCP apply was blocked by the sandbox classifier this session. Apply
+  it before the feature works (adds `'merged'` to the queue_items status
+  check + the `promotion_approvals` table + realtime).
+- New/changed files: `supabase/migrations/0026_*`, `src-tauri/src/git_ops.rs`
+  + `lib.rs` (`team_and_main_shas`), `src/lib/promotion.ts` (new),
+  `src/lib/queueItems.ts` (`markQueueItemMerged`, `'merged'` status),
+  `src/components/PreviewPage.tsx` (the gate UI), `src/App.tsx` (mark-merged
+  instead of delete; pass `project` to PreviewPage).
+
+**Next:** the comments + markup section itself is clunky/ugly and wants a
+UX + visual pass — deferred to its own chat. The promote gate reads
+`preview_pins.resolved`, which that redesign won't change.

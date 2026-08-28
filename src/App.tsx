@@ -45,7 +45,7 @@ import { buildTranscriptPreamble } from "./lib/transcript";
 import { buildSummaryTranscript } from "./lib/summaryTranscript";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchMergeEvents, insertMergeEvent, type MergeEvent } from "./lib/mergeEvents";
-import { fetchQueueItems, insertQueueItem, markQueueItemConflict, markQueueItemQueued, deleteQueueItem, type QueueItem } from "./lib/queueItems";
+import { fetchQueueItems, insertQueueItem, markQueueItemConflict, markQueueItemQueued, markQueueItemMerged, deleteQueueItem, type QueueItem } from "./lib/queueItems";
 import { fetchLogbookEntries, insertLogbookEntry, type LogbookEntry } from "./lib/logbookEntries";
 import {
   extractMentions,
@@ -981,8 +981,11 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           );
           if (result.status === "Clean") {
             await insertMergeEvent(item.chat_id, "merged", "chat → team");
-            setShelf((s) => s.filter((it) => it.id !== item.id));
-            await deleteQueueItem(item.id);
+            // Kept (status 'merged', not deleted) so the Preview tab's
+            // team -> main promote gate can show what's pending and who
+            // still has to approve it. Cleared on a successful promote.
+            setShelf((s) => s.map((it) => (it.id !== item.id ? it : { ...it, status: "merged" })));
+            await markQueueItemMerged(item.id);
           } else {
             const conflictSummary = `Conflicts with the team branch in: ${result.files.join(", ")}`;
             await insertMergeEvent(item.chat_id, "conflict", result.files.join(", "));
@@ -1106,7 +1109,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       ) : null}
       {previewMounted && (
         <div style={{ display: viewMode === "preview" ? "contents" : "none" }}>
-          <PreviewPage session={session} activeChatId={activeChatId} profiles={profiles} />
+          <PreviewPage session={session} project={project} activeChatId={activeChatId} profiles={profiles} />
         </div>
       )}
       {chatWorkspaceMounted && (
@@ -1215,7 +1218,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
             activeChat &&
             ((viewMode === "cowork" && !activeLockedForCowork) || viewMode === "solo") && (
             <ShelfPanel
-              shelf={shelf}
+              shelf={shelf.filter((it) => it.status !== "merged")}
               publishing={publishing}
               resolvingIds={resolvingIds}
               onPublish={handlePublish}

@@ -261,6 +261,20 @@ fn promote_to_main() -> Result<(), String> {
     git_ops::promote_to_main(&root)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TeamMainShas {
+    team_sha: String,
+    main_sha: String,
+}
+
+#[tauri::command]
+fn team_and_main_shas() -> Result<TeamMainShas, String> {
+    let root = git_ops::repo_root()?;
+    let (team_sha, main_sha) = git_ops::team_and_main_shas(&root)?;
+    Ok(TeamMainShas { team_sha, main_sha })
+}
+
 #[tauri::command]
 fn check_for_app_update() -> Result<bool, String> {
     git_ops::check_for_app_update()
@@ -443,6 +457,7 @@ pub fn run() {
             summarize_diff,
             generate_chat_title,
             promote_to_main,
+            team_and_main_shas,
             check_for_app_update,
             pull_app_update,
             generate_session_brief,

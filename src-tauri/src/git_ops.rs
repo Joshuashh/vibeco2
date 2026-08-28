@@ -656,6 +656,35 @@ pub fn promote_to_main(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The current `origin/team` and `origin/<default>` commit SHAs, after a
+/// best-effort fetch. The Preview tab's promote gate uses these to tell
+/// whether team is ahead of main at all, and to bind approvals to the exact
+/// commit being promoted (a later merge into team moves the sha and
+/// invalidates prior approvals). Fetch-only — never touches worktree files.
+pub fn team_and_main_shas(root: &Path) -> Result<(String, String), String> {
+    let team_path = ensure_team_worktree(root)?;
+    let main = default_branch(root);
+    // Offline shouldn't hard-fail the gate — fall back to local refs below.
+    let _ = run_git(&team_path, &["fetch", "origin", TEAM_BRANCH, &main]);
+
+    let team_sha = rev_parse(&team_path, &format!("origin/{TEAM_BRANCH}"))
+        .or_else(|| rev_parse(&team_path, TEAM_BRANCH))
+        .unwrap_or_default();
+    let main_sha = rev_parse(&team_path, &format!("origin/{main}"))
+        .or_else(|| rev_parse(&team_path, &main))
+        .unwrap_or_default();
+    Ok((team_sha, main_sha))
+}
+
+fn rev_parse(dir: &Path, rev: &str) -> Option<String> {
+    let out = run_git(dir, &["rev-parse", "--verify", "--quiet", rev]).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
 fn advance_local_main(root: &Path, main: &str) {
     let Ok(fetch_main) = run_git(root, &["fetch", "origin", main]) else { return };
     if !fetch_main.status.success() {

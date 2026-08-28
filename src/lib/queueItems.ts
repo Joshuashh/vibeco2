@@ -6,7 +6,10 @@ export interface QueueItem {
   project_id: string | null;
   summary: string;
   submitted_by: string;
-  status: "queued" | "conflict";
+  // 'merged' = merged into `team`, now waiting for the team -> main promotion
+  // gate in the Preview tab (kept, not deleted, so that gate can show what's
+  // pending and who still has to approve it). Cleared on a successful promote.
+  status: "queued" | "conflict" | "merged";
   created_at: string;
 }
 
@@ -42,6 +45,11 @@ export async function markQueueItemConflict(id: string, summary: string): Promis
 
 export async function markQueueItemQueued(id: string, summary: string): Promise<void> {
   const { error } = await supabase.from("queue_items").update({ status: "queued", summary }).eq("id", id);
+  if (error) throw new Error(`failed to update queue item: ${error.message}`);
+}
+
+export async function markQueueItemMerged(id: string): Promise<void> {
+  const { error } = await supabase.from("queue_items").update({ status: "merged" }).eq("id", id);
   if (error) throw new Error(`failed to update queue item: ${error.message}`);
 }
 

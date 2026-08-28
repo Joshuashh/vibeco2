@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw, MoreHorizontal } from "lucide-react";
+import { RefreshCw, MoreHorizontal, GitMerge, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/profiles";
+import type { ProjectRow } from "../types/project";
+import { fetchQueueItems, deleteQueueItem, type QueueItem } from "../lib/queueItems";
+import {
+  fetchPromotionApprovals,
+  insertPromotionApproval,
+  clearPromotionApprovals,
+  type PromotionApproval,
+} from "../lib/promotion";
 import {
   fetchPreviewPins,
   fetchPreviewPinReplies,
@@ -36,10 +44,12 @@ const TEAM_PREVIEW_URL = "http://localhost:5180";
 
 export function PreviewPage({
   session,
+  project,
   activeChatId,
   profiles,
 }: {
   session: Session;
+  project: ProjectRow;
   activeChatId: string | null;
   profiles: Profile[];
 }) {
@@ -72,6 +82,14 @@ export function PreviewPage({
   // (not just an iframe reload) for when the preview is showing stale content.
   const [menuOpen, setMenuOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  // team -> main promotion gate (Team mode only). `mergedItems` are queue
+  // items already merged into `team` and now waiting for main; `approvals`
+  // are bound to a specific team sha (see promotion.ts / 0026 migration).
+  const [mergedItems, setMergedItems] = useState<QueueItem[]>([]);
+  const [approvals, setApprovals] = useState<PromotionApproval[]>([]);
+  const [shas, setShas] = useState<{ teamSha: string; mainSha: string } | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteOpen, setPromoteOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Set true by a hard reset so the next iframe load posts the storage-wipe
@@ -147,6 +165,13 @@ export function PreviewPage({
           if (!cancelled) setTeamHasUpdate(has);
         })
         .catch((err) => console.error("team_preview_has_update failed", err));
+      // Same cheap fetch-only poll drives the promote gate's "is team ahead
+      // of main" check and the sha its approvals are bound to.
+      invoke<{ teamSha: string; mainSha: string }>("team_and_main_shas")
+        .then((s) => {
+          if (!cancelled) setShas(s);
+        })
+        .catch((err) => console.error("team_and_main_shas failed", err));
     }
     check();
     const id = setInterval(check, 20_000);
@@ -237,6 +262,52 @@ export function PreviewPage({
       .catch((err) => console.error("failed to fetch preview pin replies", err));
     fetchPreviewStrokes().then(setStrokes).catch((err) => console.error("failed to fetch preview strokes", err));
   }, []);
+
+  // Promote-gate data + its own realtime channel (kept separate from the
+  // preview-comments one above so it can be project-scoped).
+  useEffect(() => {
+    fetchQueueItems(project.id)
+      .then((items) => setMergedItems(items.filter((i) => i.status === "merged")))
+      .catch((err) => console.error("failed to fetch merged queue items", err));
+    fetchPromotionApprovals(project.id)
+      .then(setApprovals)
+      .catch((err) => console.error("failed to fetch promotion approvals", err));
+
+    const channel = supabase
+      .channel("promotion-gate-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "queue_items", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            const row = payload.old as { id: string };
+            setMergedItems((prev) => prev.filter((i) => i.id !== row.id));
+            return;
+          }
+          const row = payload.new as QueueItem;
+          setMergedItems((prev) => {
+            const rest = prev.filter((i) => i.id !== row.id);
+            return row.status === "merged" ? [...rest, row] : rest;
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "promotion_approvals", filter: `project_id=eq.${project.id}` },
+        (payload) => {
+          const row = payload.new as PromotionApproval;
+          setApprovals((prev) => (prev.some((a) => a.id === row.id) ? prev : [...prev, row]));
+        },
+      )
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "promotion_approvals" }, (payload) => {
+        const row = payload.old as { id: string };
+        setApprovals((prev) => prev.filter((a) => a.id !== row.id));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [project.id]);
 
   // The preview iframe is cross-origin (its own localhost port, not the
   // app's), so this is the only way to know which page it's currently
@@ -371,6 +442,62 @@ export function PreviewPage({
     clearOwnPreviewStrokes(strokes, session.user.id).catch((err) => console.error("failed to clear strokes", err));
   }
 
+  // ── team -> main promotion gate ───────────────────────────────────────────
+  const teamSha = shas?.teamSha ?? "";
+  const hasSomethingToPromote = !!shas && teamSha !== "" && teamSha !== shas.mainSha;
+  // Approvals only count for the exact team commit they were given on — a
+  // later merge into team moves the sha and quietly resets the gate.
+  const currentApprovals = approvals.filter((a) => a.team_sha === teamSha);
+  const approvedIds = new Set(currentApprovals.map((a) => a.approved_by));
+  // No roles table yet (see decisions.md) — everyone with a profile must
+  // approve. A real permissions feature replaces this.
+  const requiredApprovers = profiles;
+  const iHaveApproved = approvedIds.has(session.user.id);
+  const allApproved = requiredApprovers.length > 0 && requiredApprovers.every((p) => approvedIds.has(p.id));
+  const unresolvedCount = pins.filter((p) => !p.resolved).length;
+  const commentsClear = unresolvedCount === 0;
+  const canPromote = hasSomethingToPromote && commentsClear && allApproved && !promoting;
+
+  function handleApprovePromotion() {
+    if (!teamSha || iHaveApproved) return;
+    const mine = profiles.find((p) => p.id === session.user.id);
+    const name = mine?.display_name || session.user.email || "Someone";
+    insertPromotionApproval({ projectId: project.id, teamSha, approvedBy: session.user.id, approverName: name }).catch(
+      (err) => {
+        console.error("failed to record approval", err);
+        showToast("Couldn't record your approval — try again.");
+      },
+    );
+  }
+
+  function handlePromoteToMain() {
+    if (!canPromote) return;
+    setPromoting(true);
+    invoke("promote_to_main")
+      .then(async () => {
+        // Clear the round: the merged items are in `main` now, and their
+        // approvals are spent. Realtime DELETEs echo this to other clients.
+        await Promise.allSettled(mergedItems.map((i) => deleteQueueItem(i.id)));
+        await clearPromotionApprovals(project.id).catch((e) => console.error("failed to clear approvals", e));
+        setMergedItems([]);
+        setApprovals([]);
+        setPromoteOpen(false);
+        showToast("Promoted to main ✓");
+        invoke<{ teamSha: string; mainSha: string }>("team_and_main_shas")
+          .then(setShas)
+          .catch(() => {});
+      })
+      .catch((err) => {
+        console.error("promote_to_main failed", err);
+        showToast(
+          typeof err === "string" && err.includes("may have moved")
+            ? "main moved on — pull latest and retry."
+            : "Couldn't promote to main — try again.",
+        );
+      })
+      .finally(() => setPromoting(false));
+  }
+
   return (
     <div className="flex flex-1 min-w-0 min-h-0 gap-3 p-3">
       <div
@@ -424,6 +551,97 @@ export function PreviewPage({
               </>
             )}
           </div>
+          {target === "team" && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPromoteOpen((o) => !o)}
+                title="Promote team to main"
+                className={`relative flex items-center gap-[0.4em] border-none text-[0.85em] font-medium px-[1.1em] py-[calc(0.2em+2px)] rounded-md transition-colors hover:text-text-primary ${
+                  canPromote ? "bg-merged/15 text-merged" : "bg-transparent text-text-secondary"
+                }`}
+              >
+                <GitMerge className="w-[1em] h-[1em]" />
+                Promote
+                {hasSomethingToPromote && !canPromote && (
+                  <span className="w-[6px] h-[6px] rounded-full bg-held" aria-hidden="true" />
+                )}
+              </button>
+              {promoteOpen && (
+                <>
+                  <div className="fixed inset-0 z-0" onClick={() => setPromoteOpen(false)} />
+                  <div className="absolute left-0 top-[calc(100%+6px)] z-10 w-[280px] bg-bg-tertiary border border-border rounded-lg p-3 shadow-[0_8px_24px_rgba(0,0,0,0.4)] text-[0.82em]">
+                    <div className="font-semibold text-text-primary mb-2">Promote team → main</div>
+                    {!hasSomethingToPromote ? (
+                      <div className="text-text-tertiary leading-snug">
+                        Nothing new in <span className="mono">team</span> to promote.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-text-secondary mb-1.5">
+                          {mergedItems.length} {mergedItems.length === 1 ? "change" : "changes"} merged into{" "}
+                          <span className="mono">team</span>:
+                        </div>
+                        <ul className="mb-2.5 space-y-1">
+                          {mergedItems.slice(0, 3).map((it) => (
+                            <li key={it.id} className="text-text-tertiary truncate">
+                              · {it.summary.split("\n")[0].replace(/^#+\s*/, "")}
+                            </li>
+                          ))}
+                          {mergedItems.length > 3 && (
+                            <li className="text-text-tertiary">+{mergedItems.length - 3} more</li>
+                          )}
+                        </ul>
+                        <div
+                          className={`flex items-center gap-[0.4em] mb-2 ${
+                            commentsClear ? "text-merged" : "text-held"
+                          }`}
+                        >
+                          <Check className="w-[1em] h-[1em]" />
+                          {commentsClear
+                            ? "All comments resolved"
+                            : `${unresolvedCount} open comment${unresolvedCount === 1 ? "" : "s"} — resolve to promote`}
+                        </div>
+                        <div className="text-text-secondary mb-1">Approvals</div>
+                        <ul className="space-y-0.5 mb-2.5">
+                          {requiredApprovers.map((p) => {
+                            const ok = approvedIds.has(p.id);
+                            return (
+                              <li key={p.id} className="flex items-center justify-between">
+                                <span className="text-text-tertiary truncate">
+                                  {p.display_name || p.email}
+                                </span>
+                                <span className={ok ? "text-merged" : "text-text-tertiary"}>
+                                  {ok ? "approved" : "waiting"}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {!iHaveApproved && (
+                          <button
+                            type="button"
+                            onClick={handleApprovePromotion}
+                            className="w-full mb-1.5 border border-border rounded-md py-1.5 text-text-primary hover:bg-bg-secondary transition-colors"
+                          >
+                            Approve
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handlePromoteToMain}
+                          disabled={!canPromote}
+                          className="w-full border-none rounded-md py-1.5 font-medium bg-merged/20 text-merged hover:bg-merged/30 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          {promoting ? "Promoting…" : "Promote to main"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
         {previewStatus === "ready" ? (
           <>
