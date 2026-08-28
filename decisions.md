@@ -409,3 +409,25 @@ No schema change — all on top of `0028`.
 None. `0021`–`0028` are all applied and verified live (the DB was ahead of
 the migration-history table on `0023`–`0026`; confirmed against
 `information_schema`/`pg_policies` rather than trusting history).
+
+## Session hand-off (2026-08-28, multi-team)
+
+**Shipped (committed + pushed, `04e4b06` on `main`):** applied all pending
+Supabase migrations `0021`–`0027`; multi-team phases 1 + 2 — see the three
+sections above for detail.
+
+**Current state:** `main` pushed, working tree clean (`src-tauri/.cargo/`
+untracked but pre-existed this session). `npx tsc --noEmit` + `npx vitest
+run` (106/106) green. Not run live in `tauri dev` — user verifies UI.
+
+**Open items:**
+- **Phase 3 (not started):** branch-status popover — one Tauri command
+  running `git rev-list --count team..chat/<id>` etc. → `{chat_ahead,
+  chat_behind, team_ahead, team_behind}`, rendered on the breadcrumb.
+  Fully standalone; good fresh-chat task.
+- Child-table RLS (`chats`, `messages`, `queue_items`) still
+  open-to-authenticated — deliberate, hardening is a later pass.
+- `// ponytail:` auto-invite new team members to the team's repos (needs
+  GitHub admin token) — noted, not built.
+
+**Recommendation:** safe to start fresh. Phase 3 is the natural next chat.
