@@ -428,6 +428,33 @@ pub fn chat_has_unmerged_work(root: &Path, chat_id: &str) -> Result<bool, String
     Ok(unmerged > 0)
 }
 
+/// Number of commits on `branch` that aren't in `range`'s left side, via
+/// `git rev-list --count <range>`. Any failure (missing ref, git error)
+/// reports 0 — this only drives a read-only status display.
+fn commits_ahead(dir: &Path, range: &str) -> u32 {
+    run_git(dir, &["rev-list", "--count", range])
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// The subset of `chat_ids` whose chat branch has commits not yet in `team`
+/// — i.e. work a Render Preview would still bring in. Drives the
+/// breadcrumb's "Up to date / Behind" pill. Uncommitted-only changes don't
+/// count (nothing captured to merge yet). Best-effort per chat.
+pub fn chats_needing_merge(root: &Path, chat_ids: &[String]) -> Vec<String> {
+    let team = team_ref(root);
+    chat_ids
+        .iter()
+        .filter(|id| {
+            let branch = merge_paths::chat_branch_name(id);
+            branch_exists(root, &branch) && commits_ahead(root, &format!("{team}..{branch}")) > 0
+        })
+        .cloned()
+        .collect()
+}
+
 /// Commits whatever's currently in the chat's worktree (if anything changed)
 /// and pushes the chat branch to origin. This is the "add to queue" half of
 /// what used to be a single `render_preview` call — it deliberately stops

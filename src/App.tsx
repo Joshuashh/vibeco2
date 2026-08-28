@@ -14,6 +14,7 @@ import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
 import { TeamSwitcher } from "./components/TeamSwitcher";
 import { TeamMenu } from "./components/TeamMenu";
+import { BranchStatusBadge } from "./components/BranchStatusBadge";
 import type { TeamRow } from "./lib/teams";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
@@ -70,7 +71,7 @@ import { isChatLockedForCowork, isChatLockedForViewer, ownerEmailForChat } from 
 import { PrefsProvider, usePrefs } from "./lib/prefs";
 import type { ProjectRow } from "./types/project";
 
-function AppShell({ session, team, project, onSelectTeam, onSelectProject }: { session: Session; team: TeamRow; project: ProjectRow; onSelectTeam: (team: TeamRow) => void; onSelectProject: (project: ProjectRow) => void }) {
+function AppShell({ session, team, project, onSelectTeam, onTeamUpdated, onSelectProject }: { session: Session; team: TeamRow; project: ProjectRow; onSelectTeam: (team: TeamRow) => void; onTeamUpdated: (team: TeamRow) => void; onSelectProject: (project: ProjectRow) => void }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
@@ -1040,9 +1041,13 @@ function AppShell({ session, team, project, onSelectTeam, onSelectProject }: { s
               </svg>
             </button>
           )}
-          <TeamMenu team={team} onSelectTeam={onSelectTeam} />
-          <span className="text-text-tertiary text-[0.85em] select-none">/</span>
-          <ProjectMenu project={project} onSelectProject={onSelectProject} />
+          <div className="flex items-center gap-1">
+            <TeamMenu team={team} onSelectTeam={onSelectTeam} onTeamUpdated={onTeamUpdated} />
+            <span className="text-text-tertiary text-[0.78em] select-none">/</span>
+            <ProjectMenu project={project} onSelectProject={onSelectProject} />
+            <span className="text-text-tertiary text-[0.78em] select-none">/</span>
+            <BranchStatusBadge chats={chats.filter((c) => !c.archived_at)} onJumpToChat={jumpToChat} />
+          </div>
         </div>
         <ViewToggle mode={viewMode} onChange={setViewMode} />
         <div className="toolbar-side toolbar-actions" data-tauri-drag-region>
@@ -1255,6 +1260,12 @@ function App() {
     setProject(null);
   }
 
+  // An in-place edit (rename) of the team the user is already in — keep the
+  // current project rather than dropping it like a real switch does.
+  function handleTeamUpdated(next: TeamRow) {
+    setTeam((cur) => (cur && cur.id === next.id ? next : cur));
+  }
+
   useEffect(() => {
     getSession().then(setSession);
     return onAuthStateChange(setSession);
@@ -1318,6 +1329,7 @@ function App() {
           team={team}
           project={project}
           onSelectTeam={handleSelectTeam}
+          onTeamUpdated={handleTeamUpdated}
           onSelectProject={setProject}
         />
       </PrefsProvider>

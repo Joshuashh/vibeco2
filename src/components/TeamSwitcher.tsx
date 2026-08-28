@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchMyTeams, type TeamRow } from "../lib/teams";
 import { NewTeamDialog } from "./NewTeamDialog";
+import { TeamAvatar } from "./TeamAvatar";
 
 export function TeamSwitcher({ onSelect }: { onSelect: (team: TeamRow) => void }) {
   const [teams, setTeams] = useState<TeamRow[] | "loading">("loading");
@@ -30,8 +31,15 @@ export function TeamSwitcher({ onSelect }: { onSelect: (team: TeamRow) => void }
                 key={t.id}
                 type="button"
                 onClick={() => onSelect(t)}
-                className="flex flex-col items-start gap-0.5 rounded-md border border-border bg-bg-secondary px-3 py-2 text-left hover:bg-bg-tertiary"
+                className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-bg-tertiary"
               >
+                <span className="w-6 h-6 flex items-center justify-center rounded-full bg-bg-secondary text-text-tertiary overflow-hidden shrink-0">
+                  {t.avatar_url ? (
+                    <img src={t.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <TeamAvatar team={{ name: t.name, avatar_url: null }} size={14} />
+                  )}
+                </span>
                 <span className="text-text-primary">{t.name}</span>
               </button>
             ))}

@@ -5,7 +5,10 @@ export interface TeamRow {
   name: string;
   created_by: string;
   created_at: string;
+  avatar_url: string | null;
 }
+
+const TEAM_COLS = "id, name, created_by, created_at, avatar_url";
 
 export interface TeamMember {
   user_id: string;
@@ -17,7 +20,7 @@ export interface TeamMember {
 export async function fetchMyTeams(): Promise<TeamRow[]> {
   const { data, error } = await supabase
     .from("teams")
-    .select("id, name, created_by, created_at")
+    .select(TEAM_COLS)
     .order("created_at", { ascending: true });
   if (error) throw new Error(`failed to fetch teams: ${error.message}`);
   return (data ?? []) as TeamRow[];
@@ -28,7 +31,7 @@ export async function createTeam(name: string): Promise<TeamRow> {
   const { data, error } = await supabase
     .from("teams")
     .insert({ name })
-    .select("id, name, created_by, created_at")
+    .select(TEAM_COLS)
     .single();
   if (error) throw new Error(`failed to create team: ${error.message}`);
   const team = data as TeamRow;
@@ -39,6 +42,31 @@ export async function createTeam(name: string): Promise<TeamRow> {
     .insert({ team_id: team.id, user_id: team.created_by });
   if (memberErr) throw new Error(`team created but joining it failed: ${memberErr.message}`);
   return team;
+}
+
+export async function updateTeam(
+  teamId: string,
+  fields: { name?: string; avatar_url?: string | null },
+): Promise<TeamRow> {
+  const { data, error } = await supabase
+    .from("teams")
+    .update(fields)
+    .eq("id", teamId)
+    .select(TEAM_COLS)
+    .single();
+  if (error) throw new Error(`failed to update team: ${error.message}`);
+  return data as TeamRow;
+}
+
+// Mirrors uploadAttachment — unique path per upload, public bucket. The
+// previous avatar object is left orphaned (see 0030_team_avatars.sql).
+export async function uploadTeamAvatar(teamId: string, file: File): Promise<string> {
+  const path = `${teamId}/${crypto.randomUUID()}`;
+  const { error } = await supabase.storage
+    .from("team-avatars")
+    .upload(path, file, { contentType: file.type || "image/png" });
+  if (error) throw new Error(`failed to upload avatar: ${error.message}`);
+  return supabase.storage.from("team-avatars").getPublicUrl(path).data.publicUrl;
 }
 
 export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {

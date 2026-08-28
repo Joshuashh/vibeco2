@@ -153,8 +153,12 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 
 ## Known open bugs
 
-- **Cowork toolbar (`AgentWindow.tsx`): caret invisible next to list markers, and a stuck grey hover box on toolbar buttons — unresolved despite two rounds of fixes that were each individually verified.** Both fixes were validated via out-of-app standalone HTML/JS reproductions (this session can't sign into the app to test live) and the DOM-position/hover-state reasoning held up in isolation — but the user confirmed both are still broken in the real running app. Don't trust an out-of-app repro's verdict here again; next attempt needs the user driving the actual app or a debugger attached to the live signed-in session.
-- **Message timestamp hover-to-fade doesn't hide in the real Tauri app**, despite three different implementations (CSS `:hover`, per-row React state, document-level `mousemove`) all confirmed correct against an isolated repro served from the same dev server. Leading unconfirmed hypothesis: WKWebView's persistent bundle-identifier-scoped cache may be serving a stale JS bundle across restarts. Paused by user request rather than fixed — next step is clearing `~/Library/WebKit/<bundle-id>` and `~/Library/Caches/<bundle-id>`, or attaching Safari's Web Inspector to the running window.
+- **Cowork toolbar caret invisible next to list markers** — unresolved, unchanged.
+- **Stuck hover, app-wide — FIXED. Actual root cause: WKWebView does not repaint an element when React *removes* an inline style property while the pointer is stationary.** The toolbar button's idle style omitted `background` entirely, so leaving a button made React delete `node.style.background` — and this webview kept painting the old grey `#2a2d37` until something forced a reflow. Confirmed live with an on-screen debug readout: `hoveredBtn` was already back to `null` while the grey box stayed visible, so state/event detection was never the problem (all the earlier CSS-`:hover` / per-row-state / `mousemove` rewrites were chasing the wrong layer). Two-part fix, both shipped and confirmed by the user:
+  1. `AgentWindow.tsx` — `toolbarButtonStyle` now sets `background: "transparent"` explicitly, so every `toolbarStyle()` branch always *writes* a background value (React only ever changes it, never deletes it → WebKit repaints).
+  2. `src/lib/useHoverKey.ts` (new, shared) — replaces the ad-hoc `hoveredBtn` state + per-button `onMouseEnter/Leave` in the toolbar and the document-`mousemove` block in `MessageList.tsx`. Re-derives hover from `document.elementFromPoint(lastPointer)` on pointermove / scroll(capture) / `useEffect(recheck)` after every render; callers mark hoverables with `data-hover-key`. Kept because it's still the robust way to survive rows scrolling under a stationary cursor, but the repaint fix in (1) is what actually cleared the visible bug.
+  Note the stale-bundle hypothesis from the old entry was wrong — the app runs `tauri dev` against the live Vite server, no bundle caching.
+  **Timestamp hover-to-fade (`MessageList.tsx`): still broken, pinned by user (2026-08-28), not investigated further this pass.** It's on `useHoverKey` now and toggles Tailwind `opacity-100`/`opacity-0`. Since the toolbar turned out to be a repaint bug (not detection), the opacity toggle is the next suspect: try writing `style={{ opacity: hovered ? 1 : 0 }}` as an always-present inline value instead of swapping classes, and/or check whether `hoverKey` is even updating for message rows (the rows are wide flex containers — `elementFromPoint` under the cursor may be landing on a child with its own stacking/pointer behaviour).
 
 ## Deliberately out of scope (raised, not built)
 
@@ -431,3 +435,118 @@ run` (106/106) green. Not run live in `tauri dev` — user verifies UI.
   GitHub admin token) — noted, not built.
 
 **Recommendation:** safe to start fresh. Phase 3 is the natural next chat.
+
+## Multi-team support — phase 3: branch-status readout (2026-08-28)
+
+No schema change. Standalone; builds on phase 2's breadcrumb.
+
+- **Tauri command `chats_needing_merge(chatIds)`** → the subset whose
+  `chat/<id>` branch has commits not in `team` (`git rev-list --count
+  team..chat/<id>` > 0). Best-effort per chat; missing branch / git error =
+  not pending. Helper `commits_ahead()`. (Went through two earlier shapes
+  this session — a per-chat `branch_status` returning ahead/behind counts,
+  then an amber "N to render" pill — both dropped as too jargony.)
+- **`BranchStatusBadge`** is the rightmost breadcrumb segment, always shown
+  (project-level, not chat-scoped). **Two states only:** green "Up to date"
+  (`--merged`) when every non-archived chat is merged into `team`, amber
+  "Behind" (`--held`) when at least one isn't. Click → popover lists the
+  chats that need rendering; clicking one jumps to it (`jumpToChat`).
+  Compared against **`team`**, not `main` (main is downstream + gated in
+  the Preview tab). Font `0.72em`; other breadcrumb text is `0.78em`.
+  **Read-only** (decision 15). Refreshes on mount + open + chat-list change.
+- **No stored counts** (decision 15) — computed live each call.
+- `tsc` + 106 tests + `cargo check` green. Not clicked through live (user
+  verifies UI). No Rust test — `git_ops.rs` has no test harness.
+
+## 0029 — auth-user deletion no longer blocked (2026-08-28)
+
+Deleting a Supabase auth user failed ("Database error deleting user")
+because 9 app-table FKs to `auth.users(id)` were NO ACTION. `0029`
+converts them:
+
+- **set null** (row survives, loses attribution): `chats.user_id`
+  (dropped NOT NULL — `ChatRow.user_id` is now `string | null`),
+  `chats.claude_session_owner`, `logbook_entries.user_id`,
+  `projects.created_by` + `teams.created_by` (both dropped NOT NULL; no
+  RLS reads `created_by` post-insert).
+- **cascade** (row meaningless without the user): `preview_pins`,
+  `preview_pin_replies`, `preview_strokes` `.created_by`,
+  `promotion_approvals.approved_by`.
+
+Deliberately **not cascade on `chats`** — chats/messages RLS is
+open-to-authenticated, so `user_id` is only owner/lock attribution;
+`ownerEmailForChat` already handles a null owner. A removed teammate
+leaves their chat history intact, just ownerless.
+
+Applied live to `febfuemspzwslaujdtwc` and verified (no NO ACTION FKs to
+`auth.users` remain among public tables).
+
+## Multi-team — team edit modal (2026-08-28)
+
+Restructured team management off the back of phase 2/3.
+
+- **`TeamMembersDialog` → `EditTeamDialog`.** Team rows in the `TeamMenu`
+  dropdown now carry a hover-reveal pencil (mirrors `ProjectMenu`'s
+  `ProjectRowItem`); clicking the row still switches team, the pencil opens
+  the modal. The standalone "Manage members" row is gone.
+- **Modal does rename + membership.** `updateTeam(id, name)` added to
+  `teams.ts` (RLS `teams_update_member` already lets any member rename).
+  Rename of the *current* team routes through a new `onTeamUpdated` prop
+  (App → `handleTeamUpdated`) that updates `team` state **without** dropping
+  the project the way `handleSelectTeam` does.
+- **Member rows show name + email + role.** Role is derived, not stored:
+  `p.id === team.created_by` → "Owner", else "Member". `ponytail:` real
+  role/admin column comes with the roles work — wire it through
+  `EditTeamDialog` then.
+- **Deferred:** team avatar/profile picture — needs a `teams.avatar_url`
+  column + a storage bucket; `ponytail:` comment left in `EditTeamDialog`.
+- `tsc` + 106 tests green. Not clicked through live.
+
+## Session hand-off (2026-08-28, phase 3)
+
+**Shipped (uncommitted — needs Render Preview / commit):** phase 3
+branch-status readout — see section above. Files: `src-tauri/src/git_ops.rs`
+(+`branch_status`, `ahead_behind`, `BranchStatus`), `src-tauri/src/lib.rs`
+(command + handler registration), `src/components/BranchStatusBadge.tsx`
+(new), `src/App.tsx` (import + breadcrumb render).
+
+**Current state:** `tsc` + `vitest` (106/106) + `cargo check` green. Not run
+live in `tauri dev`. Multi-team phases 1–3 now all done.
+
+**Open items:**
+- Child-table RLS (`chats`, `messages`, `queue_items`) still
+  open-to-authenticated — deliberate, hardening is a later pass.
+- `// ponytail:` auto-invite new team members to the team's repos (needs
+  GitHub admin token) — noted, not built.
+
+**Recommendation:** phase 3 done — render this to `team` and start a fresh
+chat for the next piece of work.
+
+## Session hand-off (2026-08-28, stuck-hover bug)
+
+**Shipped (uncommitted):**
+- `src/lib/useHoverKey.ts` (new) — shared hover hook, re-derives hover from
+  `document.elementFromPoint` on pointermove/scroll/`useEffect(recheck)`.
+- `src/components/AgentWindow.tsx` — Cowork formatting toolbar: replaced
+  `hoveredBtn` state + per-button `onMouseEnter/Leave` with `useHoverKey`;
+  **the actual fix** was `background: "transparent"` in `toolbarButtonStyle`
+  so React never *deletes* the inline `background` prop (WKWebView doesn't
+  repaint on property removal under a stationary pointer).
+- `src/components/MessageList.tsx` — timestamp hover moved onto `useHoverKey`
+  (removed the document-`mousemove` block + `listRef`).
+- Full detail in "Stuck hover, app-wide" under Known open bugs above.
+- Memory saved: `wkwebview-repaint-on-style-removal`.
+
+**Current state:** `tsc` clean. Toolbar stuck-hover **confirmed fixed live**
+by user via HMR. Other pre-existing uncommitted work (multi-team phases 1–3,
+etc.) untouched and still sitting local.
+
+**Open items:**
+- **Message timestamp hover-to-fade still broken** — pinned by user, not
+  investigated further. Hypothesis + next steps in the Known-open-bugs entry
+  (try always-present `style={{ opacity }}` instead of class swap; verify
+  `hoverKey` actually updates for message rows).
+- Cowork toolbar caret invisible next to list markers — still open.
+
+**Recommendation:** toolbar fix is done and verified. Safe to render to
+`team` and start a fresh chat for the timestamp bug rather than continue here.
