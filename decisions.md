@@ -326,10 +326,86 @@ token. `window.confirm` gate first — it grants write access.
 - No invite UI in NewProjectDialog (you can't invite to a project that
   doesn't exist yet) — it's Edit-only.
 
+## Multi-team support — phase 1: data model + project isolation (2026-08-28)
+
+Team ≈ GitHub org; a project belongs to exactly one team. Full plan is
+decision 15 (below). **Phase 1 shipped this chat; phases 2–3 are not built.**
+
+- **New tables (`0028_teams.sql`):** `teams (id, name, created_by, created_at)`
+  and `team_members (team_id, user_id)` — the first real membership table in
+  the project (decisions.md has said "no roles table" throughout; this is
+  membership only, still no roles/admin).
+- **`projects.team_id` NOT NULL.** Backfill created one `Default team`
+  (sentinel id `…0001`), made every existing `profiles` row a member, and
+  moved both existing projects into it — same "there was only ever one
+  implicit team, nothing to split" move as migration `0021`.
+- **`projects` RLS tightened** from open-to-authenticated (`0011`) to
+  `is_team_member(team_id)`. This is the actual isolation boundary. Child
+  tables (`chats`, `messages`, `queue_items`) were **left open-to-
+  authenticated** on purpose — they're already app-scoped by `project_id`,
+  and tightening them is defense-in-depth for a later phase with its own
+  test pass (consistent with decision 3's "guardrails app-side only").
+- **`is_team_member(tid)` is `security definer`** so the `team_members`
+  select policy can query `team_members` without infinite RLS recursion.
+- **`handle_new_user_profile` trigger** now also adds a new signup to the
+  oldest team. `ponytail:` stopgap — phase 2's invite flow replaces it with
+  "join the team you were invited to".
+- **Code:** `ProjectRow` gains `team_id`; new `src/lib/teams.ts`
+  (`fetchMyTeams`); `createProject` stamps the caller's first team
+  (`ponytail:` — no picker until phase 2). No UI changed.
+- **Known incompleteness for phase 2:** `PreviewPage.tsx:455`
+  `requiredApprovers = profiles` still means "every profile", which is wrong
+  the moment a second team exists — must become "every member of this
+  project's team". Not touched in phase 1 (single team, so still correct).
+
+## Multi-team support — decision 15: full plan (2026-08-28)
+
+Shape: `Team → Project(=repo) → [branch status]`. The branch level is a
+status readout, not a switcher.
+
+- **Phase 1 (done, above):** data model + `projects` isolation.
+- **Phase 2 (done — see next section):** breadcrumb, team switch/create,
+  member management, `requiredApprovers` fix.
+- **Phase 3 (not started, standalone):** branch-status popover — one Tauri
+  command running `git rev-list --count team..chat/<id>` etc., returning
+  `{chat_ahead, chat_behind, team_ahead, team_behind}`.
+- **Not building:** roles/admin (membership only); a repo shared across
+  teams (`TEAM_BRANCH` stays a constant); stored ahead/behind counts.
+
+## Multi-team support — phase 2: breadcrumb + team management (2026-08-28)
+
+No schema change — all on top of `0028`.
+
+- **Launch flow is now team → project → app.** `App.tsx` holds `team` state
+  alongside `project`; `!team` shows `TeamSwitcher` (full-screen, clone of
+  `ProjectSwitcher`), then `ProjectSwitcher` (now team-scoped, with a
+  "Switch team" link). Switching team always clears the project
+  (`handleSelectTeam`) — its repo/room belong to the old team.
+- **Breadcrumb** `Team ▾ / Project ▾` in the toolbar: new `TeamMenu` (clone
+  of `ProjectMenu`) next to the existing `ProjectMenu`, `/` separator.
+  `TeamMenu` = switch team / Manage members / New team.
+- **`ProjectSwitcher` / `ProjectMenu` / `NewProjectDialog` are all
+  team-scoped now:** `fetchAllProjects(teamId)` filters by `team_id`,
+  `createProject(name, repoUrl, teamId)` takes an explicit team (the
+  phase-1 `ponytail:` "first team" guess is gone).
+- **Team membership = a plain `team_members` row**, added/removed in
+  `TeamMembersDialog` (pick from all `profiles`). **Deliberately separate
+  from GitHub repo access** — decision 15 floated coupling it to the
+  GitHub-invite flow, but being on the team (see the team's projects) and
+  being a repo collaborator (clone it) are different things; `EditProject`'s
+  `InviteTeammate` still handles the GitHub side. A `// ponytail:` follow-up
+  worth considering: auto-invite new team members to the team's project
+  repos. Not done — needs each inviter's GitHub admin token.
+- **`PreviewPage` `requiredApprovers`** now = profiles who are members of
+  `project.team_id` (fetched via `fetchTeamMembers`), not every profile.
+  Still "every member must approve" — no roles.
+- New: `src/lib/teams.ts` (`createTeam`, `fetchTeamMembers`,
+  `addTeamMember`, `removeTeamMember`), `TeamSwitcher`, `TeamMenu`,
+  `NewTeamDialog`, `TeamMembersDialog`. `tsc` + 106 tests green; not
+  clicked through live (user verifies UI).
+
 ### Migrations pending apply on `febfuemspzwslaujdtwc`
 
-- `0026_promotion_approvals.sql` — still not applied (from the promote-gate
-  chat; MCP apply was sandbox-blocked).
-- `0027_profiles_github_login.sql` — new this chat.
-Apply both (SQL editor or MCP) or GitHub sign-in's username capture and the
-promote gate stay broken.
+None. `0021`–`0028` are all applied and verified live (the DB was ahead of
+the migration-history table on `0023`–`0026`; confirmed against
+`information_schema`/`pg_policies` rather than trusting history).

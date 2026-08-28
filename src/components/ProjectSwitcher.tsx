@@ -1,23 +1,41 @@
 import { useEffect, useState } from "react";
 import type { ProjectRow } from "../types/project";
+import type { TeamRow } from "../lib/teams";
 import { fetchAllProjects } from "../lib/persistProject";
 import { NewProjectDialog } from "./NewProjectDialog";
 
-export function ProjectSwitcher({ onSelect }: { onSelect: (project: ProjectRow) => void }) {
+export function ProjectSwitcher({
+  team,
+  onSelect,
+  onSwitchTeam,
+}: {
+  team: TeamRow;
+  onSelect: (project: ProjectRow) => void;
+  onSwitchTeam: () => void;
+}) {
   const [projects, setProjects] = useState<ProjectRow[] | "loading">("loading");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchAllProjects()
+    fetchAllProjects(team.id)
       .then(setProjects)
       .catch((err) => setError(err instanceof Error ? err.message : "failed to load projects"));
-  }, []);
+  }, [team.id]);
 
   return (
     <div className="flex items-center justify-center h-screen bg-bg-primary">
       <div className="flex flex-col gap-3 w-[320px]">
-        <h1>Projects</h1>
+        <div className="flex items-baseline justify-between">
+          <h1>{team.name}</h1>
+          <button
+            type="button"
+            onClick={onSwitchTeam}
+            className="text-text-tertiary hover:text-text-primary text-[0.8em] bg-transparent border-none cursor-pointer"
+          >
+            Switch team
+          </button>
+        </div>
 
         {projects === "loading" && <p className="text-text-secondary text-[0.9em] m-0">Loading...</p>}
 
@@ -46,6 +64,7 @@ export function ProjectSwitcher({ onSelect }: { onSelect: (project: ProjectRow) 
 
       <NewProjectDialog
         open={creating}
+        teamId={team.id}
         onClose={() => setCreating(false)}
         onCreated={(project) => {
           setCreating(false);

@@ -12,6 +12,9 @@ import { HomeView } from "./components/HomeView";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { ProjectMenu } from "./components/ProjectMenu";
+import { TeamSwitcher } from "./components/TeamSwitcher";
+import { TeamMenu } from "./components/TeamMenu";
+import type { TeamRow } from "./lib/teams";
 import { Sidebar } from "./components/Sidebar";
 import { ResizeDivider } from "./components/ResizeDivider";
 import { ViewToggle } from "./components/ViewToggle";
@@ -67,7 +70,7 @@ import { isChatLockedForCowork, isChatLockedForViewer, ownerEmailForChat } from 
 import { PrefsProvider, usePrefs } from "./lib/prefs";
 import type { ProjectRow } from "./types/project";
 
-function AppShell({ session, project, onSelectProject }: { session: Session; project: ProjectRow; onSelectProject: (project: ProjectRow) => void }) {
+function AppShell({ session, team, project, onSelectTeam, onSelectProject }: { session: Session; team: TeamRow; project: ProjectRow; onSelectTeam: (team: TeamRow) => void; onSelectProject: (project: ProjectRow) => void }) {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [chatStates, setChatStates] = useState<Record<string, ChatState>>({});
   const [mergeEvents, setMergeEvents] = useState<MergeEvent[]>([]);
@@ -1037,6 +1040,8 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
               </svg>
             </button>
           )}
+          <TeamMenu team={team} onSelectTeam={onSelectTeam} />
+          <span className="text-text-tertiary text-[0.85em] select-none">/</span>
           <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
         <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -1237,10 +1242,18 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
 
 function App() {
   const [session, setSession] = useState<Session | null | "loading">("loading");
-  // ponytail: no persistence of the last-picked project across launches —
+  // ponytail: no persistence of the last-picked team/project across launches —
   // add (e.g. localStorage) if reselecting every launch turns out annoying.
+  const [team, setTeam] = useState<TeamRow | null>(null);
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [repoReady, setRepoReady] = useState(false);
+
+  // Switching team always drops the current project — it belongs to the old
+  // team and its repo/room are about to be irrelevant.
+  function handleSelectTeam(next: TeamRow) {
+    setTeam(next);
+    setProject(null);
+  }
 
   useEffect(() => {
     getSession().then(setSession);
@@ -1281,7 +1294,9 @@ function App() {
 
   if (session === "loading") return null;
   if (!session) return <LoginScreen onSignedIn={() => {}} />;
-  if (!project) return <ProjectSwitcher onSelect={setProject} />;
+  if (!team) return <TeamSwitcher onSelect={setTeam} />;
+  if (!project)
+    return <ProjectSwitcher team={team} onSelect={setProject} onSwitchTeam={() => setTeam(null)} />;
   if (!repoReady) return null;
 
   return (
@@ -1298,7 +1313,13 @@ function App() {
       initialStorage={{ positions: new LiveMap(), chatGroups: new LiveMap(), groupLabels: new LiveMap() }}
     >
       <PrefsProvider>
-        <AppShell session={session} project={project} onSelectProject={setProject} />
+        <AppShell
+          session={session}
+          team={team}
+          project={project}
+          onSelectTeam={handleSelectTeam}
+          onSelectProject={setProject}
+        />
       </PrefsProvider>
     </RoomProvider>
   );

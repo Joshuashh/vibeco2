@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/profiles";
 import type { ProjectRow } from "../types/project";
+import { fetchTeamMembers } from "../lib/teams";
 import { fetchQueueItems, deleteQueueItem, type QueueItem } from "../lib/queueItems";
 import {
   fetchPromotionApprovals,
@@ -56,6 +57,7 @@ export function PreviewPage({
   const [target, setTarget] = useState<"team" | "local">("team");
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   const [previewStatus, setPreviewStatus] = useState<"starting" | "ready" | "error">("starting");
+  const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
   const [localPort, setLocalPort] = useState<number | null>(null);
   const [tool, setTool] = useState<PreviewTool>("cursor");
   const [pins, setPins] = useState<PreviewPin[]>([]);
@@ -263,6 +265,14 @@ export function PreviewPage({
     fetchPreviewStrokes().then(setStrokes).catch((err) => console.error("failed to fetch preview strokes", err));
   }, []);
 
+  // Who has to approve a team → main promotion: the members of this project's
+  // team (not every profile). Still no roles — every member must approve.
+  useEffect(() => {
+    fetchTeamMembers(project.team_id)
+      .then((ms) => setTeamMemberIds(new Set(ms.map((m) => m.user_id))))
+      .catch((err) => console.error("failed to fetch team members", err));
+  }, [project.team_id]);
+
   // Promote-gate data + its own realtime channel (kept separate from the
   // preview-comments one above so it can be project-scoped).
   useEffect(() => {
@@ -450,9 +460,9 @@ export function PreviewPage({
   // later merge into team moves the sha and quietly resets the gate.
   const currentApprovals = approvals.filter((a) => a.team_sha === teamSha);
   const approvedIds = new Set(currentApprovals.map((a) => a.approved_by));
-  // No roles table yet (see decisions.md) — everyone with a profile must
-  // approve. A real permissions feature replaces this.
-  const requiredApprovers = profiles;
+  // No roles table yet (see decisions.md) — every member of this project's
+  // team must approve. A real permissions feature replaces this.
+  const requiredApprovers = profiles.filter((p) => teamMemberIds.has(p.id));
   const iHaveApproved = approvedIds.has(session.user.id);
   const allApproved = requiredApprovers.length > 0 && requiredApprovers.every((p) => approvedIds.has(p.id));
   const unresolvedCount = pins.filter((p) => !p.resolved).length;

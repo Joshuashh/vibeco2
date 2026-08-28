@@ -6,10 +6,12 @@ import { fetchMyRepos, NoGitHubTokenError, type GitHubRepo } from "../lib/github
 
 export function NewProjectDialog({
   open,
+  teamId,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  teamId: string;
   onClose: () => void;
   onCreated: (project: ProjectRow) => void;
 }) {
@@ -54,7 +56,7 @@ export function NewProjectDialog({
     setError(null);
     setSubmitting(true);
     try {
-      const project = await createProject(name.trim(), repoUrl.trim());
+      const project = await createProject(name.trim(), repoUrl.trim(), teamId);
       setName("");
       setRepoUrl("");
       onCreated(project);

@@ -86,7 +86,7 @@ export function ProjectMenu({
         className="flex items-center gap-[0.4em] h-[26px] text-text-secondary text-[0.85em] bg-transparent border-none rounded-md px-[0.5em] mr-[-0.5em] ml-[calc(4px-0.5em)] cursor-pointer transition-colors hover:bg-bg-tertiary hover:text-text-primary"
         onClick={() => {
           setOpen((o) => !o);
-          fetchAllProjects().then(setProjects);
+          fetchAllProjects(project.team_id).then(setProjects);
         }}
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" className="shrink-0">
@@ -124,6 +124,7 @@ export function ProjectMenu({
       </Popover>
       <NewProjectDialog
         open={creating}
+        teamId={project.team_id}
         onClose={() => setCreating(false)}
         onCreated={(newProject) => {
           setCreating(false);
