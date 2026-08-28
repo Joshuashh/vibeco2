@@ -68,7 +68,19 @@ pub fn open_project_repo(local_root: &Path, repo_url: &str) -> Result<(), String
             .output()
             .map_err(|e| format!("failed to run git clone: {e}"))?;
         if !clone.status.success() {
-            return Err(format!("git clone failed: {}", String::from_utf8_lossy(&clone.stderr)));
+            let stderr = String::from_utf8_lossy(&clone.stderr);
+            // Teammates clone with their own git credentials, so a private
+            // repo they haven't been given access to fails here — say so
+            // rather than just dumping git's "Permission denied (publickey)".
+            let denied = stderr.contains("Permission denied")
+                || stderr.contains("not found")
+                || stderr.contains("Could not read from remote");
+            let hint = if denied {
+                "\n\nIf this repo is private, ask its owner to add you as a collaborator on GitHub, and check your SSH key / gh auth is set up."
+            } else {
+                ""
+            };
+            return Err(format!("git clone failed: {stderr}{hint}"));
         }
         local_root.to_path_buf()
     };

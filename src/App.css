@@ -603,7 +603,7 @@ h1 {
   padding: 28px 30px;
   font-size: 15.5px;
   line-height: 1.4;
-  color: #FFFFFF;
+  color: var(--text-primary);
   outline: none;
   cursor: text;
 }
@@ -618,7 +618,7 @@ h1 {
   content: attr(data-placeholder);
   float: left;
   height: 0;
-  color: #5F6270;
+  color: var(--text-tertiary);
   pointer-events: none;
 }
 
@@ -657,7 +657,7 @@ h1 {
   border-radius: 6px;
   border-left: 3px solid var(--author-color, #383C48);
   background: var(--author-bg, transparent);
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 /* Who created this quote (see AgentWindow.tsx's AuthoredBlockquote) — a
    small name pill matching the color/ink already baked into the block's own

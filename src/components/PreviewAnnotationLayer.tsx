@@ -1,6 +1,8 @@
 import { useRef, useState, type PointerEvent, type RefObject } from "react";
 import { clientPointToPercent, type PercentPoint } from "../lib/overlayGeometry";
 import type { PreviewPin, PreviewPinReply, PreviewStroke } from "../lib/previewComments";
+import type { Profile } from "../lib/profiles";
+import { CommentThread, DeleteButton, ResolveButton, CloseButton } from "./previewCommentUi";
 import type { PreviewTool } from "./PreviewToolbar";
 
 // Below this many pixels of movement, a pin pointerdown->up is a click (open
@@ -8,8 +10,9 @@ import type { PreviewTool } from "./PreviewToolbar";
 // incidental movement a real click/tap always has.
 const DRAG_THRESHOLD_PX = 4;
 
-const popoverButtonClass =
-  "appearance-none border-0 outline-none box-border bg-transparent cursor-default text-[12px] px-2.5 py-1 rounded-md text-text-secondary hover:bg-bg-secondary hover:text-text-primary";
+// Shared floating-card look for the draft-pin form and the open-pin popover.
+const cardClass =
+  "absolute -translate-x-1/2 -translate-y-full bg-bg-tertiary border border-border rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] pointer-events-auto";
 
 export function PreviewAnnotationLayer({
   containerRef,
@@ -21,6 +24,7 @@ export function PreviewAnnotationLayer({
   openPinId,
   repliesByPin,
   currentUserId,
+  profiles,
   onPlacePin,
   onSaveDraftPin,
   onCancelDraftPin,
@@ -43,6 +47,7 @@ export function PreviewAnnotationLayer({
   openPinId: string | null;
   repliesByPin: Record<string, PreviewPinReply[]>;
   currentUserId: string;
+  profiles: Profile[];
   onPlacePin: (point: PercentPoint) => void;
   onSaveDraftPin: (text: string) => void;
   onCancelDraftPin: () => void;
@@ -95,9 +100,11 @@ export function PreviewAnnotationLayer({
   const strokeClass =
     "fill-none stroke-accent stroke-[2px] [stroke-linecap:round] [stroke-linejoin:round] [vector-effect:non-scaling-stroke]";
   const pinMarkerBase =
-    "appearance-none border-0 outline-none box-border bg-transparent p-0 absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-default w-[22px] h-[22px] [filter:drop-shadow(0_2px_4px_rgba(0,0,0,0.5))]";
-  const draftPinButtonClass =
-    "appearance-none border-0 outline-none box-border bg-transparent cursor-default text-[12px] px-2.5 py-1 rounded-md text-text-secondary hover:bg-bg-secondary hover:text-text-primary";
+    "appearance-none border-0 outline-none box-border bg-transparent p-0 absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-default w-[26px] h-[26px] [filter:drop-shadow(0_2px_5px_rgba(0,0,0,0.5))]";
+  const draftBtnGhost =
+    "appearance-none border-0 outline-none box-border bg-transparent cursor-default text-[12px] px-2.5 py-1 rounded-md text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-colors";
+  const draftBtnPrimary =
+    "appearance-none border-0 outline-none box-border cursor-default text-[12px] font-medium px-3 py-1 rounded-md bg-accent text-white hover:opacity-90 transition-opacity";
 
   return (
     <div
@@ -155,8 +162,9 @@ export function PreviewAnnotationLayer({
               }
             }}
           >
-            <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+            <svg viewBox="0 0 24 24" className="w-full h-full" fill="currentColor" stroke="var(--bg-primary)" strokeWidth="1.5" strokeLinejoin="round">
               <path d="M12 21s-7-7.58-7-12a7 7 0 0 1 14 0c0 4.42-7 12-7 12z" />
+              <circle cx="12" cy="9" r="2.5" fill="var(--bg-primary)" stroke="none" />
             </svg>
           </button>
         );
@@ -169,6 +177,7 @@ export function PreviewAnnotationLayer({
             pin={pin}
             replies={repliesByPin[pin.id] ?? []}
             currentUserId={currentUserId}
+            profiles={profiles}
             onClose={onClosePopover}
             onResolve={onResolvePin}
             onDelete={onDeletePin}
@@ -177,12 +186,12 @@ export function PreviewAnnotationLayer({
         ))}
       {draftPin && (
         <div
-          className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[220px] bg-bg-tertiary border border-border rounded-[10px] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto"
-          style={{ left: `${draftPin.x_pct}%`, top: `${draftPin.y_pct}%` }}
+          className={`${cardClass} w-[240px] flex flex-col gap-2`}
+          style={{ left: `${draftPin.x_pct}%`, top: `${draftPin.y_pct}%`, marginTop: -10 }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <textarea
-            className="resize-none min-h-[60px] bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] px-2 py-1.5"
+            className="resize-none min-h-[64px] bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] text-[13px] leading-[1.5] px-2.5 py-2 outline-none focus:border-text-tertiary"
             autoFocus
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
@@ -191,23 +200,23 @@ export function PreviewAnnotationLayer({
           <div className="flex justify-end gap-1.5">
             <button
               type="button"
-              className={draftPinButtonClass}
-              onClick={() => {
-                onSaveDraftPin(draftText);
-                setDraftText("");
-              }}
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              className={draftPinButtonClass}
+              className={draftBtnGhost}
               onClick={() => {
                 onCancelDraftPin();
                 setDraftText("");
               }}
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              className={draftBtnPrimary}
+              onClick={() => {
+                onSaveDraftPin(draftText);
+                setDraftText("");
+              }}
+            >
+              Comment
             </button>
           </div>
         </div>
@@ -217,11 +226,13 @@ export function PreviewAnnotationLayer({
 }
 
 // Figma-style in-place comment card, anchored at the pin's own position
-// instead of only showing up in the sidebar list.
+// instead of only showing up in the sidebar list. Same card contents as the
+// side panel (shared CommentThread) so the two never drift apart again.
 function PinPopover({
   pin,
   replies,
   currentUserId,
+  profiles,
   onClose,
   onResolve,
   onDelete,
@@ -230,60 +241,32 @@ function PinPopover({
   pin: PreviewPin;
   replies: PreviewPinReply[];
   currentUserId: string;
+  profiles: Profile[];
   onClose: () => void;
   onResolve: (pinId: string, resolved: boolean) => void;
   onDelete: (pinId: string) => void;
   onReply: (pinId: string, text: string) => void;
 }) {
-  const [replyText, setReplyText] = useState("");
-
-  function submitReply() {
-    if (!replyText.trim()) return;
-    onReply(pin.id, replyText.trim());
-    setReplyText("");
-  }
-
   return (
     <div
-      className="absolute -translate-x-1/2 -translate-y-full flex flex-col gap-1.5 w-[240px] bg-bg-tertiary border border-border rounded-[10px] p-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)] pointer-events-auto text-[13px]"
-      style={{ left: `${pin.x_pct}%`, top: `${pin.y_pct}%` }}
+      className={`${cardClass} w-[260px]`}
+      style={{ left: `${pin.x_pct}%`, top: `${pin.y_pct}%`, marginTop: -10 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-text-tertiary text-[11px]">{pin.created_by === currentUserId ? "You" : "Teammate"}</span>
-        <button
-          type="button"
-          aria-label="Close"
-          className="appearance-none border-0 bg-transparent leading-none text-text-tertiary hover:text-text-primary cursor-default"
-          onClick={onClose}
-        >
-          ×
-        </button>
-      </div>
-      <div className="text-text-primary">{pin.text}</div>
-      {replies.map((reply) => (
-        <div key={reply.id} className="text-xs text-text-secondary">
-          <strong>{reply.created_by === currentUserId ? "You" : "Teammate"}:</strong> {reply.text}
-        </div>
-      ))}
-      <input
-        type="text"
-        className="bg-bg-primary border border-border rounded-md text-text-primary [font:inherit] px-2 py-1"
-        placeholder="Reply…"
-        value={replyText}
-        onChange={(e) => setReplyText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submitReply();
-        }}
+      <CommentThread
+        pin={pin}
+        replies={replies}
+        profiles={profiles}
+        currentUserId={currentUserId}
+        onReply={onReply}
+        actions={
+          <>
+            <ResolveButton resolved={pin.resolved} onClick={() => onResolve(pin.id, !pin.resolved)} />
+            <DeleteButton onClick={() => onDelete(pin.id)} />
+            <CloseButton onClick={onClose} />
+          </>
+        }
       />
-      <div className="flex justify-end gap-1.5">
-        <button type="button" className={popoverButtonClass} onClick={() => onResolve(pin.id, !pin.resolved)}>
-          {pin.resolved ? "Unresolve" : "Resolve"}
-        </button>
-        <button type="button" className={popoverButtonClass} onClick={() => onDelete(pin.id)}>
-          Delete
-        </button>
-      </div>
     </div>
   );
 }

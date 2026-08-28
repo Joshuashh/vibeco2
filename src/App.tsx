@@ -57,6 +57,7 @@ import {
 } from "./lib/mentions";
 import { notifyMention } from "./lib/notify";
 import { fetchProfiles, updateMyProfile, type Profile } from "./lib/profiles";
+import { parseOwnerRepo, acceptPendingInvites } from "./lib/github";
 import { setProfileOverrides, pickUnusedColor, displayNameForUser } from "./lib/presenceColor";
 import { RoomProvider, roomIdForProject, useUpdateMyPresence, useSelf, useOthers, useBroadcastEvent, useEventListener } from "./lib/liveblocks";
 import { PresenceBar } from "./components/PresenceBar";
@@ -1022,7 +1023,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
       <PermissionPrompt requests={permissionRequests} chats={chats} onAnswer={handleAnswerPermission} />
       <LiveCursors containerRef={appRef} viewMode={viewMode} flowApiRef={flowApiRef} />
       <div className="toolbar" data-tauri-drag-region>
-        <div className="toolbar-side toolbar-side-traffic-lights">
+        <div className="toolbar-side toolbar-side-traffic-lights" data-tauri-drag-region>
           {(viewMode === "cowork" || viewMode === "solo") && (
             <button
               type="button"
@@ -1039,7 +1040,7 @@ function AppShell({ session, project, onSelectProject }: { session: Session; pro
           <ProjectMenu project={project} onSelectProject={onSelectProject} />
         </div>
         <ViewToggle mode={viewMode} onChange={setViewMode} />
-        <div className="toolbar-side toolbar-actions">
+        <div className="toolbar-side toolbar-actions" data-tauri-drag-region>
           {viewMode === "canvas" && (
             <>
               <button
@@ -1252,13 +1253,30 @@ function App() {
   useEffect(() => {
     if (!project) return;
     setRepoReady(false);
-    invoke("open_project_repo", { projectId: project.id, repoUrl: project.repo_url })
-      .then(() => setRepoReady(true))
-      .catch((err) => {
+    let cancelled = false;
+    (async () => {
+      // If a teammate just invited you to this repo from their app, accept
+      // the pending GitHub invitation first so the clone below can succeed.
+      // No-op unless you signed in with GitHub and have an invite waiting.
+      const or = parseOwnerRepo(project.repo_url);
+      if (or) {
+        await acceptPendingInvites([`${or.owner}/${or.repo}`]).catch((err) =>
+          console.error("couldn't check GitHub invites", err),
+        );
+      }
+      try {
+        await invoke("open_project_repo", { projectId: project.id, repoUrl: project.repo_url });
+        if (!cancelled) setRepoReady(true);
+      } catch (err) {
+        if (cancelled) return;
         console.error("failed to open project repo", err);
         showToast(`Couldn't open "${project.name}"'s repo — check the URL and your git access, then try again.`);
         setProject(null);
-      });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [project]);
 
   if (session === "loading") return null;

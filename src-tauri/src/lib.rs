@@ -4,6 +4,7 @@ mod claude_process;
 mod claude_summary;
 mod git_ops;
 mod merge_paths;
+mod oauth;
 mod permission_bridge;
 mod preview_server;
 mod stream_parser;
@@ -470,7 +471,8 @@ pub fn run() {
             list_custom_slash_commands,
             save_attachment,
             delete_attachment,
-            get_chat_usage
+            get_chat_usage,
+            oauth::oauth_listen
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

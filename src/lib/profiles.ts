@@ -5,12 +5,13 @@ export interface Profile {
   email: string;
   display_name: string | null;
   color: string | null;
+  github_login: string | null;
 }
 
 export async function fetchProfiles(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, display_name, color")
+    .select("id, email, display_name, color, github_login")
     .order("email", { ascending: true });
   if (error) throw new Error(`failed to fetch profiles: ${error.message}`);
   return (data ?? []) as Profile[];

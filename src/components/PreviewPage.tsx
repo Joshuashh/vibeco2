@@ -381,8 +381,9 @@ export function PreviewPage({
   }
 
   function handleCancelDraftPin() {
+    // Stay on the comment tool — cancelling one note usually means you want
+    // to place another, not drop back to the cursor.
     setDraftPin(null);
-    setTool("cursor");
   }
 
   function handleMovePin(pinId: string, point: PercentPoint) {
@@ -682,6 +683,7 @@ export function PreviewPage({
               openPinId={openPinId}
               repliesByPin={repliesByPin(replies)}
               currentUserId={session.user.id}
+              profiles={profiles}
               onPlacePin={setDraftPin}
               onSaveDraftPin={handleSaveDraftPin}
               onCancelDraftPin={handleCancelDraftPin}

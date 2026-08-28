@@ -3,8 +3,8 @@ import { isChatLockedForCowork, isChatLockedForViewer, IDLE_MS } from "./chatLoc
 import type { ChatRow } from "../types/chat";
 import type { Profile } from "./profiles";
 
-const owner: Profile = { id: "owner-id", email: "owner@x.com", display_name: null, color: null };
-const other: Profile = { id: "other-id", email: "other@x.com", display_name: null, color: null };
+const owner: Profile = { id: "owner-id", email: "owner@x.com", display_name: null, color: null, github_login: null };
+const other: Profile = { id: "other-id", email: "other@x.com", display_name: null, color: null, github_login: null };
 const profiles = [owner, other];
 
 function chat(overrides: Partial<ChatRow> = {}): ChatRow {

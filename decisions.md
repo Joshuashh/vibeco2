@@ -26,7 +26,7 @@ Non-obvious choices and why, not a session-by-session changelog. Full history re
 
 4. ~~Shelf approvers = message authors in that chat, not current room occupants.~~ **Superseded by decision 3's current shape** — there's no approval gate on the queue/publish step anymore. This exact idea (approval scoped to contributors, not room occupants) is worth reusing once the `team` → `main` approval step above gets built.
 
-5. **Projects store `repo_url` + clone-on-demand, not a local filesystem path.** `projects` is one shared row per project across the team — a local path only works if every teammate's checkout happens to live at an identical path, which won't hold. Each client clones into `<app_data_dir>/projects/<project_id>` on first open, deriving the same relative answer independently — no path bookkeeping, shared or per-machine. No GitHub OAuth/repo-browsing yet; assumes the same git credentials (SSH key/credential helper) already configured locally, same assumption the render/promote push code already made.
+5. **Projects store `repo_url` + clone-on-demand, not a local filesystem path.** `projects` is one shared row per project across the team — a local path only works if every teammate's checkout happens to live at an identical path, which won't hold. Each client clones into `<app_data_dir>/projects/<project_id>` on first open, deriving the same relative answer independently — no path bookkeeping, shared or per-machine. Clone still assumes the same git credentials (SSH key/credential helper) already configured locally, same assumption the render/promote push code makes. GitHub OAuth + a repo picker for the *create* flow landed 2026-08-28 (see the dated section below) — the clone-auth assumption is unchanged.
 
 6. **Home is task-coordination-shaped, not activity-log-shaped**, after an explicit reframe mid-build. A trimmed "for you" mentions/activity section was later folded back in as one section among the task-coordination ones — compatible with the reframe since it's scoped to you, not a full team audit log. If Home starts feeling log-heavy again, that's the section to cut first.
 
@@ -228,3 +228,108 @@ to `main`, so promotion needs no merge judgment, only human sign-off.
 **Next:** the comments + markup section itself is clunky/ugly and wants a
 UX + visual pass — deferred to its own chat. The promote gate reads
 `preview_pins.resolved`, which that redesign won't change.
+
+## GitHub sign-in + provider-token capture (2026-08-28)
+
+Added "Continue with GitHub" alongside the existing email/password form —
+existing password accounts keep working; GitHub links by email.
+
+- **Desktop OAuth = PKCE + loopback catcher, no deep-link plugin.**
+  `signInWithGitHub` (`src/lib/auth.ts`) calls `signInWithOAuth({ provider:
+  "github", skipBrowserRedirect: true, redirectTo:
+  "http://localhost:8899" })`, opens the returned URL in the system browser
+  (`@tauri-apps/plugin-opener`), and a Rust command `oauth_listen(port)`
+  (`src-tauri/src/oauth.rs`) binds a one-shot `TcpListener` on 8899, reads
+  the `?code=` off the redirect's request line, replies with a tiny "close
+  this tab" page, and hands the code back. Frontend then
+  `exchangeCodeForSession(code)`. Listener self-times-out after 180s.
+  - `oauth_listen` is `async fn` + `spawn_blocking` — a plain sync
+    `#[tauri::command]` runs on the main thread and beachballs the UI for
+    the whole 180s wait (same pattern/comment as `summarize_diff`).
+  - std `TcpListener` only — no new crates, no `tauri-plugin-deep-link`, no
+    custom URL scheme to register in the bundle.
+  - Port 8899 is fixed (hardcoded `OAUTH_REDIRECT_PORT` + `oauth.rs`
+    `TIMEOUT`/bind) because it has to be pre-registered on both allow-lists.
+    Rejected `:0` random port for that reason.
+  - `supabase.ts` now sets `flowType: "pkce"` + `detectSessionInUrl: false`
+    (native window, never loads with auth params in its own URL). Implicit
+    flow can't work here — its token comes back in a `#fragment` the
+    loopback server never sees.
+- **GitHub token capture:** `exchanged.session.provider_token` is stashed in
+  `localStorage["vibeco.github_provider_token"]` right after the exchange —
+  Supabase returns it only once and never refreshes it. `getGitHubToken()`
+  reads it; `signOut()` clears it. No GitHub API calls yet — that's the next
+  chat. Scopes requested: `read:user user:email repo`.
+- **Not project-scoped / not in Tauri capabilities:** `oauth_listen` is an
+  app-defined command (always invokable); `openUrl` is covered by the
+  existing `opener:default`. No `capabilities/default.json` change.
+
+### Manual config still required (not code — do in dashboards)
+
+1. **GitHub** → Settings → Developer settings → OAuth Apps → New:
+   - Authorization callback URL: `https://<project-ref>.supabase.co/auth/v1/callback`
+2. **Supabase** → Authentication → Providers → GitHub: enable, paste the
+   OAuth app's Client ID + Secret.
+3. **Supabase** → Authentication → URL Configuration → Redirect URLs: add
+   `http://127.0.0.1:8899` (NOT `localhost` — macOS resolves that to IPv6
+   first and the listener is IPv4).
+
+Until all three are done the button returns an error from Supabase.
+
+## Pick a project from your GitHub repos (2026-08-28)
+
+"New project" now has a dropdown of the signed-in user's GitHub repos
+(`src/lib/github.ts` `fetchMyRepos` → `GET /user/repos?affiliation=owner,
+collaborator,organization_member&sort=pushed`, using the token captured at
+GitHub sign-in). Picking one fills the repo-URL field with its `ssh_url`
+and prefills the name. Manual URL entry kept as the fallback.
+
+- **The `projects` table stays shared/global** — the switcher is NOT
+  per-user "my repos". Josh and Ben see the identical project list (chats,
+  queue, pins, approvals all key off `project.id`). The GitHub dropdown is
+  only in the *create* flow and lists the creator's repos.
+- **What a teammate sees on open:** unchanged — `open_project_repo` runs
+  `git clone <repo_url>` with that user's own git credentials (SSH key / gh
+  auth). Chose this over injecting the OAuth token (simpler, no secret
+  handling). A private repo the teammate isn't a collaborator on fails at
+  clone; `git_ops.rs` now appends a "ask the owner to add you as a
+  collaborator" hint when stderr looks like an access failure.
+- **`ssh_url` not `clone_url`** — matches the existing SSH-oriented
+  placeholder and the "your own git setup" model. User can edit to HTTPS.
+- No pagination on the repo list (100 cap). No repo picker in
+  EditProjectDialog — still manual URL there.
+- GitHub API is called with plain webview `fetch`; `api.github.com` sends
+  `Access-Control-Allow-Origin: *` and the app has no CSP (`csp: null`), so
+  no Tauri http-plugin/allowlist needed.
+
+## Invite a teammate to a project's repo from the app (2026-08-28)
+
+"Edit project" now has an **Invite a teammate** section: pick a teammate,
+click Invite, and the app calls GitHub `PUT /repos/{owner}/{repo}/
+collaborators/{login}` (push permission) with the inviter's captured OAuth
+token. `window.confirm` gate first — it grants write access.
+
+- **Invites auto-accept on the other side.** GitHub collaborator adds are
+  invitations, not instant. The invitee's app clears them: `App.tsx`'s
+  open-project effect calls `github.ts` `acceptPendingInvites([owner/repo])`
+  right before `open_project_repo`, so opening the project accepts its
+  pending invite and the clone then succeeds. Scoped to the project being
+  opened — it does NOT blanket-accept every repo invite the user has.
+- **New column `profiles.github_login`** (migration `0027`), captured in
+  `auth.ts signInWithGitHub` from `user_metadata.user_name`. The GitHub API
+  needs a username; teammates who've only ever used password sign-in have no
+  `github_login` and show as "not shown — no GitHub sign-in yet" in the
+  invite UI.
+- **`repo` scope** (already requested at sign-in) covers the collaborator
+  endpoints. Adding a collaborator needs admin on the repo — a 403 comes
+  back as "You need admin access to that repo".
+- No invite UI in NewProjectDialog (you can't invite to a project that
+  doesn't exist yet) — it's Edit-only.
+
+### Migrations pending apply on `febfuemspzwslaujdtwc`
+
+- `0026_promotion_approvals.sql` — still not applied (from the promote-gate
+  chat; MCP apply was sandbox-blocked).
+- `0027_profiles_github_login.sql` — new this chat.
+Apply both (SQL editor or MCP) or GitHub sign-in's username capture and the
+promote gate stay broken.
