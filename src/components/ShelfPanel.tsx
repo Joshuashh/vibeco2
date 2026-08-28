@@ -15,20 +15,22 @@ import type { QueueItem } from "../lib/queueItems";
 // before `team` -> `main` is a separate, not-yet-built step meant to live in
 // the Preview tab instead (see decisions.md).
 
+// Theme-aware — resolves against App.css custom properties that flip on
+// [data-theme="light"]. Flat map so existing `C.xxx` call sites are unchanged.
 const C = {
-  seam: "#23262E",
-  ink: "#EDEDF0",
-  sub: "#8A8C99",
-  faint: "#787A88",
-  fainter: "#5F6270",
-  blueInk: "#DCE5FF",
-  blueBg: "#25406B",
-  blueBorder: "#35578C",
-  idleBg: "#242730",
-  idleBorder: "#333743",
-  ready: "#4FD1A5",
-  amber: "#E9C979",
-  mint: "#7FDCBB",
+  seam: "var(--border)",
+  ink: "var(--text-primary)",
+  sub: "var(--text-secondary)",
+  faint: "var(--text-tertiary)",
+  fainter: "var(--text-tertiary)",
+  blueInk: "var(--cw-blue-ink)",
+  blueBg: "var(--cw-blue-bg)",
+  blueBorder: "var(--cw-blue-border)",
+  idleBg: "var(--cw-surface-raised)",
+  idleBorder: "var(--border)",
+  ready: "var(--merged)",
+  amber: "var(--held)",
+  mint: "var(--merged)",
 };
 
 // The summary comes back as plain-ish markdown (see claude_summary.rs's
@@ -42,21 +44,21 @@ function SummaryText({ text }: { text: string }) {
       {lines.map((line, i) => {
         if (line.startsWith("### ")) {
           return (
-            <div key={i} style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", marginTop: i === 0 ? 0 : 4 }}>
+            <div key={i} style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginTop: i === 0 ? 0 : 4 }}>
               {line.slice(4)}
             </div>
           );
         }
         if (line.startsWith("- ")) {
           return (
-            <div key={i} style={{ display: "flex", gap: 6, fontSize: 13, lineHeight: 1.5, color: "#FFFFFF", paddingLeft: 2 }}>
+            <div key={i} style={{ display: "flex", gap: 6, fontSize: 13, lineHeight: 1.5, color: "var(--text-primary)", paddingLeft: 2 }}>
               <span style={{ color: C.faint }}>•</span>
               <span>{line.slice(2)}</span>
             </div>
           );
         }
         return (
-          <div key={i} style={{ fontSize: 13, lineHeight: 1.5, color: "#FFFFFF" }}>
+          <div key={i} style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text-primary)" }}>
             {line}
           </div>
         );
@@ -116,7 +118,7 @@ export function ShelfPanel({
           style={{ position: "relative", width: 32, height: 32, borderRadius: 8, background: C.idleBg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-            <path d="M2.5 5.5h11v7h-11v-7zM2.5 5.5L4 3h8l1.5 2.5" stroke="#B7C4E8" strokeWidth="1.3" strokeLinejoin="round" />
+            <path d="M2.5 5.5h11v7h-11v-7zM2.5 5.5L4 3h8l1.5 2.5" stroke="var(--cw-blue-ink)" strokeWidth="1.3" strokeLinejoin="round" />
           </svg>
           {shelf.length > 0 && (
             <div style={{ position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, borderRadius: 8, background: "#7C9CFF", color: "#0D0E11", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
@@ -126,7 +128,7 @@ export function ShelfPanel({
         </div>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: C.fainter, writingMode: "vertical-rl", transform: "rotate(180deg)" }}>QUEUE</div>
         {shelf.map((it) => (
-          <div key={it.id} style={{ width: 8, height: 8, borderRadius: "50%", background: it.status === "conflict" ? "#E2584F" : C.ready }} />
+          <div key={it.id} style={{ width: 8, height: 8, borderRadius: "50%", background: it.status === "conflict" ? "var(--conflict)" : C.ready }} />
         ))}
         <div style={{ flex: 1 }} />
       </div>
@@ -171,7 +173,7 @@ export function ShelfPanel({
                 padding: "12px 14px",
                 borderRadius: 10,
                 background: C.idleBg,
-                border: `1px solid ${it.status === "conflict" ? "#5C2E2B" : C.idleBorder}`,
+                border: `1px solid ${it.status === "conflict" ? "var(--cw-danger-border)" : C.idleBorder}`,
               }}
             >
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -203,7 +205,7 @@ export function ShelfPanel({
                 </div>
               </div>
               <SummaryText text={it.summary} />
-              <div style={{ fontSize: 11.5, color: it.status === "conflict" ? "#E2584F" : C.mint }}>
+              <div style={{ fontSize: 11.5, color: it.status === "conflict" ? "var(--conflict)" : C.mint }}>
                 {it.status === "conflict" ? "Conflict · resolve before merging" : "Queued · ready to merge"}
               </div>
               {it.status === "conflict" && (

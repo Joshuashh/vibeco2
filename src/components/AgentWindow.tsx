@@ -46,20 +46,23 @@ import type { AssignableTeammate } from "./AssignChatMenu";
 // now, not execCommand — replaced ~250 lines of manual Range/execCommand
 // DOM surgery with the extensions that already do this correctly.
 
+// Theme-aware: these resolve against the CSS custom properties in App.css,
+// which flip on [data-theme="light"]. Kept as a flat map so the existing
+// `C.xxx` call sites don't change.
 const C = {
-  seam: "#23262E",
-  inkDim: "#DCDDE3",
-  sub: "#8A8C99",
-  faint: "#787A88",
-  fainter: "#5F6270",
-  blueInk: "#DCE5FF",
-  blueBg: "#25406B",
-  blueBorder: "#35578C",
-  idleBg: "#242730",
-  idleBorder: "#333743",
-  ready: "#4FD1A5",
-  amber: "#E9C979",
-  mint: "#7FDCBB",
+  seam: "var(--border)",
+  inkDim: "var(--text-primary)",
+  sub: "var(--text-secondary)",
+  faint: "var(--text-tertiary)",
+  fainter: "var(--text-tertiary)",
+  blueInk: "var(--cw-blue-ink)",
+  blueBg: "var(--cw-blue-bg)",
+  blueBorder: "var(--cw-blue-border)",
+  idleBg: "var(--cw-surface-raised)",
+  idleBorder: "var(--border)",
+  ready: "var(--merged)",
+  amber: "var(--held)",
+  mint: "var(--merged)",
 };
 
 // `all: unset` first — App.css's global `@layer base { button { padding:
@@ -451,7 +454,7 @@ export function AgentWindow({
 
   function toolbarStyle(key: string, extra?: CSSProperties): CSSProperties {
     if (activeFormats[key as keyof typeof activeFormats]) return { ...toolbarButtonStyle, ...activeToolbarButtonStyle, ...extra };
-    if (hoveredBtn === key) return { ...toolbarButtonStyle, background: "#2A2D37", color: "#EDEDF0", ...extra };
+    if (hoveredBtn === key) return { ...toolbarButtonStyle, background: "var(--cw-surface-raised)", color: "var(--text-primary)", ...extra };
     return { ...toolbarButtonStyle, ...extra };
   }
 
@@ -660,7 +663,7 @@ export function AgentWindow({
                     {avatar(
                       o.email,
                       25,
-                      on ? `0 0 0 2px ${C.ready}` : "0 0 0 1px #454956",
+                      on ? `0 0 0 2px ${C.ready}` : "0 0 0 1px var(--cw-border-strong)",
                       on ? 1 : 0.55,
                       o.isMe ? toggleMe : undefined
                     )}
@@ -668,7 +671,7 @@ export function AgentWindow({
                 );
               })}
             </div>
-            <div style={{ flex: "none", fontSize: 13, color: "#9698A4", whiteSpace: "nowrap" }}>{readyShort}</div>
+            <div style={{ flex: "none", fontSize: 13, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{readyShort}</div>
             {anyUnready &&
               occupants
                 .filter((o) => !o.ready && !forced[o.email] && !o.isMe)
@@ -701,8 +704,8 @@ export function AgentWindow({
                   cursor: "pointer",
                   whiteSpace: "nowrap",
                   color: iAmReady ? C.mint : C.inkDim,
-                  background: iAmReady ? "#18291F" : "#2A2D37",
-                  border: `1px solid ${iAmReady ? "#2A4634" : "#383C48"}`,
+                  background: iAmReady ? "var(--cw-ready-chip-bg)" : "var(--cw-surface-raised)",
+                  border: `1px solid ${iAmReady ? "var(--cw-ready-chip-border)" : "var(--cw-border-strong)"}`,
                 }}
               >
                 {iAmReady ? "You're ready ✓" : "I'm ready"}
@@ -774,7 +777,7 @@ export function AgentWindow({
                   fontWeight: 600,
                   textAlign: "center",
                   cursor: shelving ? "default" : "pointer",
-                  color: shelving ? C.faint : "#A8C0FF",
+                  color: shelving ? C.faint : "var(--cw-blue-ink)",
                   background: C.idleBg,
                   border: `1px solid ${C.idleBorder}`,
                 }}

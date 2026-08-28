@@ -22,25 +22,28 @@ import { formatRelativeTime } from "../lib/time";
 // counts yet, so the bars are a fixed decorative shape rather than real data
 // (a follow-up once activity is tracked). Everything else is live.
 
+// Theme-aware: resolves against App.css custom properties that flip on
+// [data-theme="light"]. Flat map so the existing `C.xxx` call sites are
+// unchanged. `bar` stays a fixed chart hue (reads fine on both themes).
 const C = {
-  cardBg: "#1B1E24",
-  cardBorder: "#2E323C",
-  bandBg: "#15171B",
-  seam: "#23262E",
-  border: "#2B2D36",
-  ink: "#EDEDF0",
-  inkDim: "#DCDDE3",
-  sub: "#9698A4",
-  faint: "#787A88",
-  fainter: "#5F6270",
-  micro: "#6E7080",
-  blueInk: "#DCE5FF",
-  blueSub: "#7E8DAE",
-  blueBg: "#25406B",
-  blueBorder: "#35578C",
-  needBg: "#1B1F27",
-  reply: "#A8C0FF",
-  green: "#7FDCBB",
+  cardBg: "var(--cw-surface)",
+  cardBorder: "var(--border)",
+  bandBg: "var(--cw-band)",
+  seam: "var(--border)",
+  border: "var(--border)",
+  ink: "var(--text-primary)",
+  inkDim: "var(--text-primary)",
+  sub: "var(--text-secondary)",
+  faint: "var(--text-tertiary)",
+  fainter: "var(--text-tertiary)",
+  micro: "var(--text-tertiary)",
+  blueInk: "var(--cw-blue-ink)",
+  blueSub: "var(--cw-blue-sub)",
+  blueBg: "var(--cw-blue-bg)",
+  blueBorder: "var(--cw-blue-border)",
+  needBg: "var(--cw-surface)",
+  reply: "var(--cw-blue-ink)",
+  green: "var(--merged)",
   bar: "#7C9CFF",
 };
 
@@ -102,7 +105,7 @@ function Card({ children }: { children: React.ReactNode }) {
 function Check() {
   return (
     <svg width="12" height="12" viewBox="0 0 13 13" fill="none" style={{ flex: "none" }}>
-      <path d="M2.8 6.8l2.6 2.6L10.4 4" stroke="#4FD1A5" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.8 6.8l2.6 2.6L10.4 4" stroke="var(--merged)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -188,11 +191,11 @@ export function HomeView({
         <div
           className="flex-1"
           style={{
-            background: "#181A1F",
+            background: "var(--cw-surface)",
             border: `1px solid ${C.border}`,
             borderRadius: 14,
             overflow: "hidden",
-            boxShadow: "0 24px 60px -20px rgba(0,0,0,0.7)",
+            boxShadow: "0 24px 60px -20px rgba(0,0,0,0.25)",
           }}
         >
           {/* ── return band ── */}
@@ -235,7 +238,7 @@ export function HomeView({
                           minWidth: 0,
                           height: `${h}%`,
                           borderRadius: 2,
-                          background: op === 0 ? "#2B2F39" : RIBBON[(di * 8 + bi) % RIBBON.length],
+                          background: op === 0 ? "var(--cw-border-strong)" : RIBBON[(di * 8 + bi) % RIBBON.length],
                           opacity: op === 0 ? 0.9 : op,
                         }}
                       />
@@ -252,7 +255,7 @@ export function HomeView({
                   <Legend color="#4FD1A5" label="published" />
                   <Legend color="#B084F5" label="comments" />
                 </div>
-                <div style={{ fontSize: 11.5, color: "#8FA9FF", fontWeight: 600 }}>
+                <div style={{ fontSize: 11.5, color: C.blueSub, fontWeight: 600 }}>
                   {lastActivity ? `Last activity ${formatRelativeTime(lastActivity)}` : "No activity yet"}
                 </div>
               </div>
@@ -291,7 +294,7 @@ export function HomeView({
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {myTasks.slice(0, 4).map((c) => (
                       <Row key={c.id} onClick={() => onJumpToChat(c.id)}>
-                        <div style={{ flex: "none", width: 14, height: 14, borderRadius: 4, border: "1.5px solid #454956" }} />
+                        <div style={{ flex: "none", width: 14, height: 14, borderRadius: 4, border: "1.5px solid var(--cw-border-strong)" }} />
                         <div style={{ flex: 1, fontSize: 12.5, color: C.inkDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "Untitled chat"}</div>
                         <div style={{ flex: "none", fontSize: 11.5, color: C.fainter }}>open</div>
                       </Row>
@@ -352,7 +355,7 @@ export function HomeView({
               {myTasks.slice(0, 3).map((c) => (
                 <div key={c.id} style={{ background: C.needBg, border: `1px solid ${C.blueBorder}`, borderRadius: 11, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 9 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: C.blueInk }}>{c.title ?? "Untitled chat"}</div>
-                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "#9AAAD0" }}>Assigned to you — pick it up when you're ready.</div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: C.blueSub }}>Assigned to you — pick it up when you're ready.</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                     <button
                       type="button"
@@ -373,7 +376,7 @@ export function HomeView({
                     <Avatar email={m.fromEmail} size={20} ring={false} />
                     <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{displayNameForUser(m.fromEmail)} mentioned you</div>
                   </div>
-                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "#8A8C99" }}>in {m.chatTitle ?? "a chat"}</div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.55, color: C.sub }}>in {m.chatTitle ?? "a chat"}</div>
                   <button
                     type="button"
                     onClick={() => onJumpToChat(m.chatId)}
@@ -415,7 +418,7 @@ function Legend({ color, label }: { color: string; label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
-      <div style={{ fontSize: 11.5, color: "#787A88" }}>{label}</div>
+      <div style={{ fontSize: 11.5, color: C.faint }}>{label}</div>
     </div>
   );
 }

@@ -56,6 +56,21 @@ body,
   --chat-pane-bg: #14151a;
   --input-pill-bg: #1e1f24;
 
+  /* Surfaces/accents for the Home dashboard + Cowork panes (HomeView.tsx,
+     AgentWindow.tsx, ShelfPanel.tsx), which build inline styles in JS and
+     can't read Tailwind tokens. Dark values here, light in the block below. */
+  --cw-surface: #1b1e24;
+  --cw-surface-raised: #2a2d37;
+  --cw-band: #15171b;
+  --cw-border-strong: #383c48;
+  --cw-blue-ink: #dce5ff;
+  --cw-blue-sub: #7e8dae;
+  --cw-blue-bg: #25406b;
+  --cw-blue-border: #35578c;
+  --cw-ready-chip-bg: #18291f;
+  --cw-ready-chip-border: #2a4634;
+  --cw-danger-border: #5c2e2b;
+
   font-family: -apple-system, "SF Pro Text", Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
@@ -73,36 +88,60 @@ body,
    @theme --color-* tokens below, since Tailwind utilities read the latter
    and don't reference the former. Toggled via [data-theme] on <html> — see
    ThemeToggle in Sidebar.tsx and prefs.tsx. */
+/* Off-white, gently warm — pure #fff/#000 slammed too hard against the
+   orange accent and each other. Backgrounds sit ~3-4% off white, text is
+   softened from near-black, and the status hues are darkened so they hold
+   contrast on a light surface (the :root values are tuned for dark). */
 :root[data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-sidebar: #f7f7f8;
-  --bg-secondary: #f0f1f3;
-  --bg-tertiary: #e6e7eb;
-  --text-primary: #1a1b1e;
-  --text-secondary: #5b5f6a;
-  --text-tertiary: #8c909c;
+  --bg-primary: #f7f6f4;
+  --bg-sidebar: #f1f0ed;
+  --bg-secondary: #eceae6;
+  --bg-tertiary: #e3e0db;
+  --text-primary: #26251f;
+  --text-secondary: #625f58;
+  --text-tertiary: #938f86;
   --accent-dim: rgba(237, 107, 38, 0.12);
-  --border: #dcdde2;
-  --user-bubble: #eef0f4;
-  --send-active: #24262b;
-  --canvas-bg: #f4f5f7;
-  --canvas-dot: #e2e4e9;
-  --chat-pane-bg: #f5f6f8;
-  --input-pill-bg: #ebedf0;
+  --border: #ddd9d2;
+  --user-bubble: #eae7e1;
+  --send-active: #2c2a24;
+  --merged: #2f9e4f;
+  --held: #a9791b;
+  --conflict: #d0453b;
+  --danger: #d0453b;
+  --canvas-bg: #efeeeb;
+  --canvas-dot: #ddd9d2;
+  --chat-pane-bg: #f2f1ee;
+  --input-pill-bg: #e8e5e0;
 
-  --color-bg-primary: #ffffff;
-  --color-bg-sidebar: #f7f7f8;
-  --color-bg-secondary: #f0f1f3;
-  --color-bg-tertiary: #e6e7eb;
-  --color-text-primary: #1a1b1e;
-  --color-text-secondary: #5b5f6a;
-  --color-text-tertiary: #8c909c;
-  --color-border: #dcdde2;
-  --color-user-bubble: #eef0f4;
-  --color-send-active: #24262b;
-  --color-canvas-bg: #f4f5f7;
-  --color-canvas-dot: #e2e4e9;
-  --color-chat-pane-bg: #f5f6f8;
+  --cw-surface: #f1f0ec;
+  --cw-surface-raised: #e8e6e1;
+  --cw-band: #eeece8;
+  --cw-border-strong: #cbc6bc;
+  --cw-blue-ink: #33518a;
+  --cw-blue-sub: #6b7a9c;
+  --cw-blue-bg: #dde7f6;
+  --cw-blue-border: #b7cae8;
+  --cw-ready-chip-bg: #dcefe4;
+  --cw-ready-chip-border: #b3ddc4;
+  --cw-danger-border: #e6bab4;
+
+  --color-bg-primary: #f7f6f4;
+  --color-bg-sidebar: #f1f0ed;
+  --color-bg-secondary: #eceae6;
+  --color-bg-tertiary: #e3e0db;
+  --color-text-primary: #26251f;
+  --color-text-secondary: #625f58;
+  --color-text-tertiary: #938f86;
+  --color-border: #ddd9d2;
+  --color-user-bubble: #eae7e1;
+  --color-send-active: #2c2a24;
+  --color-merged: #2f9e4f;
+  --color-held: #a9791b;
+  --color-conflict: #d0453b;
+  --color-danger: #d0453b;
+  --color-canvas-bg: #efeeeb;
+  --color-canvas-dot: #ddd9d2;
+  --color-chat-pane-bg: #f2f1ee;
 }
 
 @theme {
