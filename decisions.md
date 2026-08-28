@@ -481,6 +481,37 @@ leaves their chat history intact, just ownerless.
 Applied live to `febfuemspzwslaujdtwc` and verified (no NO ACTION FKs to
 `auth.users` remain among public tables).
 
+## Session hand-off (2026-08-28, phase 3 + team modal + FK fixes)
+
+**Shipped** (commit `32b1227` on `main`, **not pushed**):
+- Phase 3 branch-status pill (green "Up to date" / amber "Behind" team,
+  per-project; click → chats needing render, jump to one). New Rust cmd
+  `chats_needing_merge`.
+- `EditTeamDialog` (rename + team avatar upload + members) replacing
+  `TeamMembersDialog`; hover-pencil on TeamMenu rows; add-teammate by
+  email; member rows show email + Owner/Member. `TeamAvatar` in breadcrumb
+  + TeamSwitcher. GitHub logo removed from ProjectMenu.
+- Migrations `0029` (auth-user FKs → SET NULL/CASCADE so user deletion
+  works, chat history preserved) and `0030` (`teams.avatar_url` +
+  `team-avatars` bucket). **Both applied live to `febfuemspzwslaujdtwc`.**
+- Breadcrumb visual polish (tighter gaps, shorter uppercase pill).
+
+**Current state:** `main` at `32b1227`, 1 commit ahead of `origin/main`
+(unpushed). `tsc` + 106 tests + `cargo check` green. `tauri dev` running.
+`josh@josh.com` still needs deleting by the user from the Supabase
+dashboard (now unblocked by `0029`).
+
+**Not committed — separate pre-existing work in the tree** (untouched this
+session): `useHoverKey.ts` + its adoption in `AgentWindow.tsx` /
+`MessageList.tsx` (a WKWebView stuck-hover fix). Coherent and complete;
+left for whoever started it. `src-tauri/.cargo/` untracked, pre-existed.
+
+**Open items:** none from this session's scope. Standing `ponytail:` notes:
+team-member auto-invite to repos, admin/role model, avatar orphan cleanup.
+
+**Recommendation:** safe to start fresh. Decide first whether to push
+`32b1227` and what to do with the uncommitted `useHoverKey` work.
+
 ## Multi-team — team edit modal (2026-08-28)
 
 Restructured team management off the back of phase 2/3.

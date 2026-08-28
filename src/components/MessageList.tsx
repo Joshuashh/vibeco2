@@ -5,6 +5,7 @@ import { ToolGroup } from "./ToolGroup";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { formatRelativeTimeLong } from "../lib/time";
 import { colorForUser, displayNameForUser } from "../lib/presenceColor";
+import { useHoverKey } from "../lib/useHoverKey";
 import type { AssignableTeammate } from "./AssignChatMenu";
 
 type ToolUseBlock = Extract<ContentBlock, { kind: "tool_use" }>;
@@ -102,40 +103,16 @@ export function MessageList({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, streaming]);
 
-  // Driven by document-level mousemove instead of onMouseEnter/onMouseLeave
-  // (or CSS :hover) on each row — this webview was intermittently dropping
-  // the "leave" event (same underlying flakiness as the tooltip-stuck-open
-  // bug fixed in TooltipHost), so the timestamp could get stuck showing.
-  // Recomputing from scratch on every mousemove means there's no "leave"
-  // signal to miss: no match under the cursor just means no highlighted row.
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    function onMove(e: MouseEvent) {
-      const row = (e.target as Element | null)?.closest<HTMLElement>("[data-msg-index]");
-      setHoveredIndex(row && listRef.current?.contains(row) ? Number(row.dataset.msgIndex) : null);
-    }
-    function onLeaveWindow() {
-      setHoveredIndex(null);
-    }
-    // mouseleave doesn't bubble to document reliably — mouseout with a null
-    // relatedTarget (nothing to move onto) is the correct "left the window"
-    // signal, same pattern TooltipHost uses.
-    function onOut(e: MouseEvent) {
-      if (e.relatedTarget === null) onLeaveWindow();
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseout", onOut);
-    window.addEventListener("blur", onLeaveWindow);
-    return () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseout", onOut);
-      window.removeEventListener("blur", onLeaveWindow);
-    };
-  }, []);
+  // Timestamp fades in on row hover. Tracked via useHoverKey rather than
+  // enter/leave events or CSS :hover: streaming messages shift rows under a
+  // stationary cursor, and WKWebView won't re-evaluate hover for that on its
+  // own. recheck() on every render covers the row-shifted-under-cursor case.
+  const { hoverKey, recheck } = useHoverKey("[data-hover-key]");
+  useEffect(recheck);
+  const hoveredIndex = hoverKey == null ? null : Number(hoverKey);
 
   return (
-    <div className="message-list" ref={listRef}>
+    <div className="message-list">
       {hiddenCount > 0 && (
         <button
           type="button"
@@ -166,7 +143,7 @@ export function MessageList({
           </div>
         );
         return message.role === "user" ? (
-          <div key={i} data-msg-index={i} className="flex flex-col items-end">
+          <div key={i} data-hover-key={i} className="flex flex-col items-end">
             {showAuthors && message.authorEmail && (
               <span
                 className="text-[13px] font-bold mb-[6px] mr-[2px]"
@@ -184,7 +161,7 @@ export function MessageList({
             {timestamp}
           </div>
         ) : (
-          <div key={i} data-msg-index={i} className="text-text-primary">
+          <div key={i} data-hover-key={i} className="text-text-primary">
             {renderBlocks(message.blocks, true, liveTextIndex, message.createdAt, teammates)}
             {timestamp}
           </div>

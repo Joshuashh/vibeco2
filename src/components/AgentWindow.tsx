@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import * as Y from "yjs";
 import { getYjsProviderForRoom } from "@liveblocks/yjs";
@@ -18,6 +18,7 @@ import { MessageList } from "./MessageList";
 import { PaneResizeHandle } from "./PaneResizeHandle";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { BUILTIN_COMMANDS, useCustomSlashCommands, type SlashCommand } from "../lib/slashCommands";
+import { useHoverKey } from "../lib/useHoverKey";
 import { ModelPicker, EffortPicker } from "./InputToolbelt";
 import type { AssignableTeammate } from "./AssignChatMenu";
 
@@ -71,6 +72,11 @@ const C = {
 // `all: unset` in App.css instead of overriding each property by hand).
 const toolbarButtonStyle: CSSProperties = {
   all: "unset",
+  // Explicit `transparent` (not omitted) so every toolbarStyle() branch
+  // always writes `background` — React removing the inline property when a
+  // button stops being hovered is what WKWebView wasn't repainting, leaving
+  // the grey box on screen after hoveredBtn had already gone back to null.
+  background: "transparent",
   color: C.sub,
   width: 26,
   height: 26,
@@ -431,14 +437,13 @@ export function AgentWindow({
           }
         : { bold: false, italic: false, underline: false, bullet: false, numbered: false, quote: false },
   });
-  // JS-driven instead of a CSS `:hover` rule — with `onMouseDown`'s
-  // `preventDefault()` (needed to keep the editor's selection alive across
-  // the click), some WebKit builds stop re-evaluating `:hover` until the
-  // pointer actually moves, so the grey hover background stuck around after
-  // clicking even once a toggle (e.g. the list button) turned back off.
-  // mouseenter/mouseleave aren't affected by that, since preventDefault only
-  // touches the mousedown/click pair.
-  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  // Toolbar buttons call preventDefault() on mousedown (to keep the editor
+  // selection alive) and re-render on every caret move — both leave WKWebView
+  // with a stale `:hover` and no mouseleave, so the grey hover box stuck on
+  // after a click. useHoverKey re-derives hover from the actual pointer
+  // position instead; recheck() on every render catches the re-render case.
+  const { hoverKey: hoveredBtn, recheck: recheckHover } = useHoverKey("[data-hover-key]");
+  useEffect(recheckHover);
 
   // Left/right pane split, same resizable-divider pattern the app's
   // (now-retired) multi-chat split view used.
@@ -575,13 +580,6 @@ export function AgentWindow({
             />
           </div>
           <div
-            // Belt-and-braces alongside each button's own onMouseLeave: if a
-            // button's leave event is ever missed (couldn't confirm either
-            // way inside the actual WKWebView, which this app runs in but
-            // which I have no way to sign into and test directly), the
-            // pointer still has to cross this row's boundary to get
-            // anywhere else, which clears the stuck state as a fallback.
-            onMouseLeave={() => setHoveredBtn(null)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -600,9 +598,8 @@ export function AgentWindow({
                 key={b.cmd}
                 type="button"
                 title={b.cmd}
+                data-hover-key={b.cmd}
                 onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHoveredBtn(b.cmd)}
-                onMouseLeave={() => setHoveredBtn(null)}
                 onClick={b.run}
                 style={toolbarStyle(b.cmd, b.style)}
               >
@@ -613,9 +610,8 @@ export function AgentWindow({
             <button
               type="button"
               title="Numbered list"
+              data-hover-key="numbered"
               onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setHoveredBtn("numbered")}
-              onMouseLeave={() => setHoveredBtn(null)}
               onClick={() => editor?.chain().focus().toggleOrderedList().run()}
               style={toolbarStyle("numbered")}
             >
@@ -624,9 +620,8 @@ export function AgentWindow({
             <button
               type="button"
               title="Bulleted list"
+              data-hover-key="bullet"
               onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setHoveredBtn("bullet")}
-              onMouseLeave={() => setHoveredBtn(null)}
               onClick={() => editor?.chain().focus().toggleBulletList().run()}
               style={toolbarStyle("bullet")}
             >
@@ -636,9 +631,8 @@ export function AgentWindow({
             <button
               type="button"
               title="Quote"
+              data-hover-key="quote"
               onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setHoveredBtn("quote")}
-              onMouseLeave={() => setHoveredBtn(null)}
               onClick={toggleQuote}
               style={toolbarStyle("quote")}
             >
